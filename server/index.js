@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -5,9 +6,10 @@ const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 
 const PORT = process.env.PORT || 4000;
-const DATA_DIR = path.join(__dirname, 'data');
-const DB_PATH = path.join(DATA_DIR, 'lab-equipment.db');
-const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
+const DB_FILENAME = process.env.DB_FILENAME || 'lab-equipment.db';
+const DB_PATH = process.env.DB_PATH ? path.resolve(process.env.DB_PATH) : path.join(DATA_DIR, DB_FILENAME);
+const SCHEMA_PATH = process.env.SCHEMA_PATH ? path.resolve(process.env.SCHEMA_PATH) : path.join(__dirname, 'schema.sql');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });

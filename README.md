@@ -22,6 +22,18 @@ npm run server
 Uygulama **http://localhost:3000** adresinde açılacaktır.
 API varsayılan olarak **http://localhost:4000** üzerinde çalışır (Vite proxy otomatik bağlanır).
 
+### Ortam değişkenleri / Environment variables
+
+Projede örnek değerlerle gelen `.env` dosyası backend ve frontend için ortak kullanılır. Gerekirse aşağıdaki değişkenleri güncelleyebilirsiniz:
+
+- `PORT`: Express API portu (varsayılan `4000`)
+- `DATA_DIR`: SQLite veritabanı klasörü (varsayılan `server/data`)
+- `DB_FILENAME`: SQLite dosya adı (varsayılan `lab-equipment.db`)
+- `SCHEMA_PATH`: Şema dosyası yolu (varsayılan `server/schema.sql`)
+- `VITE_API_URL`: Frontend'in kullandığı API tabanı (dev ortamında `/api` Vite proxy'si ile yönlenir)
+
+`.env` dosyasını değiştirirseniz geliştirme/üretim sunucularını yeniden başlatın.
+
 ---
 
 ## 📋 Özellikler / Features
