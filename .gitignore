@@ -3,6 +3,8 @@ dist/
 .vite/
 .DS_Store
 *.log
-.env
-.env.*
 *.xlsx
+.env.local
+.env.development
+.env.production
+.env.test
