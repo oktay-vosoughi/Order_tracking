@@ -14,9 +14,13 @@ npm install
 
 # Geliştirme sunucusunu başlat
 npm run dev
+
+# API sunucusunu (Node + Express + SQLite) başlat
+npm run server
 ```
 
 Uygulama **http://localhost:3000** adresinde açılacaktır.
+API varsayılan olarak **http://localhost:4000** üzerinde çalışır (Vite proxy otomatik bağlanır).
 
 ---
 
@@ -129,13 +133,13 @@ Stoktan malzeme çıkışlarını takip eder.
 
 ## 💾 Veri Saklama
 
-Tüm veriler tarayıcının **localStorage**'ında saklanır:
-- `lab_items` - Malzeme listesi
-- `lab_purchases` - Satın alma talepleri
-- `lab_distributions` - Dağıtım kayıtları
-- `current_user` - Aktif kullanıcı
+Tüm uygulama verisi artık sunucu tarafında **SQLite** veritabanında tutulur:
+- Veritabanı dosyası: `server/data/lab-equipment.db`
+- Şema: `server/schema.sql`
+- API uç noktası: `/api/state` (tam uygulama durumunu okur/yazar)
 
-**"Tümünü Temizle"** butonu tüm verileri siler (geri alınamaz).
+Tarayıcı yalnızca aktif kullanıcı bilgisini (`current_user`) localStorage'da saklar.
+**"Tümünü Temizle"** butonu API tarafındaki tüm verileri sıfırlar (geri alınamaz).
 
 ---
 

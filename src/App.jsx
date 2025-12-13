@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, FileSpreadsheet, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchState, persistState } from './api';
 
 // Migration function for old data
 const migrateData = (user, purchases) => {
@@ -99,16 +100,14 @@ const LabEquipmentTracker = () => {
   
   const loadData = async () => {
     try {
-      const [itemsRes, purchasesRes, distRes] = await Promise.all([
-        window.storage.get('lab_items').catch(() => null),
-        window.storage.get('lab_purchases').catch(() => null),
-        window.storage.get('lab_distributions').catch(() => null)
-      ]);
-      
-      if (itemsRes?.value) setItems(JSON.parse(itemsRes.value));
-      if (purchasesRes?.value) {
-        const rawPurchases = JSON.parse(purchasesRes.value);
-        // Migrate old purchases to new schema
+      const apiState = await fetchState();
+      const rawItems = apiState.items || [];
+      const rawPurchases = apiState.purchases || [];
+      const rawDistributions = apiState.distributions || [];
+
+      if (rawItems.length) setItems(rawItems);
+      if (rawDistributions.length) setDistributions(rawDistributions);
+      if (rawPurchases.length) {
         const migratedPurchases = rawPurchases.map(p => ({
           ...p,
           requestedAt: p.requestedAt || p.requestDate,
@@ -132,21 +131,17 @@ const LabEquipmentTracker = () => {
         }));
         setPurchases(migratedPurchases);
       }
-      if (distRes?.value) setDistributions(JSON.parse(distRes.value));
     } catch (error) {
-      console.log('Starting with empty data');
+      console.error('Starting with empty data', error);
     }
   };
   
   const saveData = async (newItems, newPurchases, newDist) => {
     try {
-      await Promise.all([
-        window.storage.set('lab_items', JSON.stringify(newItems || items)),
-        window.storage.set('lab_purchases', JSON.stringify(newPurchases || purchases)),
-        window.storage.set('lab_distributions', JSON.stringify(newDist || distributions))
-      ]);
+      await persistState(newItems || items, newPurchases || purchases, newDist || distributions);
     } catch (error) {
       console.error('Save error:', error);
+      alert('Veri kaydedilirken bir sorun oluştu. Lütfen tekrar deneyin.');
     }
   };
   
