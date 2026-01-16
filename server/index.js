@@ -1,70 +1,124 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
-const sqlite3 = require('sqlite3').verbose();
+
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+const mysql = require('mysql2/promise');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const PORT = process.env.PORT || 4000;
-const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
-const DB_FILENAME = process.env.DB_FILENAME || 'lab-equipment.db';
-const DB_PATH = process.env.DB_PATH ? path.resolve(process.env.DB_PATH) : path.join(DATA_DIR, DB_FILENAME);
-const SCHEMA_PATH = process.env.SCHEMA_PATH ? path.resolve(process.env.SCHEMA_PATH) : path.join(__dirname, 'schema.sql');
 
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
+const MYSQL_HOST = process.env.MYSQL_HOST || 'localhost';
+const MYSQL_PORT = Number(process.env.MYSQL_PORT || 3306);
+const MYSQL_USER = process.env.MYSQL_USER || 'root';
+const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || '';
+const MYSQL_DATABASE = process.env.MYSQL_DATABASE || 'order_Tracking';
 
-const db = new sqlite3.Database(DB_PATH);
+const JWT_SECRET = process.env.JWT_SECRET || 'change-this-in-production';
 
-const loadSchema = () => {
-  const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
-  db.exec(schema, (err) => {
-    if (err) {
-      console.error('Failed to load schema', err);
-    } else {
-      console.log('Database schema ready');
-    }
-  });
+const pool = mysql.createPool({
+  host: MYSQL_HOST,
+  port: MYSQL_PORT,
+  user: MYSQL_USER,
+  password: MYSQL_PASSWORD,
+  database: MYSQL_DATABASE,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
+
+const all = async (connOrPool, sql, params = []) => {
+  const [rows] = await connOrPool.query(sql, params);
+  return rows;
 };
 
-const run = (sql, params = []) => new Promise((resolve, reject) => {
-  db.run(sql, params, function (err) {
-    if (err) {
-      reject(err);
-    } else {
-      resolve(this);
-    }
-  });
-});
-
-const all = (sql, params = []) => new Promise((resolve, reject) => {
-  db.all(sql, params, (err, rows) => {
-    if (err) {
-      reject(err);
-    } else {
-      resolve(rows);
-    }
-  });
-});
+const run = async (connOrPool, sql, params = []) => {
+  const [result] = await connOrPool.execute(sql, params);
+  return result;
+};
 
 const withTransaction = async (callback) => {
-  await run('BEGIN');
+  const conn = await pool.getConnection();
   try {
-    await callback();
-    await run('COMMIT');
+    await conn.beginTransaction();
+    const result = await callback(conn);
+    await conn.commit();
+    return result;
   } catch (error) {
-    await run('ROLLBACK');
+    await conn.rollback();
     throw error;
+  } finally {
+    conn.release();
   }
 };
 
+const ensureUsersTable = async () => {
+  await pool.execute(
+    `CREATE TABLE IF NOT EXISTS users (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      username VARCHAR(100) NOT NULL,
+      passwordHash VARCHAR(255) NOT NULL,
+      role VARCHAR(20) NOT NULL,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      createdBy VARCHAR(100) NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_users_username (username)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
+  );
+};
+
+const authRequired = async (req, res, next) => {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) {
+    res.status(401).json({ error: 'UNAUTHORIZED' });
+    return;
+  }
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.user = payload;
+    next();
+  } catch {
+    res.status(401).json({ error: 'UNAUTHORIZED' });
+  }
+};
+
+const adminRequired = (req, res, next) => {
+  if (req.user?.role !== 'ADMIN') {
+    res.status(403).json({ error: 'FORBIDDEN' });
+    return;
+  }
+  next();
+};
+
+const countUsers = async () => {
+  const rows = await all(pool, 'SELECT COUNT(*) AS cnt FROM users');
+  return Number(rows?.[0]?.cnt || 0);
+};
+
+const countAdmins = async () => {
+  const rows = await all(pool, "SELECT COUNT(*) AS cnt FROM users WHERE role = 'ADMIN'");
+  return Number(rows?.[0]?.cnt || 0);
+};
+
+const sanitizeUser = (u) => ({
+  id: u.id,
+  username: u.username,
+  role: u.role,
+  createdAt: u.createdAt,
+  createdBy: u.createdBy
+});
+
 const buildStateResponse = async () => {
-  const [items, purchases, receipts, distributions] = await Promise.all([
-    all('SELECT * FROM items ORDER BY createdAt ASC'),
-    all('SELECT * FROM purchases ORDER BY requestedAt ASC'),
-    all('SELECT * FROM receipts ORDER BY receivedAt ASC'),
-    all('SELECT * FROM distributions ORDER BY distributedDate ASC')
+  const [items, purchases, receipts, distributions, wasteRecords] = await Promise.all([
+    all(pool, 'SELECT * FROM items ORDER BY createdAt ASC'),
+    all(pool, 'SELECT * FROM purchases ORDER BY requestedAt ASC'),
+    all(pool, 'SELECT * FROM receipts ORDER BY receivedAt ASC'),
+    all(pool, 'SELECT * FROM distributions ORDER BY distributedDate ASC'),
+    all(pool, 'SELECT * FROM waste_records ORDER BY disposedDate ASC')
   ]);
 
   const receiptsByPurchase = receipts.reduce((acc, r) => {
@@ -76,7 +130,9 @@ const buildStateResponse = async () => {
       receivedQty: r.receivedQty,
       lotNo: r.lotNo,
       expiryDate: r.expiryDate,
-      invoiceNo: r.invoiceNo
+      invoiceNo: r.invoiceNo,
+      attachmentUrl: r.attachmentUrl,
+      attachmentName: r.attachmentName
     });
     return acc;
   }, {});
@@ -86,10 +142,8 @@ const buildStateResponse = async () => {
     receipts: receiptsByPurchase[p.id] || []
   }));
 
-  return { items, purchases: purchasesWithReceipts, distributions };
+  return { items, purchases: purchasesWithReceipts, distributions, wasteRecords };
 };
-
-loadSchema();
 
 const app = express();
 app.use(cors());
@@ -99,7 +153,119 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-app.get('/api/state', async (_req, res) => {
+app.post('/api/auth/bootstrap', async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    res.status(400).json({ error: 'INVALID_INPUT' });
+    return;
+  }
+
+  try {
+    const adminCount = await countAdmins();
+    if (adminCount > 0) {
+      res.status(409).json({ error: 'BOOTSTRAP_NOT_ALLOWED' });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(String(password), 10);
+    await run(pool, 'INSERT INTO users (username, passwordHash, role, createdBy) VALUES (?, ?, ?, ?)', [String(username), passwordHash, 'ADMIN', String(username)]);
+    const rows = await all(pool, 'SELECT * FROM users WHERE username = ?', [String(username)]);
+    const user = rows?.[0];
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: sanitizeUser(user) });
+  } catch (error) {
+    console.error('Bootstrap error', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    res.status(400).json({ error: 'INVALID_INPUT' });
+    return;
+  }
+
+  try {
+    const existingCount = await countUsers();
+    if (existingCount === 0) {
+      res.status(409).json({ error: 'NO_USERS' });
+      return;
+    }
+
+    const rows = await all(pool, 'SELECT * FROM users WHERE username = ?', [String(username)]);
+    const user = rows?.[0];
+    if (!user) {
+      res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+      return;
+    }
+
+    const ok = await bcrypt.compare(String(password), String(user.passwordHash));
+    if (!ok) {
+      res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+      return;
+    }
+
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: sanitizeUser(user) });
+  } catch (error) {
+    console.error('Login error', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+app.get('/api/auth/me', authRequired, async (req, res) => {
+  try {
+    const rows = await all(pool, 'SELECT * FROM users WHERE id = ?', [req.user.id]);
+    const user = rows?.[0];
+    if (!user) {
+      res.status(401).json({ error: 'UNAUTHORIZED' });
+      return;
+    }
+    res.json({ user: sanitizeUser(user) });
+  } catch (error) {
+    console.error('Me error', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+app.get('/api/users', authRequired, adminRequired, async (_req, res) => {
+  try {
+    const users = await all(pool, 'SELECT id, username, role, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    res.json({ users });
+  } catch (error) {
+    console.error('List users error', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+app.post('/api/users', authRequired, adminRequired, async (req, res) => {
+  const { username, password, role } = req.body || {};
+  if (!username || !password || !role) {
+    res.status(400).json({ error: 'INVALID_INPUT' });
+    return;
+  }
+  if (role !== 'REQUESTER' && role !== 'APPROVER') {
+    res.status(400).json({ error: 'INVALID_ROLE' });
+    return;
+  }
+
+  try {
+    const passwordHash = await bcrypt.hash(String(password), 10);
+    await run(pool, 'INSERT INTO users (username, passwordHash, role, createdBy) VALUES (?, ?, ?, ?)', [String(username), passwordHash, String(role), String(req.user.username)]);
+    const users = await all(pool, 'SELECT id, username, role, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    res.json({ users });
+  } catch (error) {
+    if (String(error?.code) === 'ER_DUP_ENTRY') {
+      res.status(409).json({ error: 'USERNAME_EXISTS' });
+      return;
+    }
+    console.error('Create user error', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+app.get('/api/state', authRequired, async (_req, res) => {
   try {
     const payload = await buildStateResponse();
     res.json(payload);
@@ -109,25 +275,28 @@ app.get('/api/state', async (_req, res) => {
   }
 });
 
-app.post('/api/state', async (req, res) => {
-  const { items = [], purchases = [], distributions = [] } = req.body || {};
+app.post('/api/state', authRequired, async (req, res) => {
+  const { items = [], purchases = [], distributions = [], wasteRecords = [] } = req.body || {};
   try {
-    await withTransaction(async () => {
-      await run('DELETE FROM receipts');
-      await run('DELETE FROM purchases');
-      await run('DELETE FROM distributions');
-      await run('DELETE FROM items');
+    await withTransaction(async (conn) => {
+      await run(conn, 'DELETE FROM receipts');
+      await run(conn, 'DELETE FROM purchases');
+      await run(conn, 'DELETE FROM distributions');
+      await run(conn, 'DELETE FROM waste_records');
+      await run(conn, 'DELETE FROM items');
 
       for (const item of items) {
         await run(
+          conn,
           `INSERT INTO items (
-            id, code, name, category, unit, minStock, currentStock, location, supplier, catalogNo, lotNo, brand, storageLocation, status, createdAt, createdBy
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            id, code, name, category, department, unit, minStock, currentStock, location, supplier, catalogNo, lotNo, brand, storageLocation, status, expiryDate, openingDate, storageTemp, chemicalType, msdsUrl, wasteStatus, createdAt, createdBy
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           , [
             item.id,
             item.code,
             item.name,
             item.category || '',
+            item.department || '',
             item.unit || '',
             item.minStock ?? 0,
             item.currentStock ?? 0,
@@ -138,6 +307,12 @@ app.post('/api/state', async (req, res) => {
             item.brand || '',
             item.storageLocation || '',
             item.status || '',
+            item.expiryDate || null,
+            item.openingDate || null,
+            item.storageTemp || '',
+            item.chemicalType || '',
+            item.msdsUrl || '',
+            item.wasteStatus || '',
             item.createdAt || null,
             item.createdBy || ''
           ]
@@ -146,16 +321,18 @@ app.post('/api/state', async (req, res) => {
 
       for (const p of purchases) {
         await run(
+          conn,
           `INSERT INTO purchases (
-            id, requestNumber, itemId, itemCode, itemName, requestedQty, requestedBy, requestedAt, requestDate, status, approvedBy, approvedAt, approvedDate, approvalNote,
+            id, requestNumber, itemId, itemCode, itemName, department, requestedQty, requestedBy, requestedAt, requestDate, status, approvedBy, approvedAt, approvedDate, approvalNote,
             orderedBy, orderedAt, supplierName, poNumber, orderedQty, receivedQtyTotal, receivedQty, receivedBy, receivedDate, lotNo, expiryDate, distributorCompany, notes, urgency, rejectionReason, rejectedBy, rejectedDate
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           , [
             p.id,
             p.requestNumber || null,
             p.itemId,
             p.itemCode || '',
             p.itemName || '',
+            p.department || '',
             p.requestedQty ?? 0,
             p.requestedBy || '',
             p.requestedAt || null,
@@ -188,8 +365,9 @@ app.post('/api/state', async (req, res) => {
         if (p.receipts && Array.isArray(p.receipts)) {
           for (const r of p.receipts) {
             await run(
-              `INSERT INTO receipts (receiptId, purchaseId, receivedAt, receivedBy, receivedQty, lotNo, expiryDate, invoiceNo)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+              conn,
+              `INSERT INTO receipts (receiptId, purchaseId, receivedAt, receivedBy, receivedQty, lotNo, expiryDate, invoiceNo, attachmentUrl, attachmentName)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
               , [
                 r.receiptId,
                 p.id,
@@ -198,7 +376,9 @@ app.post('/api/state', async (req, res) => {
                 r.receivedQty ?? 0,
                 r.lotNo || '',
                 r.expiryDate || '',
-                r.invoiceNo || ''
+                r.invoiceNo || '',
+                r.attachmentUrl || '',
+                r.attachmentName || ''
               ]
             );
           }
@@ -207,14 +387,16 @@ app.post('/api/state', async (req, res) => {
 
       for (const d of distributions) {
         await run(
+          conn,
           `INSERT INTO distributions (
-            id, itemId, itemCode, itemName, quantity, distributedBy, distributedDate, receivedBy, purpose, completedDate, completedBy
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            id, itemId, itemCode, itemName, department, quantity, distributedBy, distributedDate, receivedBy, purpose, completedDate, completedBy
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           , [
             d.id,
             d.itemId,
             d.itemCode || '',
             d.itemName || '',
+            d.department || '',
             d.quantity ?? 0,
             d.distributedBy || '',
             d.distributedDate || null,
@@ -222,6 +404,28 @@ app.post('/api/state', async (req, res) => {
             d.purpose || '',
             d.completedDate || null,
             d.completedBy || ''
+          ]
+        );
+      }
+
+      for (const w of wasteRecords) {
+        await run(
+          conn,
+          `INSERT INTO waste_records (
+            id, itemId, itemCode, itemName, quantity, wasteType, reason, disposalMethod, disposedBy, disposedDate, certificationNo
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          , [
+            w.id,
+            w.itemId,
+            w.itemCode || '',
+            w.itemName || '',
+            w.quantity ?? 0,
+            w.wasteType || '',
+            w.reason || '',
+            w.disposalMethod || '',
+            w.disposedBy || '',
+            w.disposedDate || null,
+            w.certificationNo || ''
           ]
         );
       }
@@ -234,6 +438,19 @@ app.post('/api/state', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`API server listening on port ${PORT}`);
-});
+const startServer = async () => {
+  try {
+    await ensureUsersTable();
+    await pool.query('SELECT 1');
+    console.log(`Connected to MySQL: ${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}`);
+  } catch (error) {
+    console.error('Failed to connect to MySQL. Check server/.env and ensure the database + tables exist.', error);
+    process.exit(1);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`API server listening on port ${PORT}`);
+  });
+};
+
+startServer();
