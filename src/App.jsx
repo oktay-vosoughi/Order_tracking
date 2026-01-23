@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, FileSpreadsheet, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye } from 'lucide-react';
+import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, FileSpreadsheet, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, clearAuthToken } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI } from './api';
+import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
   STORAGE_TEMPS, 
   WASTE_TYPES,
+  DEPARTMENTS,
   areChemicalsIncompatible,
   getCompatibilityWarning,
   getExpiryStatus,
@@ -17,6 +19,17 @@ import {
   getExpiryColorClass
 } from './labUtils';
 import { AddItemFormLab, WasteForm, ExpiryAlertDashboard, ExpiryBadge, MSDSLink } from './LabComponents';
+import LotInventory from './LotInventory';
+
+const RECEIVE_FORM_DEFAULT = {
+  receivedQty: '',
+  lotNo: '',
+  expiryDate: '',
+  invoiceNo: '',
+  receivedBy: '',
+  attachmentUrl: '',
+  attachmentName: ''
+};
 
 // Migration function for old data
 const migrateData = (user, purchases) => {
@@ -73,6 +86,12 @@ const LabEquipmentTracker = () => {
   const [countingSchedules, setCountingSchedules] = useState([]);
   const [showCountingForm, setShowCountingForm] = useState(false);
   const [fefoMode, setFefoMode] = useState(false);
+  const [analytics, setAnalytics] = useState(null);
+  const [unifiedStock, setUnifiedStock] = useState([]);
+  const [selectedItemLots, setSelectedItemLots] = useState(null);
+  const [expandedMaterialId, setExpandedMaterialId] = useState(null);
+  const [expandedMaterialLots, setExpandedMaterialLots] = useState([]);
+  const [loadingLots, setLoadingLots] = useState(false);
 
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
@@ -94,10 +113,34 @@ const LabEquipmentTracker = () => {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'users' && canManageUsers) {
-      loadUsers();
+    if (currentUser) {
+      loadData();
+      loadUnifiedData();
+      loadAllActionData();
     }
-  }, [activeTab, canManageUsers]);
+  }, [currentUser]);
+
+  const loadAllActionData = async () => {
+    try {
+      const [purchasesRes, distributionsRes, wasteRes] = await Promise.all([
+        fetchPurchases(),
+        fetchDistributionsAPI(),
+        fetchWasteRecords()
+      ]);
+      
+      setPurchases(purchasesRes?.purchases || []);
+      setDistributions(distributionsRes?.distributions || []);
+      setWasteRecords(wasteRes?.wasteRecords || []);
+    } catch (error) {
+      console.error('Failed to load action data:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (currentUser && activeTab === 'stock') {
+      loadUnifiedData();
+    }
+  }, [activeTab, currentUser]);
 
   const initAuth = async () => {
     try {
@@ -186,12 +229,40 @@ const LabEquipmentTracker = () => {
         }));
         setPurchases(migratedPurchases);
       }
+      
+      // Load unified stock and analytics
+      await loadUnifiedData();
     } catch (error) {
       console.error('Starting with empty data', error);
     }
   };
   
+  const loadUnifiedData = async () => {
+    try {
+      const [stockRes, analyticsRes] = await Promise.all([
+        fetchUnifiedStock().catch(() => ({ items: [] })),
+        fetchAnalyticsOverview().catch(() => null)
+      ]);
+      if (stockRes?.items) setUnifiedStock(stockRes.items);
+      if (analyticsRes) setAnalytics(analyticsRes);
+    } catch (error) {
+      console.warn('Could not load unified data:', error);
+    }
+  };
+  
+  const loadItemLots = async (itemId, itemName) => {
+    try {
+      const res = await fetchItemLots(itemId);
+      setSelectedItemLots({ itemId, itemName, lots: res?.lots || [] });
+    } catch (error) {
+      console.error('Failed to load item lots:', error);
+      alert('LOT bilgileri yüklenemedi');
+    }
+  };
+  
   const saveData = async (newItems, newPurchases, newDist, newWaste) => {
+    // Legacy function - kept for backward compatibility but non-blocking
+    // Unified LOT system uses database via API, not localStorage
     try {
       await persistState(
         newItems || items, 
@@ -200,8 +271,8 @@ const LabEquipmentTracker = () => {
         newWaste || wasteRecords
       );
     } catch (error) {
-      console.error('Save error:', error);
-      alert('Veri kaydedilirken bir sorun oluştu. Lütfen tekrar deneyin.');
+      // Silent fail - unified system doesn't depend on localStorage
+      console.warn('Legacy localStorage save failed (expected with unified system):', error);
     }
   };
 
@@ -283,52 +354,40 @@ const LabEquipmentTracker = () => {
     certificationNo: ''
   });
   
-  const createWasteRecord = (item) => {
+  const handleCreateWasteRecord = async (item) => {
     if (!wasteForm.quantity || wasteForm.quantity <= 0) {
       alert('Lütfen geçerli bir miktar girin');
       return;
     }
     
-    if (wasteForm.quantity > item.currentStock) {
+    const totalStock = item.totalStock || item.currentStock || 0;
+    if (wasteForm.quantity > totalStock) {
       alert('Atık miktarı mevcut stoktan fazla olamaz!');
       return;
     }
     
-    const waste = {
-      id: 'WASTE-' + Date.now().toString(),
-      itemId: item.id,
-      itemCode: item.code,
-      itemName: item.name,
-      quantity: parseInt(wasteForm.quantity),
-      wasteType: wasteForm.wasteType,
-      reason: wasteForm.reason,
-      disposalMethod: wasteForm.disposalMethod,
-      disposedBy: username,
-      disposedDate: new Date().toISOString(),
-      certificationNo: wasteForm.certificationNo
-    };
-    
-    const updatedWaste = [...wasteRecords, waste];
-    const updatedItems = items.map(i => {
-      if (i.id === item.id) {
-        const newStock = i.currentStock - parseInt(wasteForm.quantity);
-        return {
-          ...i,
-          currentStock: newStock,
-          status: newStock <= i.minStock ? 'SATINAL' : 'STOKTA',
-          wasteStatus: wasteForm.wasteType === 'EXPIRED' ? 'EXPIRED' : i.wasteStatus
-        };
-      }
-      return i;
-    });
-    
-    setWasteRecords(updatedWaste);
-    setItems(updatedItems);
-    saveData(updatedItems, purchases, distributions, updatedWaste);
-    
-    setShowWasteForm(null);
-    setWasteForm({ quantity: 0, wasteType: 'EXPIRED', reason: '', disposalMethod: '', certificationNo: '' });
-    alert('Atık kaydı oluşturuldu!');
+    try {
+      // Use LOT-based waste API with FEFO logic
+      await recordWasteWithLot({
+        itemId: item.id,
+        quantity: parseInt(wasteForm.quantity),
+        wasteType: wasteForm.wasteType,
+        reason: wasteForm.reason,
+        disposalMethod: wasteForm.disposalMethod,
+        notes: wasteForm.certificationNo ? `Sertifika No: ${wasteForm.certificationNo}` : ''
+      });
+      
+      // Reload all data to reflect stock changes
+      await loadUnifiedData();
+      await loadAllActionData();
+      
+      setShowWasteForm(null);
+      setWasteForm({ quantity: 0, wasteType: 'EXPIRED', reason: '', disposalMethod: '', certificationNo: '' });
+      alert('Atık kaydı oluşturuldu ve stok güncellendi!');
+    } catch (error) {
+      console.error('Waste record error:', error);
+      alert('Atık kaydı oluşturma hatası: ' + (error?.message || 'Bilinmeyen hata'));
+    }
   };
   
   const [requestForm, setRequestForm] = useState({
@@ -338,55 +397,38 @@ const LabEquipmentTracker = () => {
     department: ''
   });
   
-  const createPurchaseRequest = (item) => {
+  const handleCreatePurchaseRequest = async (item) => {
     if (!requestForm.quantity || requestForm.quantity <= 0) {
       alert('Lütfen geçerli bir miktar girin');
       return;
     }
     
-    const request = {
-      id: 'REQ-' + Date.now().toString(),
-      requestNumber: 'REQ-' + Date.now().toString().slice(-6),
-      itemId: item.id,
-      itemCode: item.code,
-      itemName: item.name,
-      department: requestForm.department || item.department || '',
-      requestedQty: parseInt(requestForm.quantity),
-      requestedBy: username,
-      requestedAt: new Date().toISOString(),
-      requestDate: new Date().toISOString(),
-      status: 'TALEP_EDILDI',
-      approvedBy: null,
-      approvedAt: null,
-      approvedDate: null,
-      approvalNote: '',
-      orderedBy: null,
-      orderedAt: null,
-      supplierName: item.supplier || '',
-      poNumber: '',
-      orderedQty: parseInt(requestForm.quantity),
-      receivedQtyTotal: 0,
-      receipts: [],
-      receivedQty: 0,
-      receivedBy: null,
-      receivedDate: null,
-      lotNo: '',
-      expiryDate: '',
-      distributorCompany: item.supplier || '',
-      notes: requestForm.notes,
-      urgency: requestForm.urgency
-    };
-    
-    const updatedPurchases = [...purchases, request];
-    setPurchases(updatedPurchases);
-    saveData(items, updatedPurchases, distributions);
-    
-    setShowRequestForm(null);
-    setRequestForm({ quantity: 0, notes: '', urgency: 'normal', department: '' });
-    alert('Talep oluşturuldu! Talep No: ' + request.requestNumber);
+    try {
+      // Call API to create purchase request using imported function
+      const result = await createPurchaseRequest({
+        itemId: item.id,
+        itemCode: item.code,
+        itemName: item.name,
+        department: requestForm.department || item.department || '',
+        requestedQty: parseInt(requestForm.quantity),
+        notes: requestForm.notes,
+        urgency: requestForm.urgency,
+        supplierName: item.supplier || ''
+      });
+      
+      // Reload purchases from database
+      await loadAllActionData();
+      
+      setShowRequestForm(null);
+      setRequestForm({ quantity: 0, notes: '', urgency: 'normal', department: '' });
+      alert('Talep oluşturuldu! Talep No: ' + result.purchase.requestNumber);
+    } catch (error) {
+      console.error('Purchase request error:', error);
+      alert('Talep oluşturma hatası: ' + (error?.message || 'Bilinmeyen hata'));
+    }
   };
   
-  const approvePurchaseRequest = (purchaseId) => {
+  const approvePurchaseRequest = async (purchaseId) => {
     if (!canApprove) {
       alert('Bu işlem için APPROVER/ADMIN yetkisi gereklidir');
       return;
@@ -400,26 +442,17 @@ const LabEquipmentTracker = () => {
       return;
     }
     
-    const updatedPurchases = purchases.map(p => {
-      if (p.id === purchaseId) {
-        return {
-          ...p,
-          status: 'ONAYLANDI',
-          approvedBy: username,
-          approvedAt: new Date().toISOString(),
-          approvedDate: new Date().toISOString(),
-          approvalNote: approvalNote
-        };
-      }
-      return p;
-    });
-    
-    setPurchases(updatedPurchases);
-    saveData(items, updatedPurchases, distributions);
-    alert('Talep onaylandı! Onaylayan: ' + username);
+    try {
+      await approvePurchase(purchaseId, approvalNote);
+      await loadAllActionData();
+      alert('Talep onaylandı! Onaylayan: ' + username);
+    } catch (error) {
+      console.error('Approval error:', error);
+      alert('Onaylama hatası: ' + (error?.message || 'Bilinmeyen hata'));
+    }
   };
   
-  const rejectPurchaseRequest = (purchaseId) => {
+  const rejectPurchaseRequest = async (purchaseId) => {
     if (!canApprove) {
       alert('Bu işlem için APPROVER/ADMIN yetkisi gereklidir');
       return;
@@ -427,22 +460,14 @@ const LabEquipmentTracker = () => {
     const reason = prompt('Red nedeni:');
     if (!reason) return;
     
-    const updatedPurchases = purchases.map(p => {
-      if (p.id === purchaseId) {
-        return {
-          ...p,
-          status: 'REDDEDILDI',
-          rejectedBy: username,
-          rejectedDate: new Date().toISOString(),
-          rejectionReason: reason
-        };
-      }
-      return p;
-    });
-    
-    setPurchases(updatedPurchases);
-    saveData(items, updatedPurchases, distributions);
-    alert('Talep reddedildi');
+    try {
+      await rejectPurchase(purchaseId, reason);
+      await loadAllActionData();
+      alert('Talep reddedildi');
+    } catch (error) {
+      console.error('Rejection error:', error);
+      alert('Reddetme hatası: ' + (error?.message || 'Bilinmeyen hata'));
+    }
   };
   
   // Order form state
@@ -452,7 +477,7 @@ const LabEquipmentTracker = () => {
     orderedQty: 0
   });
   
-  const markAsOrdered = (purchase) => {
+  const markAsOrdered = async (purchase) => {
     if (!canApprove) {
       alert('Bu işlem için APPROVER/ADMIN yetkisi gereklidir');
       return;
@@ -466,39 +491,21 @@ const LabEquipmentTracker = () => {
       return;
     }
     
-    const updatedPurchases = purchases.map(p => {
-      if (p.id === purchase.id) {
-        return {
-          ...p,
-          status: 'SIPARIS_VERILDI',
-          orderedBy: username,
-          orderedAt: new Date().toISOString(),
-          supplierName: orderForm.supplierName,
-          poNumber: orderForm.poNumber,
-          orderedQty: parseInt(orderForm.orderedQty)
-        };
-      }
-      return p;
-    });
-    
-    setPurchases(updatedPurchases);
-    saveData(items, updatedPurchases, distributions);
-    setShowOrderForm(null);
-    setOrderForm({ supplierName: '', poNumber: '', orderedQty: 0 });
-    alert('Sipariş verildi! PO: ' + orderForm.poNumber);
+    try {
+      await orderPurchase(purchase.id, orderForm.supplierName, orderForm.poNumber, parseInt(orderForm.orderedQty));
+      await loadAllActionData();
+      setShowOrderForm(null);
+      setOrderForm({ supplierName: '', poNumber: '', orderedQty: 0 });
+      alert('Sipariş verildi! PO: ' + orderForm.poNumber);
+    } catch (error) {
+      console.error('Order error:', error);
+      alert('Sipariş verme hatası: ' + (error?.message || 'Bilinmeyen hata'));
+    }
   };
   
-  const [receiveForm, setReceiveForm] = useState({
-    receivedQty: '',
-    lotNo: '',
-    expiryDate: '',
-    invoiceNo: '',
-    receivedBy: '',
-    attachmentUrl: '',
-    attachmentName: ''
-  });
+  const [receiveForm, setReceiveForm] = useState({ ...RECEIVE_FORM_DEFAULT });
   
-  const addReceipt = (purchase) => {
+  const addReceipt = async (purchase) => {
     if (!canApprove) {
       alert('Bu işlem için APPROVER/ADMIN yetkisi gereklidir');
       return;
@@ -515,6 +522,10 @@ const LabEquipmentTracker = () => {
       alert('Teslim alan kişinin adını girmeniz gerekir.');
       return;
     }
+    if (!receiveForm.lotNo.trim()) {
+      alert('LOT numarası zorunludur. Lütfen ürünün üzerinde belirtilen LOT/Parti numarasını girin.');
+      return;
+    }
     
     const receivedQty = parseInt(receiveForm.receivedQty);
     const orderedQty = purchase.orderedQty || purchase.requestedQty;
@@ -528,66 +539,52 @@ const LabEquipmentTracker = () => {
       }
     }
     
-    // Create new receipt
-    const newReceipt = {
-      receiptId: 'RCP-' + Date.now(),
-      receivedAt: new Date().toISOString(),
-      receivedBy: receiveForm.receivedBy.trim(),
-      receivedQty: receivedQty,
-      lotNo: receiveForm.lotNo,
-      expiryDate: receiveForm.expiryDate,
-      invoiceNo: receiveForm.invoiceNo,
-      attachmentUrl: receiveForm.attachmentUrl,
-      attachmentName: receiveForm.attachmentName
-    };
-    
-    // Determine new status
-    let newStatus = purchase.status;
-    if (newTotal >= orderedQty) {
-      newStatus = 'GELDI';
-    } else if (newTotal > 0) {
-      newStatus = 'KISMEN_GELDI';
+    try {
+      // Create LOT in the unified system via API
+      const result = await receiveGoods({
+        purchaseId: purchase.id,
+        itemId: purchase.itemId,
+        lotNumber: receiveForm.lotNo.trim(),
+        quantity: receivedQty,
+        expiryDate: receiveForm.expiryDate,
+        invoiceNo: receiveForm.invoiceNo,
+        attachmentUrl: receiveForm.attachmentUrl,
+        attachmentName: receiveForm.attachmentName,
+        notes: `Teslim alan: ${receiveForm.receivedBy.trim()}`,
+        receivedBy: receiveForm.receivedBy.trim(),
+        receivedAt: new Date().toISOString()
+      });
+
+      // Update stock (legacy fallback for old items array)
+      const updatedItems = items.map(item => {
+        if (item.id === purchase.itemId) {
+          const newStock = item.currentStock + receivedQty;
+          return {
+            ...item,
+            currentStock: newStock,
+            status: newStock <= item.minStock ? 'SATINAL' : 'STOKTA',
+            lotNo: receiveForm.lotNo || item.lotNo,
+            expiryDate: receiveForm.expiryDate || item.expiryDate
+          };
+        }
+        return item;
+      });
+      
+      setItems(updatedItems);
+
+      await Promise.all([loadUnifiedData(), loadAllActionData()]);
+      
+      setShowReceiveForm(null);
+      setReceiveForm({ ...RECEIVE_FORM_DEFAULT });
+
+      const latestPurchase = result?.purchase;
+      const totalReceived = latestPurchase?.receivedQtyTotal ?? newTotal;
+      const totalOrdered = latestPurchase?.orderedQty ?? orderedQty;
+      alert(`Teslim alındı ve LOT kaydı oluşturuldu!\n\nLOT No: ${receiveForm.lotNo}\nMiktar: ${receivedQty}\nToplam: ${totalReceived}/${totalOrdered}`);
+    } catch (error) {
+      console.error('Receipt/LOT creation error:', error);
+      alert('Teslim alma sırasında hata oluştu: ' + (error?.message || 'Bilinmeyen hata'));
     }
-    
-    const updatedPurchases = purchases.map(p => {
-      if (p.id === purchase.id) {
-        return {
-          ...p,
-          status: newStatus,
-          receivedQtyTotal: newTotal,
-          receipts: [...(p.receipts || []), newReceipt],
-          receivedQty: newTotal,
-          receivedBy: receiveForm.receivedBy.trim(),
-          receivedDate: new Date().toISOString(),
-          lotNo: receiveForm.lotNo || p.lotNo,
-          expiryDate: receiveForm.expiryDate || p.expiryDate
-        };
-      }
-      return p;
-    });
-    
-    // Update stock
-    const updatedItems = items.map(item => {
-      if (item.id === purchase.itemId) {
-        const newStock = item.currentStock + receivedQty;
-        return {
-          ...item,
-          currentStock: newStock,
-          status: newStock <= item.minStock ? 'SATINAL' : 'STOKTA',
-          lotNo: receiveForm.lotNo || item.lotNo,
-          expiryDate: receiveForm.expiryDate || item.expiryDate
-        };
-      }
-      return item;
-    });
-    
-    setPurchases(updatedPurchases);
-    setItems(updatedItems);
-    saveData(updatedItems, updatedPurchases, distributions);
-    
-    setShowReceiveForm(null);
-    setReceiveForm({ receivedQty: '', lotNo: '', expiryDate: '', invoiceNo: '', receivedBy: '', attachmentUrl: '', attachmentName: '' });
-    alert(`Teslim alındı! Toplam: ${newTotal}/${orderedQty}`);
   };
   
   const [distributeForm, setDistributeForm] = useState({
@@ -597,14 +594,9 @@ const LabEquipmentTracker = () => {
     department: ''
   });
   
-  const distributeItem = (item) => {
+  const distributeItem = async (item) => {
     if (!distributeForm.quantity || distributeForm.quantity <= 0) {
       alert('Lütfen geçerli bir miktar girin');
-      return;
-    }
-    
-    if (distributeForm.quantity > item.currentStock) {
-      alert('Yeterli stok yok!');
       return;
     }
     
@@ -613,67 +605,65 @@ const LabEquipmentTracker = () => {
       return;
     }
     
-    const distribution = {
-      id: 'DIST-' + Date.now().toString(),
-      itemId: item.id,
-      itemCode: item.code,
-      itemName: item.name,
-      department: distributeForm.department || item.department || '',
-      quantity: parseInt(distributeForm.quantity),
-      distributedBy: username,
-      distributedDate: new Date().toISOString(),
-      receivedBy: distributeForm.receivedBy,
-      purpose: distributeForm.purpose,
-      completedDate: null
-    };
-    
-    const updatedDistributions = [...distributions, distribution];
-    const updatedItems = items.map(i => {
-      if (i.id === item.id) {
-        const newStock = i.currentStock - parseInt(distributeForm.quantity);
-        const updates = {
-          ...i,
-          currentStock: newStock,
-          status: newStock <= i.minStock ? 'SATINAL' : 'STOKTA'
-        };
-        
-        // Set opening date on first distribution if not already set
-        if (!i.openingDate) {
-          updates.openingDate = new Date().toISOString();
-        }
-        
-        return updates;
-      }
-      return i;
-    });
-    
-    setDistributions(updatedDistributions);
-    setItems(updatedItems);
-    saveData(updatedItems, purchases, updatedDistributions);
-    
-    setShowDistributeForm(null);
-    setDistributeForm({ quantity: 0, receivedBy: '', purpose: '', department: '' });
-    alert('Malzeme dağıtıldı!');
+    try {
+      // Call API to distribute with FEFO logic
+      await distribute({
+        itemId: item.id,
+        quantity: parseInt(distributeForm.quantity),
+        receivedBy: distributeForm.receivedBy,
+        department: distributeForm.department || item.department || '',
+        purpose: distributeForm.purpose,
+        useFefo: true
+      });
+      
+      // Refresh stock and distribution data
+      await loadUnifiedData();
+      await loadAllActionData();
+      
+      setShowDistributeForm(null);
+      setDistributeForm({ quantity: 0, receivedBy: '', purpose: '', department: '' });
+      alert('Malzeme başarıyla dağıtıldı! Stok güncellendi.');
+    } catch (error) {
+      console.error('Distribution error:', error);
+      alert('Dağıtım hatası: ' + (error.message || 'Bilinmeyen hata'));
+    }
   };
   
-  const markDistributionComplete = (distId) => {
-    const updatedDistributions = distributions.map(d => {
-      if (d.id === distId) {
-        return {
-          ...d,
-          completedDate: new Date().toISOString(),
-          completedBy: username
-        };
-      }
-      return d;
-    });
-    
-    setDistributions(updatedDistributions);
-    saveData(items, purchases, updatedDistributions);
+  const markDistributionComplete = async (distId) => {
+    try {
+      await confirmDistribution(distId);
+      await loadAllActionData();
+      alert('Dağıtım tamamlandı!');
+    } catch (error) {
+      console.error('Distribution completion error:', error);
+      alert('Dağıtım tamamlanamadı: ' + (error?.message || 'Bilinmeyen hata'));
+    }
   };
   
+  // UNIFIED DATA SOURCE: Use unifiedStock from API instead of localStorage items
+  // This ensures "Stok" tab and "LOT Stok Yönetimi" show the same data
+  const displayItems = unifiedStock.length > 0 ? unifiedStock : items;
+
+  const totalMaterialCount = analytics?.summary?.totalItems ?? displayItems.length;
+  const lowStockCountFromData = displayItems.filter(i => {
+    const total = Number(i.totalStock ?? i.currentStock ?? 0);
+    const min = Number(i.minStock ?? 0);
+    return min > 0 && total < min;
+  }).length;
+  const toPurchaseCount = displayItems.filter(i => {
+    const stockStatus = i.stockStatus || i.status;
+    return stockStatus === 'SATIN_AL';
+  }).length || lowStockCountFromData;
+
+  const purchaseStatusCounts = {
+    pending: purchases.filter(p => p.status === 'TALEP_EDILDI').length,
+    approved: purchases.filter(p => p.status === 'ONAYLANDI').length,
+    ordered: purchases.filter(p => ['SIPARIS_VERILDI', 'KISMI_TESLIM'].includes(p.status)).length,
+    completed: purchases.filter(p => ['TESLIM_ALINDI', 'GELDI'].includes(p.status)).length
+  };
+
   const filteredItems = (() => {
-    let filtered = items.filter(item => {
+    let filtered = displayItems.filter(item => {
       const matchesSearch = item.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            item.code?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesFilter = filterStatus === 'all' || item.status === filterStatus;
@@ -688,6 +678,27 @@ const LabEquipmentTracker = () => {
     return filtered;
   })();
   
+  // Toggle expandable lot details
+  const toggleMaterialLots = async (materialId) => {
+    if (expandedMaterialId === materialId) {
+      setExpandedMaterialId(null);
+      setExpandedMaterialLots([]);
+    } else {
+      setExpandedMaterialId(materialId);
+      setLoadingLots(true);
+      try {
+        const res = await fetchItemLots(materialId);
+        setExpandedMaterialLots(res?.lots || []);
+      } catch (error) {
+        console.error('Failed to load lots:', error);
+        alert('LOT bilgileri yüklenemedi');
+        setExpandedMaterialLots([]);
+      } finally {
+        setLoadingLots(false);
+      }
+    }
+  };
+  
   // Get expiry statistics
   const expiryStats = {
     expiringSoon: getExpiringItems(items, 30).length,
@@ -699,17 +710,29 @@ const LabEquipmentTracker = () => {
     return purchases.filter(p => p.itemId === itemId);
   };
 
-  const deleteItem = (itemId) => {
-    if (!confirm('Bu malzemeyi silmek istediğinizden emin misiniz?')) return;
+  const deleteItem = async (itemId) => {
+    if (!confirm('Bu malzemeyi ve tüm LOT kayıtlarını silmek istediğinizden emin misiniz?')) return;
     
-    const updatedItems = items.filter(i => i.id !== itemId);
-    const updatedPurchases = purchases.filter(p => p.itemId !== itemId);
-    const updatedDistributions = distributions.filter(d => d.itemId !== itemId);
-    
-    setItems(updatedItems);
-    setPurchases(updatedPurchases);
-    setDistributions(updatedDistributions);
-    saveData(updatedItems, updatedPurchases, updatedDistributions);
+    try {
+      // Delete from database via API
+      const response = await fetch(`/api/item-definitions/${itemId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Silme işlemi başarısız');
+      }
+      
+      // Refresh unified stock data
+      await loadUnifiedData();
+      alert('Malzeme başarıyla silindi');
+    } catch (error) {
+      console.error('Delete error:', error);
+      alert('Silme hatası: ' + (error.message || 'Bilinmeyen hata'));
+    }
   };
 
   const handleExcelUpload = async (event) => {
@@ -742,8 +765,15 @@ const LabEquipmentTracker = () => {
           const lotNo = String(row['Lot No'] || row['Parti No'] || row['LOT NO'] || '').trim();
           const brand = String(row['Marka'] || row['Brand'] || row['MARKA'] || '').trim();
           const storageLocation = String(row['Buzdolabı/Dolap'] || row['Saklama'] || row['Storage'] || '').trim();
-          const expiryDate = row['Son Kullanma'] || row['SKT'] || row['Expiry Date'] || '';
-          const openingDate = row['Açılış Tarihi'] || row['Opening Date'] || '';
+          
+          // CRITICAL FIX: Parse SKT date properly (handles Excel serial numbers)
+          const rawSKT = row['Son Kullanma'] || row['SKT'] || row['Expiry Date'] || '';
+          const expiryDate = parseSKTDate(rawSKT);
+          console.log(`[Excel Import] Row ${index + 1}: ${code} - Raw SKT: ${rawSKT} (type: ${typeof rawSKT}) → Parsed: ${expiryDate}`);
+          
+          const rawOpeningDate = row['Açılış Tarihi'] || row['Opening Date'] || '';
+          const openingDate = parseSKTDate(rawOpeningDate);
+          
           const storageTemp = String(row['Saklama Sıcaklığı'] || row['Storage Temp'] || '').trim();
           const chemicalType = String(row['Kimyasal Tipi'] || row['Chemical Type'] || '').trim();
           const msdsUrl = String(row['MSDS/SDS'] || row['MSDS URL'] || '').trim();
@@ -759,10 +789,12 @@ const LabEquipmentTracker = () => {
             unit: unit || 'adet',
             minStock: minStock,
             currentStock: currentStock,
+            initialStock: currentStock, // For LOT system - creates INITIAL lot
             location: location,
             supplier: supplier,
             catalogNo: catalogNo,
             lotNo: lotNo,
+            lotNumber: lotNo, // For LOT system
             brand: brand,
             storageLocation: storageLocation,
             expiryDate: expiryDate,
@@ -788,9 +820,22 @@ const LabEquipmentTracker = () => {
         return;
       }
       
-      const updatedItems = [...items, ...allImportedItems];
-      setItems(updatedItems);
-      saveData(updatedItems, purchases, distributions);
+      // Import to unified LOT system via API (SINGLE SOURCE OF TRUTH)
+      let importResult = null;
+      try {
+        importResult = await importItems(allImportedItems);
+        console.log('LOT system import result:', importResult);
+        
+        // Reload unified data after import - this is the ONLY data source now
+        await loadUnifiedData();
+      } catch (lotError) {
+        console.error('LOT system import error:', lotError);
+        alert('LOT sistemi hatası: ' + (lotError?.message || 'Bilinmeyen hata'));
+        return;
+      }
+      
+      // REMOVED: localStorage dual-write - unified stock API is now single source of truth
+      // No longer saving to localStorage items array to prevent data divergence
       
       setUploadStats({
         totalItems: allImportedItems.length,
@@ -798,7 +843,25 @@ const LabEquipmentTracker = () => {
         timestamp: new Date().toISOString()
       });
       
-      alert(`Başarılı!\n\n${allImportedItems.length} malzeme yüklendi\n${processedSheets} sayfa işlendi`);
+      // Show detailed import results
+      let message = `✅ Excel Import Başarılı!\n\n`;
+      message += `📦 Malzemeler:\n`;
+      message += `  • Yeni: ${importResult?.created || 0}\n`;
+      message += `  • Güncellenen: ${importResult?.updated || 0}\n\n`;
+      message += `🏷️ LOT'lar:\n`;
+      message += `  • Yeni LOT: ${importResult?.lotsCreated || 0}\n`;
+      message += `  • Güncellenen LOT: ${importResult?.lotsUpdated || 0}\n\n`;
+      message += `📊 Toplam satır: ${allImportedItems.length}\n`;
+      message += `📄 Sayfa: ${processedSheets}`;
+      
+      if (importResult?.errors && importResult.errors.length > 0) {
+        message += `\n\n⚠️ Uyarılar:\n${importResult.errors.slice(0, 5).join('\n')}`;
+        if (importResult.errors.length > 5) {
+          message += `\n... ve ${importResult.errors.length - 5} uyarı daha`;
+        }
+      }
+      
+      alert(message);
       event.target.value = '';
       
       setTimeout(() => setUploadStats(null), 5000);
@@ -856,21 +919,57 @@ const LabEquipmentTracker = () => {
     XLSX.writeFile(wb, 'Malzeme_Sablonu.xlsx');
   };
 
+  // Excel Export Helper Function
+  const handleExcelExport = async (exportFunction, filename) => {
+    try {
+      const result = await exportFunction();
+      const dataKey = Object.keys(result).find(k => Array.isArray(result[k]));
+      const data = result[dataKey] || [];
+      
+      if (data.length === 0) {
+        alert('Dışa aktarılacak veri bulunamadı');
+        return;
+      }
+      
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Veriler');
+      XLSX.writeFile(wb, filename);
+    } catch (error) {
+      console.error('Excel export error:', error);
+      alert('Excel dışa aktarma hatası: ' + (error.message || 'Bilinmeyen hata'));
+    }
+  };
+
   const clearAllData = async () => {
     if (!confirm('TÜM VERİLERİ SİLMEK İSTEDİĞİNİZDEN EMİN MİSİNİZ?\n\nBu işlem geri alınamaz!')) return;
     
-    setItems([]);
-    setPurchases([]);
-    setDistributions([]);
-    setWasteRecords([]);
-    await saveData([], [], [], []);
-    alert('Tüm veriler temizlendi');
+    try {
+      // Clear all data via dedicated API endpoint
+      await clearAllDataAPI();
+      
+      // Clear local state
+      setItems([]);
+      setPurchases([]);
+      setDistributions([]);
+      setWasteRecords([]);
+      setUnifiedStock([]);
+      
+      // Reload data to confirm deletion
+      await loadUnifiedData();
+      await loadAllActionData();
+      
+      alert('Tüm veriler temizlendi');
+    } catch (error) {
+      console.error('Clear data error:', error);
+      alert('Veri temizleme hatası: ' + (error?.message || 'Bilinmeyen hata'));
+    }
   };
 
   const exportToExcel = () => {
-    // Sheet 1: Stok Takip (with laboratory fields)
-    const stockData = items.map((item, idx) => {
-      const expiryStatus = getExpiryStatus(item.expiryDate);
+    // Sheet 1: Stok Takip (with laboratory fields) - USE UNIFIED STOCK
+    const stockData = (unifiedStock.length > 0 ? unifiedStock : items).map((item, idx) => {
+      const expiryStatus = getExpiryStatus(item.nearestExpiry || item.expiryDate);
       return {
         'Sıra No': idx + 1,
         'Katalog No': item.code,
@@ -883,12 +982,11 @@ const LabEquipmentTracker = () => {
         'Saklama Sıcaklığı': item.storageTemp || '',
         'Kimyasal Tipi': item.chemicalType ? CHEMICAL_TYPES[item.chemicalType] : '',
         'Min Stok': item.minStock,
-        'Mevcut Stok': item.currentStock,
-        'Durum': item.status,
-        'Lot No': item.lotNo || '',
-        'Son Kullanma': formatDate(item.expiryDate),
+        'Mevcut Stok': item.totalStock || item.availableStock || item.currentStock || 0,
+        'Durum': item.stockStatus || item.status,
+        'Aktif LOT Sayısı': item.activeLotCount || 0,
+        'En Yakın SKT': formatDate(item.nearestExpiry),
         'SKT Durumu': expiryStatus.label,
-        'Açılış Tarihi': formatDate(item.openingDate),
         'MSDS/SDS': item.msdsUrl || '',
         'Tedarikçi': item.supplier || '',
         'Oluşturan': item.createdBy || '',
@@ -1109,9 +1207,9 @@ const LabEquipmentTracker = () => {
                 Excel Yükle
                 <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="hidden" />
               </label>
-              <button onClick={exportToExcel} className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
+              <button onClick={() => handleExcelExport(exportStock, 'Stok_Takip.xlsx')} className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
                 <Download size={18} />
-                Dışa Aktar
+                Excel'e Aktar
               </button>
               <button onClick={() => setShowAddForm(true)} className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm">
                 <Plus size={18} />
@@ -1148,6 +1246,10 @@ const LabEquipmentTracker = () => {
             <button onClick={() => setActiveTab('total_stock')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'total_stock' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
               <BarChart2 size={18} />
               Genel Stok Görünümü
+            </button>
+            <button onClick={() => setActiveTab('lot_inventory')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'lot_inventory' ? 'bg-green-600 text-white' : 'bg-green-100 text-green-700')}>
+              <Package size={18} />
+              LOT Stok Yönetimi
             </button>
             {canManageUsers && (
               <button onClick={() => setActiveTab('users')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'users' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
@@ -1202,7 +1304,7 @@ const LabEquipmentTracker = () => {
             item={showWasteForm}
             wasteForm={wasteForm}
             setWasteForm={setWasteForm}
-            onSubmit={() => createWasteRecord(showWasteForm)}
+            onSubmit={() => handleCreateWasteRecord(showWasteForm)}
             onCancel={() => setShowWasteForm(null)}
           />
         )}
@@ -1304,7 +1406,7 @@ const LabEquipmentTracker = () => {
               </select>
               <textarea placeholder="Not" value={requestForm.notes} onChange={(e) => setRequestForm({...requestForm, notes: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" rows="3"></textarea>
               <div className="flex gap-3">
-                <button onClick={() => createPurchaseRequest(showRequestForm)} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg">Talep Oluştur</button>
+                <button onClick={() => handleCreatePurchaseRequest(showRequestForm)} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg">Talep Oluştur</button>
                 <button onClick={() => setShowRequestForm(null)} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
               </div>
             </div>
@@ -1325,7 +1427,8 @@ const LabEquipmentTracker = () => {
                 </span>
               </p>
               <input type="number" placeholder="Gelen Miktar" value={receiveForm.receivedQty} onChange={(e) => setReceiveForm({...receiveForm, receivedQty: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
-              <input type="text" placeholder="Lot No" value={receiveForm.lotNo} onChange={(e) => setReceiveForm({...receiveForm, lotNo: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
+              <input type="text" placeholder="Teslim Alan Kişi *" value={receiveForm.receivedBy} onChange={(e) => setReceiveForm({...receiveForm, receivedBy: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
+              <input type="text" placeholder="LOT/Parti No *" value={receiveForm.lotNo} onChange={(e) => setReceiveForm({...receiveForm, lotNo: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3 border-orange-300" required />
               <input type="date" placeholder="Son Kullanma" value={receiveForm.expiryDate} onChange={(e) => setReceiveForm({...receiveForm, expiryDate: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <input type="text" placeholder="Fatura No" value={receiveForm.invoiceNo} onChange={(e) => setReceiveForm({...receiveForm, invoiceNo: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               
@@ -1391,7 +1494,7 @@ const LabEquipmentTracker = () => {
               <h2 className="text-xl font-bold mb-4">Malzeme Dağıt</h2>
               <p className="text-sm text-gray-600 mb-4">
                 <strong>{showDistributeForm.name}</strong><br/>
-                Stok: {showDistributeForm.currentStock} {showDistributeForm.unit}
+                Stok: {showDistributeForm.totalStock || showDistributeForm.currentStock || 0} {showDistributeForm.unit}
               </p>
               <input type="number" placeholder="Miktar" value={distributeForm.quantity} onChange={(e) => setDistributeForm({...distributeForm, quantity: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               
@@ -1417,8 +1520,52 @@ const LabEquipmentTracker = () => {
         )}
 
         {activeTab === 'stock' && (
-          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="space-y-4">
+            {/* Expiry Alerts */}
+            {(() => {
+              const expiringItems = unifiedStock.filter(item => {
+                if (!item.nearestExpiry) return false;
+                const daysUntilExpiry = getDaysUntilExpiry(item.nearestExpiry);
+                return daysUntilExpiry >= 0 && daysUntilExpiry <= 90;
+              }).sort((a, b) => {
+                const daysA = getDaysUntilExpiry(a.nearestExpiry);
+                const daysB = getDaysUntilExpiry(b.nearestExpiry);
+                return daysA - daysB;
+              });
+              
+              if (expiringItems.length === 0) return null;
+              
+              return (
+                <div className="bg-orange-50 border-l-4 border-orange-500 p-4 rounded-lg">
+                  <div className="flex items-start">
+                    <AlertTriangle className="text-orange-600 mr-3 mt-0.5" size={20} />
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-orange-800 mb-2">SKT Uyarısı - Yaklaşan Son Kullanma Tarihleri</h3>
+                      <div className="space-y-1">
+                        {expiringItems.slice(0, 5).map(item => {
+                          const days = getDaysUntilExpiry(item.nearestExpiry);
+                          const isUrgent = days <= 30;
+                          return (
+                            <div key={item.id} className={`text-xs ${isUrgent ? 'text-red-700 font-semibold' : 'text-orange-700'}`}>
+                              • <strong>{item.name}</strong> ({item.code}) - SKT: {formatDateForDisplay(item.nearestExpiry)} 
+                              <span className="ml-2 px-2 py-0.5 rounded bg-white">
+                                {days === 0 ? 'BUGÜN' : days === 1 ? '1 GÜN' : `${days} GÜN`}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {expiringItems.length > 5 && (
+                          <div className="text-xs text-orange-600 mt-2">+ {expiringItems.length - 5} malzeme daha...</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+            
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
@@ -1434,32 +1581,55 @@ const LabEquipmentTracker = () => {
                   {filteredItems.map((item) => {
                     const history = getItemHistory(item.id);
                     const pending = history.find(h => h.status === 'TALEP_EDILDI' || h.status === 'ONAYLANDI');
+                    const isExpanded = expandedMaterialId === item.id;
+                    const totalStock = Number(item.totalStock ?? item.currentStock ?? 0);
+                    const pendingOrderQty = Number(item.pendingOrderQty ?? 0);
+                    const minStock = item.minStock || 0;
+                    const isLowStock = totalStock < minStock;
                     
                     return (
-                      <tr key={item.id} className="hover:bg-gray-50">
-                        <td className="px-3 py-2 font-medium">{item.code}</td>
-                        <td className="px-3 py-2">
-                          <div className="font-medium text-gray-900">{item.name}</div>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {item.brand && <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{item.brand}</span>}
-                            {item.department && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded">{item.department}</span>}
-                            {item.category && <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">{item.category}</span>}
-                          </div>
-                          {item.chemicalType && (
-                            <div className="text-xs text-gray-500 mt-1">
-                              <Flame size={12} className="inline" /> {CHEMICAL_TYPES[item.chemicalType]}
+                      <React.Fragment key={item.id}>
+                        <tr className={`hover:bg-gray-50 cursor-pointer ${isLowStock ? 'bg-red-50' : ''}`} onClick={() => toggleMaterialLots(item.id)}>
+                          <td className="px-3 py-2 font-medium">{item.code}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <div className="font-medium text-gray-900">{item.name}</div>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {item.brand && <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{item.brand}</span>}
+                                  {item.department && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded">{item.department}</span>}
+                                  {item.category && <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">{item.category}</span>}
+                                  {item.activeLotCount > 0 && <span className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium">{item.activeLotCount} LOT</span>}
+                                </div>
+                                {item.chemicalType && (
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    <Flame size={12} className="inline" /> {CHEMICAL_TYPES[item.chemicalType]}
+                                  </div>
+                                )}
+                              </div>
+                              <button className="p-1 hover:bg-gray-200 rounded" onClick={(e) => { e.stopPropagation(); toggleMaterialLots(item.id); }}>
+                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                              </button>
                             </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className={item.currentStock <= item.minStock ? 'text-red-600 font-bold' : 'text-green-600'}>
-                            {item.currentStock}
-                          </span> / {item.minStock} {item.unit}
-                        </td>
-                        <td className="px-3 py-2">
-                          <ExpiryBadge expiryDate={item.expiryDate} />
+                          </td>
+                          <td className="px-3 py-2">
+                            <div>
+                              <span className={isLowStock ? 'text-red-600 font-bold' : 'text-green-600'}>
+                                {totalStock}
+                              </span> / {minStock} {item.unit}
+                            </div>
+                            {pendingOrderQty > 0 && (
+                              <div className="text-xs text-blue-600 mt-1">
+                                +{Math.floor(pendingOrderQty)} beklemede
+                                <br/>
+                                <span className="text-gray-600">Tahmini: {Math.floor(totalStock + pendingOrderQty)}</span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <ExpiryBadge expiryDate={item.nearestExpiry} />
                           <div className="text-xs text-gray-600 mt-1">
-                            {item.expiryDate ? formatDate(item.expiryDate) : 'SKT belirtilmemiş'}
+                            {item.nearestExpiry ? formatDate(item.nearestExpiry) : 'SKT belirtilmemiş'}
                           </div>
                           {item.msdsUrl && (
                             <div className="mt-1">
@@ -1468,10 +1638,10 @@ const LabEquipmentTracker = () => {
                           )}
                         </td>
                         <td className="px-3 py-2">
-                          {item.status === 'SATINAL' ? (
-                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">SATIN AL</span>
+                          {(item.stockStatus === 'SATIN_AL' || item.stockStatus === 'STOK_YOK' || item.status === 'SATINAL' || isLowStock) ? (
+                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium">SATIN AL</span>
                           ) : (
-                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">STOKTA</span>
+                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">STOKTA</span>
                           )}
                           {pending && <div className="text-xs text-yellow-600 mt-1">Talep var</div>}
                         </td>
@@ -1501,10 +1671,83 @@ const LabEquipmentTracker = () => {
                                 Belge
                               </button>
                             )}
-                            <button onClick={() => deleteItem(item.id)} className="px-2 py-1 bg-red-100 text-red-600 rounded text-xs"><Trash2 size={12} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }} className="px-2 py-1 bg-red-100 text-red-600 rounded text-xs"><Trash2 size={12} /></button>
                           </div>
                         </td>
                       </tr>
+                      
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan="6" className="bg-gray-50 px-4 py-3">
+                            <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                              <Package size={14} />
+                              LOT Detayları - {item.name}
+                            </div>
+                            {loadingLots ? (
+                              <div className="text-center py-4 text-gray-500">Yükleniyor...</div>
+                            ) : expandedMaterialLots.length === 0 ? (
+                              <div className="text-center py-4 text-gray-500 italic">Henüz LOT kaydı yok</div>
+                            ) : (
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs bg-white rounded border">
+                                  <thead className="bg-gray-100">
+                                    <tr>
+                                      <th className="px-3 py-2 text-left">LOT No</th>
+                                      <th className="px-3 py-2 text-center">Mevcut Miktar</th>
+                                      <th className="px-3 py-2 text-center">Başlangıç</th>
+                                      <th className="px-3 py-2 text-center">SKT</th>
+                                      <th className="px-3 py-2 text-center">Alım Tarihi</th>
+                                      <th className="px-3 py-2 text-center">Durum</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y">
+                                    {expandedMaterialLots.map(lot => {
+                                      const daysUntilExpiry = lot.expiryDate ? Math.ceil((new Date(lot.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) : null;
+                                      const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
+                                      const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
+                                      
+                                      return (
+                                        <tr key={lot.id} className="hover:bg-gray-50">
+                                          <td className="px-3 py-2 font-mono">{lot.lotNumber}</td>
+                                          <td className="px-3 py-2 text-center font-bold text-green-600">{lot.currentQuantity}</td>
+                                          <td className="px-3 py-2 text-center text-gray-500">{lot.initialQuantity}</td>
+                                          <td className="px-3 py-2 text-center">
+                                            {lot.expiryDate ? (
+                                              <div>
+                                                <div className={isExpired ? 'text-red-600 font-medium' : isExpiringSoon ? 'text-orange-600 font-medium' : 'text-gray-700'}>
+                                                  {formatDate(lot.expiryDate)}
+                                                </div>
+                                                {daysUntilExpiry !== null && (
+                                                  <div className={`text-[10px] ${isExpired ? 'text-red-600' : isExpiringSoon ? 'text-orange-600' : 'text-gray-500'}`}>
+                                                    {isExpired ? `${Math.abs(daysUntilExpiry)} gün önce doldu` : `${daysUntilExpiry} gün kaldı`}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            ) : (
+                                              <span className="text-gray-400">-</span>
+                                            )}
+                                          </td>
+                                          <td className="px-3 py-2 text-center text-gray-600">{formatDate(lot.receivedDate)}</td>
+                                          <td className="px-3 py-2 text-center">
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                                              lot.status === 'ACTIVE' ? 'bg-green-100 text-green-700' :
+                                              lot.status === 'DEPLETED' ? 'bg-gray-100 text-gray-600' :
+                                              'bg-red-100 text-red-700'
+                                            }`}>
+                                              {lot.status === 'ACTIVE' ? 'Aktif' : lot.status === 'DEPLETED' ? 'Tükendi' : 'Süresi Doldu'}
+                                            </span>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                     );
                   })}
                 </tbody>
@@ -1518,74 +1761,128 @@ const LabEquipmentTracker = () => {
               )}
             </div>
           </div>
+          </div>
         )}
 
         {activeTab === 'total_stock' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="flex justify-end mb-2">
+              <button onClick={loadUnifiedData} className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-sm hover:bg-indigo-200">Yenile</button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                 <div className="flex items-center gap-3 mb-2 text-indigo-600 font-semibold">
                   <Package size={24} />
-                  Toplam Aktif Stok
+                  Toplam Malzeme
                 </div>
-                <div className="text-3xl font-bold">{items.length} Kalem</div>
+                <div className="text-3xl font-bold">{analytics?.summary?.totalItems || unifiedStock.length || items.length}</div>
                 <div className="text-sm text-gray-500 mt-1">
-                  {items.reduce((acc, i) => acc + (i.currentStock || 0), 0)} Toplam Birim
+                  {analytics?.summary?.totalActiveLots || 0} Aktif LOT
                 </div>
               </div>
               
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <div className="flex items-center gap-3 mb-2 text-green-600 font-semibold">
+                  <CheckCircle size={24} />
+                  Toplam Stok
+                </div>
+                <div className="text-3xl font-bold">{analytics?.summary?.totalStock || items.reduce((acc, i) => acc + (i.currentStock || 0), 0)}</div>
+                <div className="text-sm text-gray-500 mt-1">Birim (LOT bazlı)</div>
+              </div>
+
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                 <div className="flex items-center gap-3 mb-2 text-orange-600 font-semibold">
-                  <Recycle size={24} />
-                  Toplam Atık
+                  <Calendar size={24} />
+                  SKT Uyarı
                 </div>
-                <div className="text-3xl font-bold">{wasteRecords.length} Kayıt</div>
-                <div className="text-sm text-gray-500 mt-1">
-                  {wasteRecords.reduce((acc, w) => acc + (w.quantity || 0), 0)} Birim Bertaraf Edildi
-                </div>
+                <div className="text-3xl font-bold">{analytics?.expiryAlerts?.count || expiryStats.expiringSoon}</div>
+                <div className="text-sm text-gray-500 mt-1">30 gün içinde ({analytics?.expiryAlerts?.quantity || 0} birim)</div>
               </div>
 
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                 <div className="flex items-center gap-3 mb-2 text-red-600 font-semibold">
                   <AlertTriangle size={24} />
-                  Kritik Seviye
+                  Kritik Stok
                 </div>
-                <div className="text-3xl font-bold">{items.filter(i => i.currentStock <= i.minStock).length} Kalem</div>
-                <div className="text-sm text-gray-500 mt-1">Sipariş Bekleyen Talepler: {purchases.filter(p => p.status === 'TALEP_EDILDI').length}</div>
+                <div className="text-3xl font-bold">{analytics?.lowStockCount || items.filter(i => i.currentStock <= i.minStock).length}</div>
+                <div className="text-sm text-gray-500 mt-1">Min. seviyenin altında</div>
               </div>
             </div>
 
             <div className="bg-white rounded-xl shadow-lg overflow-hidden">
               <div className="p-4 border-b bg-gray-50">
-                <h3 className="font-bold text-gray-800">Departman Bazlı Stok Dağılımı</h3>
+                <h3 className="font-bold text-gray-800">Departman Bazlı Stok Dağılımı (LOT Sistemi)</h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-2 text-left">Departman</th>
-                      <th className="px-4 py-2 text-center">Malzeme Çeşitliliği</th>
-                      <th className="px-4 py-2 text-center">Toplam Birim Stok</th>
-                      <th className="px-4 py-2 text-center">Son Dağıtım</th>
+                      <th className="px-4 py-2 text-center">Malzeme Çeşidi</th>
+                      <th className="px-4 py-2 text-center">Toplam Stok</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {Object.values(DEPARTMENTS).map(dept => {
+                    {(analytics?.departmentStats || []).map(dept => (
+                      <tr key={dept.department} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium">{dept.department}</td>
+                        <td className="px-4 py-3 text-center">{dept.itemCount}</td>
+                        <td className="px-4 py-3 text-center font-semibold text-green-600">{dept.totalStock}</td>
+                      </tr>
+                    ))}
+                    {(!analytics?.departmentStats || analytics.departmentStats.length === 0) && Object.values(DEPARTMENTS).map(dept => {
                       const deptItems = items.filter(i => i.department === dept);
-                      const deptDists = distributions.filter(d => d.department === dept);
-                      const lastDist = deptDists.length > 0 ? deptDists.sort((a,b) => new Date(b.distributedDate) - new Date(a.distributedDate))[0] : null;
-                      
                       return (
                         <tr key={dept} className="hover:bg-gray-50">
                           <td className="px-4 py-3 font-medium">{dept}</td>
                           <td className="px-4 py-3 text-center">{deptItems.length}</td>
                           <td className="px-4 py-3 text-center">{deptItems.reduce((acc, i) => acc + (i.currentStock || 0), 0)}</td>
-                          <td className="px-4 py-3 text-center text-xs text-gray-500">
-                            {lastDist ? `${formatDate(lastDist.distributedDate)} (${lastDist.itemName})` : '-'}
-                          </td>
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+              <div className="p-4 border-b bg-gray-50">
+                <h3 className="font-bold text-gray-800">Son Aktiviteler (7 Gün)</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Tip</th>
+                      <th className="px-4 py-2 text-left">Malzeme</th>
+                      <th className="px-4 py-2 text-center">Miktar</th>
+                      <th className="px-4 py-2 text-left">Kişi</th>
+                      <th className="px-4 py-2 text-center">Tarih</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {(analytics?.recentActivity || []).slice(0, 10).map((activity, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] ${
+                            activity.type === 'receipt' ? 'bg-green-100 text-green-700' :
+                            activity.type === 'distribution' ? 'bg-blue-100 text-blue-700' :
+                            'bg-orange-100 text-orange-700'
+                          }`}>
+                            {activity.type === 'receipt' ? 'Teslim' : activity.type === 'distribution' ? 'Dağıtım' : 'Atık'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">{activity.itemName}</td>
+                        <td className="px-4 py-3 text-center">{activity.quantity}</td>
+                        <td className="px-4 py-3">{activity.person}</td>
+                        <td className="px-4 py-3 text-center text-xs text-gray-500">{activity.date ? formatDate(activity.date) : '-'}</td>
+                      </tr>
+                    ))}
+                    {(!analytics?.recentActivity || analytics.recentActivity.length === 0) && (
+                      <tr>
+                        <td colSpan="5" className="px-4 py-8 text-center text-gray-500 italic">Son 7 günde aktivite bulunamadı.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1634,6 +1931,16 @@ const LabEquipmentTracker = () => {
 
         {activeTab === 'requests' && (
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+              <h3 className="font-bold text-gray-800">Satın Alma Talepleri</h3>
+              <button 
+                onClick={() => handleExcelExport(exportPurchases, 'Satin_Alma_Talepleri.xlsx')}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                <Download size={18} />
+                Excel'e Aktar
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
@@ -1707,6 +2014,16 @@ const LabEquipmentTracker = () => {
 
         {activeTab === 'waste' && (
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+              <h3 className="font-bold text-gray-800">Atık Kayıtları</h3>
+              <button 
+                onClick={() => handleExcelExport(exportWaste, 'Atik_Kayitlari.xlsx')}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                <Download size={18} />
+                Excel'e Aktar
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
@@ -1770,6 +2087,16 @@ const LabEquipmentTracker = () => {
 
         {activeTab === 'distributions' && (
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+              <h3 className="font-bold text-gray-800">Dağıtım Kayıtları</h3>
+              <button 
+                onClick={() => handleExcelExport(exportDistributions, 'Dagitim_Kayitlari.xlsx')}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                <Download size={18} />
+                Excel'e Aktar
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
@@ -1813,30 +2140,34 @@ const LabEquipmentTracker = () => {
           </div>
         )}
 
+        {activeTab === 'lot_inventory' && (
+          <LotInventory currentUser={currentUser} />
+        )}
+
         <div className="mt-6 grid grid-cols-2 md:grid-cols-6 gap-4">
           <div className="bg-white rounded-lg shadow p-4">
             <div className="text-sm text-gray-600 mb-1">Toplam Malzeme</div>
-            <div className="text-2xl font-bold text-indigo-600">{items.length}</div>
+            <div className="text-2xl font-bold text-indigo-600">{totalMaterialCount}</div>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
             <div className="text-sm text-gray-600 mb-1">Satın Alınacak</div>
-            <div className="text-2xl font-bold text-red-600">{items.filter(i => i.status === 'SATINAL').length}</div>
+            <div className="text-2xl font-bold text-red-600">{toPurchaseCount}</div>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
             <div className="text-sm text-gray-600 mb-1">Bekleyen</div>
-            <div className="text-2xl font-bold text-yellow-600">{purchases.filter(p => p.status === 'TALEP_EDILDI').length}</div>
+            <div className="text-2xl font-bold text-yellow-600">{purchaseStatusCounts.pending}</div>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
             <div className="text-sm text-gray-600 mb-1">Onaylı</div>
-            <div className="text-2xl font-bold text-blue-600">{purchases.filter(p => p.status === 'ONAYLANDI').length}</div>
+            <div className="text-2xl font-bold text-blue-600">{purchaseStatusCounts.approved}</div>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
             <div className="text-sm text-gray-600 mb-1">Siparişte</div>
-            <div className="text-2xl font-bold text-purple-600">{purchases.filter(p => p.status === 'SIPARIS_VERILDI' || p.status === 'KISMEN_GELDI').length}</div>
+            <div className="text-2xl font-bold text-purple-600">{purchaseStatusCounts.ordered}</div>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
             <div className="text-sm text-gray-600 mb-1">Tamamlanan</div>
-            <div className="text-2xl font-bold text-green-600">{purchases.filter(p => p.status === 'GELDI').length}</div>
+            <div className="text-2xl font-bold text-green-600">{purchaseStatusCounts.completed}</div>
           </div>
         </div>
 

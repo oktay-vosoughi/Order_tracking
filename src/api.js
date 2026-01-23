@@ -96,3 +96,159 @@ export async function persistState(items, purchases, distributions, wasteRecords
     body: JSON.stringify({ items, purchases, distributions, wasteRecords })
   });
 }
+
+// ============================================================
+// UNIFIED LOT-BASED INVENTORY API
+// ============================================================
+
+export async function fetchUnifiedStock() {
+  return apiFetch('/unified-stock');
+}
+
+export async function fetchItemLots(itemId) {
+  return apiFetch(`/unified-stock/${itemId}/lots`);
+}
+
+export async function receiveGoods(data) {
+  return apiFetch('/receive-goods', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+export async function distribute(data) {
+  return apiFetch('/distribute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+export async function confirmDistribution(id) {
+  return apiFetch(`/distribute/${id}/confirm`, { method: 'POST' });
+}
+
+export async function fetchDistributionsDetailed() {
+  return apiFetch('/distributions-detailed');
+}
+
+export async function recordWasteWithLot(data) {
+  return apiFetch('/waste-with-lot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+export async function fetchAttachments(entityType, entityId) {
+  return apiFetch(`/attachments/${entityType}/${entityId}`);
+}
+
+export async function importItems(items) {
+  return apiFetch('/import-items', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items })
+  });
+}
+
+export async function fetchAnalyticsOverview() {
+  return apiFetch('/analytics/overview');
+}
+
+export async function fetchItemDefinitions() {
+  return apiFetch('/item-definitions');
+}
+
+export async function createItemDefinition(data) {
+  return apiFetch('/item-definitions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+// ============================================================
+// EXCEL EXPORT API
+// ============================================================
+
+export async function exportPurchases(status = null) {
+  const query = status ? `?status=${status}` : '';
+  return apiFetch(`/export/purchases${query}`);
+}
+
+export async function exportReceipts() {
+  return apiFetch('/export/receipts');
+}
+
+export async function exportDistributions() {
+  return apiFetch('/export/distributions');
+}
+
+export async function exportWaste() {
+  return apiFetch('/export/waste');
+}
+
+export async function exportUsage() {
+  return apiFetch('/export/usage');
+}
+
+export async function exportStock() {
+  return apiFetch('/export/stock');
+}
+
+// ============================================================
+// DATA LOADING API
+// ============================================================
+
+export async function fetchPurchases() {
+  return apiFetch('/purchases');
+}
+
+export async function fetchDistributions() {
+  return apiFetch('/distributions');
+}
+
+export async function fetchWasteRecords() {
+  return apiFetch('/waste-records');
+}
+
+export async function createPurchaseRequest(data) {
+  return apiFetch('/purchases', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+export async function approvePurchase(purchaseId, approvalNote = '') {
+  return apiFetch(`/purchases/${purchaseId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approvalNote })
+  });
+}
+
+export async function rejectPurchase(purchaseId, rejectionReason) {
+  return apiFetch(`/purchases/${purchaseId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rejectionReason })
+  });
+}
+
+export async function orderPurchase(purchaseId, supplierName, poNumber, orderedQty) {
+  return apiFetch(`/purchases/${purchaseId}/order`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ supplierName, poNumber, orderedQty })
+  });
+}
+
+export async function clearAllData() {
+  return apiFetch('/clear-all', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
