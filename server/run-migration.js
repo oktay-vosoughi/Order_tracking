@@ -16,10 +16,16 @@ async function runMigration() {
   try {
     console.log('Connected to database...');
     
-    const migrationPath = path.join(__dirname, 'migrations', 'add_lab_fields_safe.sql');
-    const sql = fs.readFileSync(migrationPath, 'utf8');
+    // Get migration file from command line argument or use default
+    const migrationFile = process.argv[2] || 'add_lab_fields_safe.sql';
+    const migrationPath = path.join(__dirname, 'migrations', migrationFile);
     
-    console.log('Running migration...');
+    if (!fs.existsSync(migrationPath)) {
+      throw new Error(`Migration file not found: ${migrationPath}`);
+    }
+    
+    console.log(`Running migration: ${migrationFile}...`);
+    const sql = fs.readFileSync(migrationPath, 'utf8');
     
     // Split SQL by semicolons and run each statement separately to handle errors
     const statements = sql.split(';').filter(s => s.trim());
@@ -31,8 +37,8 @@ async function runMigration() {
         await connection.query(statement);
         successCount++;
       } catch (err) {
-        // Ignore 'column already exists' errors
-        if (err.code === 'ER_DUP_FIELDNAME' || err.code === 'ER_DUP_KEYNAME') {
+        // Ignore 'column already exists' and 'duplicate entry' errors
+        if (err.code === 'ER_DUP_FIELDNAME' || err.code === 'ER_DUP_KEYNAME' || err.code === 'ER_DUP_ENTRY') {
           skipCount++;
         } else {
           throw err;
@@ -46,17 +52,6 @@ async function runMigration() {
     }
     
     console.log('✅ Migration completed successfully!');
-    console.log('New fields added to items table:');
-    console.log('  - expiryDate');
-    console.log('  - openingDate');
-    console.log('  - storageTemp');
-    console.log('  - chemicalType');
-    console.log('  - msdsUrl');
-    console.log('  - wasteStatus');
-    console.log('\nNew tables created:');
-    console.log('  - waste_records');
-    console.log('  - counting_schedules');
-    console.log('  - counting_records');
   } catch (error) {
     console.error('❌ Migration failed:', error.message);
     process.exit(1);

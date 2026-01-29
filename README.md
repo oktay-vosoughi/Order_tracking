@@ -219,3 +219,4 @@ order tracking/
 ## 📞 Destek
 
 Sorularınız için geliştirici ile iletişime geçin.
+Medipol2026! genetikuser

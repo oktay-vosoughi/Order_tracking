@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, FileSpreadsheet, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -99,13 +99,28 @@ const LabEquipmentTracker = () => {
   const [bootstrapMode, setBootstrapMode] = useState(false);
 
   const [users, setUsers] = useState([]);
-  const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'REQUESTER' });
+  const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'LAB_MANAGER' });
+  const [editingUserId, setEditingUserId] = useState(null);
   
-  // Helper to check role
-  const isAdmin = currentUser?.role === 'ADMIN';
+  // Role-based capability helpers
+  const userRole = currentUser?.role;
+  const isAdmin = userRole === 'ADMIN';
+  const isLabManager = userRole === 'LAB_MANAGER';
+  const isProcurement = userRole === 'PROCUREMENT';
+  const isObserver = userRole === 'OBSERVER';
+  
+  // Capability checks based on RBAC matrix
   const canManageUsers = isAdmin;
-  const canApprove = isAdmin || currentUser?.role === 'APPROVER';
-  const isRequester = currentUser?.role === 'REQUESTER';
+  const canViewStock = true; // All roles can view stock
+  const canCreateRequest = isAdmin || isLabManager;
+  const canApprove = isAdmin || isLabManager;
+  const canOrder = isAdmin || isProcurement;
+  const canReceive = isAdmin || isProcurement;
+  const canDistribute = isAdmin || isLabManager || isProcurement;
+  const canViewDagit = true; // All roles can view distributions
+  const canViewTalep = isAdmin || isLabManager || isProcurement; // OBSERVER cannot see Talep
+  const canViewSiparis = isAdmin || isProcurement; // Only PROCUREMENT can see orders
+  
   const username = currentUser?.username || '';
   
   useEffect(() => {
@@ -139,6 +154,9 @@ const LabEquipmentTracker = () => {
   useEffect(() => {
     if (currentUser && activeTab === 'stock') {
       loadUnifiedData();
+    }
+    if (currentUser && activeTab === 'users' && canManageUsers) {
+      loadUsers();
     }
   }, [activeTab, currentUser]);
 
@@ -285,17 +303,36 @@ const LabEquipmentTracker = () => {
     }
   };
 
-  const handleCreateUser = async () => {
-    if (!userCreateForm.username.trim() || !userCreateForm.password) {
-      alert('Kullanıcı adı ve şifre zorunludur');
+  const resetUserForm = () => {
+    setUserCreateForm({ username: '', password: '', role: 'LAB_MANAGER' });
+    setEditingUserId(null);
+  };
+
+  const handleSaveUser = async () => {
+    if (!userCreateForm.username.trim()) {
+      alert('Kullanıcı adı zorunludur');
       return;
     }
+
+    const trimmedUsername = userCreateForm.username.trim();
+
     try {
-      const res = await createUser(userCreateForm.username.trim(), userCreateForm.password, userCreateForm.role);
+      let res;
+      if (editingUserId) {
+        res = await updateUser(editingUserId, trimmedUsername, userCreateForm.role);
+        alert('Kullanıcı güncellendi');
+      } else {
+        if (!userCreateForm.password) {
+          alert('Yeni kullanıcı için şifre gereklidir');
+          return;
+        }
+        res = await createUser(trimmedUsername, userCreateForm.password, userCreateForm.role);
+        alert('Kullanıcı oluşturuldu');
+      }
       setUsers(res.users || []);
-      setUserCreateForm({ username: '', password: '', role: 'REQUESTER' });
+      resetUserForm();
     } catch (error) {
-      alert('Kullanıcı oluşturma hatası: ' + (error?.message || 'HATA'));
+      alert((editingUserId ? 'Kullanıcı güncellenemedi: ' : 'Kullanıcı oluşturma hatası: ') + (error?.message || 'HATA'));
     }
   };
   
@@ -1227,30 +1264,42 @@ const LabEquipmentTracker = () => {
           )}
           
           <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-            <button onClick={() => setActiveTab('stock')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'stock' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
-              <Package size={18} />
-              Stok
-            </button>
-            <button onClick={() => setActiveTab('requests')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'requests' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
-              <ShoppingCart size={18} />
-              Talepler ({purchases.filter(p => p.status === 'TALEP_EDILDI').length})
-            </button>
-            <button onClick={() => setActiveTab('distributions')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'distributions' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
-              <FileCheck size={18} />
-              Dağıtım
-            </button>
-            <button onClick={() => setActiveTab('waste')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'waste' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
-              <Recycle size={18} />
-              Atık ({wasteRecords.length})
-            </button>
-            <button onClick={() => setActiveTab('total_stock')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'total_stock' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
-              <BarChart2 size={18} />
-              Genel Stok Görünümü
-            </button>
-            <button onClick={() => setActiveTab('lot_inventory')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'lot_inventory' ? 'bg-green-600 text-white' : 'bg-green-100 text-green-700')}>
-              <Package size={18} />
-              LOT Stok Yönetimi
-            </button>
+            {canViewStock && (
+              <button onClick={() => setActiveTab('stock')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'stock' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
+                <Package size={18} />
+                Stok
+              </button>
+            )}
+            {canViewTalep && (
+              <button onClick={() => setActiveTab('requests')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'requests' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
+                <ShoppingCart size={18} />
+                Talepler ({purchases.filter(p => p.status === 'TALEP_EDILDI').length})
+              </button>
+            )}
+            {canViewDagit && (
+              <button onClick={() => setActiveTab('distributions')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'distributions' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
+                <FileCheck size={18} />
+                Dağıtım
+              </button>
+            )}
+            {!isObserver && (
+              <button onClick={() => setActiveTab('waste')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'waste' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
+                <Recycle size={18} />
+                Atık ({wasteRecords.length})
+              </button>
+            )}
+            {canViewStock && (
+              <button onClick={() => setActiveTab('total_stock')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'total_stock' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
+                <BarChart2 size={18} />
+                Genel Stok Görünümü
+              </button>
+            )}
+            {!isObserver && (
+              <button onClick={() => setActiveTab('lot_inventory')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'lot_inventory' ? 'bg-green-600 text-white' : 'bg-green-100 text-green-700')}>
+                <Package size={18} />
+                LOT Stok Yönetimi
+              </button>
+            )}
             {canManageUsers && (
               <button onClick={() => setActiveTab('users')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'users' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
                 <User size={18} />
@@ -1341,15 +1390,24 @@ const LabEquipmentTracker = () => {
                   onChange={(e) => setUserCreateForm({ ...userCreateForm, role: e.target.value })}
                   className="px-4 py-2 border rounded-lg"
                 >
-                  <option value="REQUESTER">REQUESTER</option>
-                  <option value="APPROVER">APPROVER</option>
+                  <option value="LAB_MANAGER">LAB_MANAGER (Talep + Onayla + Dağıt)</option>
+                  <option value="PROCUREMENT">PROCUREMENT (Sipariş + Teslim Al + Dağıt)</option>
+                  <option value="OBSERVER">OBSERVER (Sadece Görüntüleme)</option>
                 </select>
               </div>
 
               <div className="flex gap-2 mb-6">
-                <button onClick={handleCreateUser} className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
-                  Kullanıcı Oluştur
+                <button
+                  onClick={handleSaveUser}
+                  className={`px-4 py-2 rounded-lg text-white ${editingUserId ? 'bg-orange-600 hover:bg-orange-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                >
+                  {editingUserId ? 'Kullanıcıyı Güncelle' : 'Kullanıcı Oluştur'}
                 </button>
+                {editingUserId && (
+                  <button onClick={resetUserForm} className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300">
+                    İptal
+                  </button>
+                )}
                 <button onClick={loadUsers} className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200">
                   Yenile
                 </button>
@@ -1370,12 +1428,25 @@ const LabEquipmentTracker = () => {
                       <tr key={u.id} className="hover:bg-gray-50">
                         <td className="px-3 py-2 font-medium">{u.username}</td>
                         <td className="px-3 py-2">
-                          <span className={`px-2 py-1 rounded text-xs ${u.role === 'APPROVER' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                          <span className={`px-2 py-1 rounded text-xs ${u.role === 'PROCUREMENT' ? 'bg-purple-100 text-purple-700' : u.role === 'LAB_MANAGER' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>
                             {u.role}
                           </span>
                         </td>
                         <td className="px-3 py-2">{u.createdBy || '-'}</td>
-                        <td className="px-3 py-2">{u.createdAt ? new Date(u.createdAt).toLocaleString('tr-TR') : '-'}</td>
+                        <td className="px-3 py-2 text-sm text-gray-500">
+                          {u.createdAt ? new Date(u.createdAt).toLocaleString('tr-TR') : '-'}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            onClick={() => {
+                              setUserCreateForm({ username: u.username, password: '', role: u.role });
+                              setEditingUserId(u.id);
+                            }}
+                            className="px-3 py-1 rounded bg-yellow-100 text-yellow-700 text-xs hover:bg-yellow-200"
+                          >
+                            Düzenle
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1647,12 +1718,18 @@ const LabEquipmentTracker = () => {
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex gap-1 flex-wrap">
-                            <button onClick={() => setShowRequestForm(item)} className="px-2 py-1 bg-indigo-600 text-white rounded text-xs">Talep</button>
-                            <button onClick={() => setShowDistributeForm(item)} className="px-2 py-1 bg-blue-600 text-white rounded text-xs">Dağıt</button>
-                            <button onClick={() => setShowWasteForm(item)} className="px-2 py-1 bg-orange-600 text-white rounded text-xs flex items-center gap-1">
-                              <Recycle size={12} />
-                              Atık
-                            </button>
+                            {canCreateRequest && (
+                              <button onClick={() => setShowRequestForm(item)} className="px-2 py-1 bg-indigo-600 text-white rounded text-xs">Talep</button>
+                            )}
+                            {canDistribute && (
+                              <button onClick={() => setShowDistributeForm(item)} className="px-2 py-1 bg-blue-600 text-white rounded text-xs">Dağıt</button>
+                            )}
+                            {canDistribute && (
+                              <button onClick={() => setShowWasteForm(item)} className="px-2 py-1 bg-orange-600 text-white rounded text-xs flex items-center gap-1">
+                                <Recycle size={12} />
+                                Atık
+                              </button>
+                            )}
                             {history.length > 0 && (
                               <button 
                                 onClick={() => {
@@ -1990,10 +2067,10 @@ const LabEquipmentTracker = () => {
                               <button onClick={() => rejectPurchaseRequest(purchase.id)} className="px-2 py-1 bg-red-600 text-white rounded text-xs">Reddet</button>
                             </>
                           )}
-                          {purchase.status === 'ONAYLANDI' && canApprove && (
+                          {purchase.status === 'ONAYLANDI' && canOrder && (
                             <button onClick={() => { setOrderForm({...orderForm, orderedQty: purchase.requestedQty, supplierName: purchase.supplierName || ''}); setShowOrderForm(purchase); }} className="px-2 py-1 bg-purple-600 text-white rounded text-xs">Sipariş Ver</button>
                           )}
-                          {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMEN_GELDI') && canApprove && (
+                          {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
                             <button onClick={() => setShowReceiveForm(purchase)} className="px-2 py-1 bg-blue-600 text-white rounded text-xs">Teslim Al</button>
                           )}
                         </div>

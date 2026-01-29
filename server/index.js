@@ -125,6 +125,21 @@ const adminRequired = (req, res, next) => {
   next();
 };
 
+// Role-based middleware helpers
+const requireRole = (allowedRoles) => (req, res, next) => {
+  if (!allowedRoles.includes(req.user?.role)) {
+    res.status(403).json({ error: 'FORBIDDEN' });
+    return;
+  }
+  next();
+};
+
+// Capability checks
+const canApprove = (req, res, next) => requireRole(['ADMIN', 'LAB_MANAGER'])(req, res, next);
+const canOrder = (req, res, next) => requireRole(['ADMIN', 'PROCUREMENT'])(req, res, next);
+const canDistribute = (req, res, next) => requireRole(['ADMIN', 'LAB_MANAGER', 'PROCUREMENT'])(req, res, next);
+const canRequest = (req, res, next) => requireRole(['ADMIN', 'LAB_MANAGER'])(req, res, next);
+
 const countUsers = async () => {
   const rows = await all(pool, 'SELECT COUNT(*) AS cnt FROM users');
   return Number(rows?.[0]?.cnt || 0);
@@ -212,6 +227,47 @@ app.post('/api/auth/bootstrap', async (req, res) => {
   }
 });
 
+app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
+  const { username, role } = req.body || {};
+  if (!username && !role) {
+    res.status(400).json({ error: 'INVALID_INPUT' });
+    return;
+  }
+
+  const updates = [];
+  const params = [];
+
+  if (username) {
+    updates.push('username = ?');
+    params.push(String(username));
+  }
+
+  if (role) {
+    const validRoles = ['LAB_MANAGER', 'PROCUREMENT', 'OBSERVER'];
+    if (!validRoles.includes(role)) {
+      res.status(400).json({ error: 'INVALID_ROLE' });
+      return;
+    }
+    updates.push('role = ?');
+    params.push(String(role));
+  }
+
+  params.push(req.params.id);
+
+  try {
+    await run(pool, `UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
+    const users = await all(pool, 'SELECT id, username, role, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    res.json({ users });
+  } catch (error) {
+    if (String(error?.code) === 'ER_DUP_ENTRY') {
+      res.status(409).json({ error: 'USERNAME_EXISTS' });
+      return;
+    }
+    console.error('Update user error', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
@@ -278,7 +334,8 @@ app.post('/api/users', authRequired, adminRequired, async (req, res) => {
     res.status(400).json({ error: 'INVALID_INPUT' });
     return;
   }
-  if (role !== 'REQUESTER' && role !== 'APPROVER') {
+  const validRoles = ['LAB_MANAGER', 'PROCUREMENT', 'OBSERVER'];
+  if (!validRoles.includes(role)) {
     res.status(400).json({ error: 'INVALID_ROLE' });
     return;
   }
@@ -1012,7 +1069,8 @@ app.get('/api/unified-stock/:itemId/lots', authRequired, async (req, res) => {
 // TESLIM AL - Receive goods and create LOT
 // ============================================================
 
-app.post('/api/receive-goods', authRequired, async (req, res) => {
+// Receive goods (PROCUREMENT + ADMIN)
+app.post('/api/receive-goods', authRequired, canOrder, async (req, res) => {
   const {
     purchaseId,
     receiptId,
@@ -1142,7 +1200,8 @@ app.post('/api/receive-goods', authRequired, async (req, res) => {
 // DISTRIBUTION - Lot-traceable with FEFO
 // ============================================================
 
-app.post('/api/distribute', authRequired, async (req, res) => {
+// Distribute (LAB_MANAGER + PROCUREMENT + ADMIN)
+app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
   const { itemId, quantity, receivedBy, department, purpose, useFefo = true, lotId } = req.body || {};
   
   if (!itemId || !quantity || quantity <= 0 || !receivedBy) {
@@ -1237,8 +1296,8 @@ app.post('/api/distribute', authRequired, async (req, res) => {
   }
 });
 
-// Confirm distribution
-app.post('/api/distribute/:id/confirm', authRequired, async (req, res) => {
+// Confirm distribution (LAB_MANAGER + PROCUREMENT + ADMIN)
+app.post('/api/distribute/:id/confirm', authRequired, canDistribute, async (req, res) => {
   try {
     await run(pool, `
       UPDATE distributions SET status = 'COMPLETED', completedDate = NOW(), completedBy = ?
@@ -1253,8 +1312,8 @@ app.post('/api/distribute/:id/confirm', authRequired, async (req, res) => {
   }
 });
 
-// Create purchase request
-app.post('/api/purchases', authRequired, async (req, res) => {
+// Create purchase request (LAB_MANAGER only)
+app.post('/api/purchases', authRequired, canRequest, async (req, res) => {
   const { itemId, itemCode, itemName, department, requestedQty, notes, urgency, supplierName } = req.body || {};
   
   if (!itemId || !requestedQty || requestedQty <= 0) {
@@ -1310,8 +1369,8 @@ app.get('/api/purchases', authRequired, async (_req, res) => {
   }
 });
 
-// Approve purchase request
-app.post('/api/purchases/:id/approve', authRequired, async (req, res) => {
+// Approve purchase request (LAB_MANAGER + ADMIN)
+app.post('/api/purchases/:id/approve', authRequired, canApprove, async (req, res) => {
   const { approvalNote } = req.body || {};
   
   try {
@@ -1333,8 +1392,8 @@ app.post('/api/purchases/:id/approve', authRequired, async (req, res) => {
   }
 });
 
-// Reject purchase request
-app.post('/api/purchases/:id/reject', authRequired, async (req, res) => {
+// Reject purchase request (LAB_MANAGER + ADMIN)
+app.post('/api/purchases/:id/reject', authRequired, canApprove, async (req, res) => {
   const { rejectionReason } = req.body || {};
   
   if (!rejectionReason) {
@@ -1359,8 +1418,8 @@ app.post('/api/purchases/:id/reject', authRequired, async (req, res) => {
   }
 });
 
-// Mark purchase as ordered
-app.post('/api/purchases/:id/order', authRequired, async (req, res) => {
+// Mark purchase as ordered (PROCUREMENT + ADMIN)
+app.post('/api/purchases/:id/order', authRequired, canOrder, async (req, res) => {
   const { supplierName, poNumber, orderedQty } = req.body || {};
   
   if (!supplierName || !orderedQty || orderedQty <= 0) {
@@ -1431,7 +1490,8 @@ app.get('/api/distributions-detailed', authRequired, async (_req, res) => {
 // WASTE - Lot-traceable
 // ============================================================
 
-app.post('/api/waste-with-lot', authRequired, async (req, res) => {
+// Record waste (LAB_MANAGER + PROCUREMENT + ADMIN)
+app.post('/api/waste-with-lot', authRequired, canDistribute, async (req, res) => {
   const { itemId, lotId, quantity, wasteType, reason, disposalMethod, notes } = req.body || {};
   
   if (!itemId || !quantity || quantity <= 0 || !wasteType) {
