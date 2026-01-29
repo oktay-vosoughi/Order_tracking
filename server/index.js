@@ -303,6 +303,40 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+app.post('/api/account/change-password', authRequired, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ error: 'INVALID_INPUT', message: 'Şifreler zorunludur' });
+    return;
+  }
+  if (String(newPassword).length < 8) {
+    res.status(400).json({ error: 'WEAK_PASSWORD', message: 'Yeni şifre en az 8 karakter olmalı' });
+    return;
+  }
+
+  try {
+    const rows = await all(pool, 'SELECT * FROM users WHERE id = ?', [req.user.id]);
+    const user = rows?.[0];
+    if (!user) {
+      res.status(404).json({ error: 'USER_NOT_FOUND' });
+      return;
+    }
+
+    const matches = await bcrypt.compare(String(currentPassword), String(user.passwordHash));
+    if (!matches) {
+      res.status(400).json({ error: 'INVALID_CREDENTIALS', message: 'Mevcut şifre hatalı' });
+      return;
+    }
+
+    const newHash = await bcrypt.hash(String(newPassword), 10);
+    await run(pool, 'UPDATE users SET passwordHash = ? WHERE id = ?', [newHash, user.id]);
+    res.json({ status: 'PASSWORD_UPDATED' });
+  } catch (error) {
+    console.error('Change password error', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
 app.get('/api/auth/me', authRequired, async (req, res) => {
   try {
     const rows = await all(pool, 'SELECT * FROM users WHERE id = ?', [req.user.id]);

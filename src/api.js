@@ -71,6 +71,14 @@ export async function fetchMe() {
   return apiFetch('/auth/me');
 }
 
+export async function changePassword(currentPassword, newPassword) {
+  return apiFetch('/account/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
+}
+
 export async function listUsers() {
   return apiFetch('/users');
 }

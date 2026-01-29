@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, FileSpreadsheet, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, FileSpreadsheet, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -102,6 +102,12 @@ const LabEquipmentTracker = () => {
   const [users, setUsers] = useState([]);
   const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'LAB_MANAGER' });
   const [editingUserId, setEditingUserId] = useState(null);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [passwordChangeStatus, setPasswordChangeStatus] = useState(null);
   
   // Role-based capability helpers
   const userRole = currentUser?.role;
@@ -211,6 +217,30 @@ const LabEquipmentTracker = () => {
     setPurchases([]);
     setDistributions([]);
     setActiveTab('stock');
+  };
+
+  const handlePasswordChange = async () => {
+    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+      setPasswordChangeStatus({ type: 'error', message: 'Tüm şifre alanları zorunludur' });
+      return;
+    }
+    if (passwordForm.newPassword.length < 8) {
+      setPasswordChangeStatus({ type: 'error', message: 'Yeni şifre en az 8 karakter olmalıdır' });
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordChangeStatus({ type: 'error', message: 'Yeni şifre ile doğrulama eşleşmiyor' });
+      return;
+    }
+
+    try {
+      await changePassword(passwordForm.currentPassword, passwordForm.newPassword);
+      setPasswordChangeStatus({ type: 'success', message: 'Şifreniz başarıyla güncellendi' });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (error) {
+      const serverMessage = error?.payload?.message || error?.message || 'Şifre değiştirme başarısız';
+      setPasswordChangeStatus({ type: 'error', message: serverMessage });
+    }
   };
   
   const loadData = async () => {
@@ -1199,6 +1229,12 @@ const LabEquipmentTracker = () => {
                 Kullanıcılar
               </button>
             )}
+            {currentUser && (
+              <button onClick={() => setActiveTab('account')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'account' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700')}>
+                <Lock size={18} />
+                Hesabım
+              </button>
+            )}
           </div>
           
           <div className="flex gap-4 mb-6 flex-wrap">
@@ -1256,6 +1292,86 @@ const LabEquipmentTracker = () => {
             items={items}
             onClose={() => setShowExpiryAlert(false)}
           />
+        )}
+
+        {activeTab === 'account' && currentUser && (
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div className="p-4 md:p-6 space-y-6">
+              <div>
+                <h2 className="text-xl font-bold mb-2">Hesap Bilgilerim</h2>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="p-3 border rounded-lg">
+                    <p className="text-xs text-gray-500">Kullanıcı Adı</p>
+                    <p className="font-semibold text-gray-900">{currentUser.username}</p>
+                  </div>
+                  <div className="p-3 border rounded-lg">
+                    <p className="text-xs text-gray-500">Rol</p>
+                    <p className="font-semibold text-gray-900">{currentUser.role}</p>
+                  </div>
+                  <div className="p-3 border rounded-lg">
+                    <p className="text-xs text-gray-500">Token Süresi</p>
+                    <p className="text-sm text-gray-600">7 gün (otomatik)</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border rounded-xl p-4 md:p-6 bg-amber-50 border-amber-200">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-amber-800">
+                  <Lock size={18} />
+                  Şifreyi Güncelle
+                </h3>
+                {passwordChangeStatus && (
+                  <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${passwordChangeStatus.type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200'}`}>
+                    {passwordChangeStatus.message}
+                  </div>
+                )}
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Mevcut Şifre</label>
+                    <input
+                      type="password"
+                      value={passwordForm.currentPassword}
+                      onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Yeni Şifre</label>
+                    <input
+                      type="password"
+                      value={passwordForm.newPassword}
+                      onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-400"
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">En az 8 karakter olmalı</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Yeni Şifre (Tekrar)</label>
+                    <input
+                      type="password"
+                      value={passwordForm.confirmPassword}
+                      onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3 mt-6">
+                  <button
+                    onClick={handlePasswordChange}
+                    className="px-5 py-2.5 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 transition"
+                  >
+                    Şifremi Güncelle
+                  </button>
+                  <button
+                    onClick={() => setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })}
+                    className="px-5 py-2.5 bg-white border border-amber-200 text-amber-700 rounded-lg font-medium hover:bg-amber-50 transition"
+                  >
+                    Temizle
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {activeTab === 'users' && canManageUsers && (
