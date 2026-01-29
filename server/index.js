@@ -549,7 +549,7 @@ app.get('/api/item-definitions/:id', authRequired, async (req, res) => {
 
 // Create item definition
 app.post('/api/item-definitions', authRequired, async (req, res) => {
-  const { code, name, category, department, unit, minStock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes } = req.body || {};
+  const { code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes } = req.body || {};
   if (!code || !name) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Code and name are required' });
   }
@@ -557,9 +557,9 @@ app.post('/api/item-definitions', authRequired, async (req, res) => {
   try {
     const id = generateId();
     await run(pool, `
-      INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, createdBy)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, code, name, category || '', department || '', unit || '', minStock || 0, supplier || '', catalogNo || '', brand || '', storageLocation || '', storageTemp || '', chemicalType || '', msdsUrl || '', notes || '', req.user.username]);
+      INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, createdBy)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, code, name, category || '', department || '', unit || '', minStock || 0, ideal_stock || null, max_stock || null, supplier || '', catalogNo || '', brand || '', storageLocation || '', storageTemp || '', chemicalType || '', msdsUrl || '', notes || '', req.user.username]);
     
     const items = await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [id]);
     res.json({ item: items[0] });
@@ -574,7 +574,7 @@ app.post('/api/item-definitions', authRequired, async (req, res) => {
 
 // Update item definition
 app.put('/api/item-definitions/:id', authRequired, async (req, res) => {
-  const { code, name, category, department, unit, minStock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status } = req.body || {};
+  const { code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status } = req.body || {};
   
   try {
     await run(pool, `
@@ -585,6 +585,8 @@ app.put('/api/item-definitions/:id', authRequired, async (req, res) => {
         department = COALESCE(?, department),
         unit = COALESCE(?, unit),
         minStock = COALESCE(?, minStock),
+        ideal_stock = COALESCE(?, ideal_stock),
+        max_stock = COALESCE(?, max_stock),
         supplier = COALESCE(?, supplier),
         catalogNo = COALESCE(?, catalogNo),
         brand = COALESCE(?, brand),
@@ -596,7 +598,7 @@ app.put('/api/item-definitions/:id', authRequired, async (req, res) => {
         status = COALESCE(?, status),
         updatedBy = ?
       WHERE id = ?
-    `, [code, name, category, department, unit, minStock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status, req.user.username, req.params.id]);
+    `, [code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status, req.user.username, req.params.id]);
     
     const items = await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [req.params.id]);
     res.json({ item: items[0] });

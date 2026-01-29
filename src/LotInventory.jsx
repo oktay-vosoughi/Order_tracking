@@ -327,7 +327,7 @@ const LotInventory = ({ currentUser }) => {
       {activeView === 'items' && (
         <div className="bg-white rounded-xl shadow-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50"><tr><th className="px-4 py-3 text-left text-xs font-semibold">Kod</th><th className="px-4 py-3 text-left text-xs font-semibold">Malzeme Adı</th><th className="px-4 py-3 text-left text-xs font-semibold">Kategori</th><th className="px-4 py-3 text-left text-xs font-semibold">Departman</th><th className="px-4 py-3 text-center text-xs font-semibold">Birim</th><th className="px-4 py-3 text-center text-xs font-semibold">Toplam Stok</th><th className="px-4 py-3 text-center text-xs font-semibold">Min</th><th className="px-4 py-3 text-center text-xs font-semibold">LOT</th><th className="px-4 py-3 text-center text-xs font-semibold">İşlem</th></tr></thead>
+            <thead className="bg-gray-50"><tr><th className="px-4 py-3 text-left text-xs font-semibold">Kod</th><th className="px-4 py-3 text-left text-xs font-semibold">Malzeme Adı</th><th className="px-4 py-3 text-left text-xs font-semibold">Kategori</th><th className="px-4 py-3 text-left text-xs font-semibold">Departman</th><th className="px-4 py-3 text-center text-xs font-semibold">Birim</th><th className="px-4 py-3 text-center text-xs font-semibold">Toplam Stok</th><th className="px-4 py-3 text-center text-xs font-semibold">Min</th><th className="px-4 py-3 text-center text-xs font-semibold">İdeal</th><th className="px-4 py-3 text-center text-xs font-semibold">Maks</th><th className="px-4 py-3 text-center text-xs font-semibold">LOT</th><th className="px-4 py-3 text-center text-xs font-semibold">İşlem</th></tr></thead>
             <tbody className="divide-y">
               {filteredItems.map(item => {
                 const itemLots = getItemLots(item.id); const isExpanded = expandedItem === item.id; const isLowStock = parseInt(item.totalStock || 0) < parseInt(item.minStock || 0);
@@ -341,6 +341,8 @@ const LotInventory = ({ currentUser }) => {
                       <td className="px-4 py-3 text-center">{item.unit || '-'}</td>
                       <td className="px-4 py-3 text-center"><span className={`font-bold ${isLowStock ? 'text-red-600' : 'text-green-600'}`}>{item.totalStock || 0}</span></td>
                       <td className="px-4 py-3 text-center text-gray-600">{item.minStock || 0}</td>
+                      <td className="px-4 py-3 text-center text-gray-600">{item.ideal_stock != null ? Number(item.ideal_stock).toFixed(2) : '—'}</td>
+                      <td className="px-4 py-3 text-center text-gray-600">{item.max_stock != null ? Number(item.max_stock).toFixed(2) : '—'}</td>
                       <td className="px-4 py-3 text-center"><span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-medium">{item.activeLotCount || 0}</span></td>
                       <td className="px-4 py-3">
                         <div className="flex justify-center gap-1">
@@ -352,7 +354,7 @@ const LotInventory = ({ currentUser }) => {
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr><td colSpan="9" className="bg-gray-50 px-4 py-3">
+                      <tr><td colSpan="11" className="bg-gray-50 px-4 py-3">
                         <div className="text-xs font-semibold text-gray-600 mb-2">LOT Detayları ({item.name})</div>
                         {itemLots.length === 0 ? <div className="text-gray-500 text-sm italic">Henüz LOT kaydı yok</div> : (
                           <table className="w-full text-xs bg-white rounded border"><thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">LOT No</th><th className="px-3 py-2 text-left">Üretici</th><th className="px-3 py-2 text-center">Mevcut</th><th className="px-3 py-2 text-center">Başlangıç</th><th className="px-3 py-2 text-center">SKT</th><th className="px-3 py-2 text-center">Alım</th><th className="px-3 py-2 text-center">Departman</th><th className="px-3 py-2 text-center">Durum</th></tr></thead>
