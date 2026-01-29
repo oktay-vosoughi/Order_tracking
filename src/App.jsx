@@ -142,6 +142,13 @@ const LabEquipmentTracker = () => {
     }
   }, [currentUser]);
 
+  // Reset filters when switching between tabs to avoid stale state hiding data
+  useEffect(() => {
+    if (activeTab !== 'stock') return;
+    setSearchTerm('');
+    setFilterStatus('all');
+  }, [activeTab]);
+
   const loadAllActionData = async () => {
     try {
       const [purchasesRes, distributionsRes, wasteRes] = await Promise.all([
@@ -711,6 +718,10 @@ const LabEquipmentTracker = () => {
   // UNIFIED DATA SOURCE: Use unifiedStock from API instead of localStorage items
   // This ensures "Stok" tab and "LOT Stok Yönetimi" show the same data
   const displayItems = unifiedStock.length > 0 ? unifiedStock : items;
+
+  useEffect(() => {
+    initAuth();
+  }, []);
 
   const totalMaterialCount = analytics?.summary?.totalItems ?? displayItems.length;
   const lowStockCountFromData = displayItems.filter(i => {
