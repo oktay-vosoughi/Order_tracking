@@ -30,6 +30,8 @@ CREATE TABLE `item_definitions` (
   `department` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `unit` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT 'adet',
   `minStock` int NOT NULL DEFAULT '0',
+  `ideal_stock` decimal(10,2) DEFAULT NULL,
+  `max_stock` decimal(10,2) DEFAULT NULL,
   `reorderPoint` int DEFAULT NULL,
   `supplier` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `catalogNo` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -50,7 +52,9 @@ CREATE TABLE `item_definitions` (
   KEY `idx_item_name` (`name`),
   KEY `idx_item_category` (`category`),
   KEY `idx_item_department` (`department`),
-  KEY `idx_item_status` (`status`)
+  KEY `idx_item_status` (`status`),
+  KEY `idx_item_ideal_stock` (`ideal_stock`),
+  KEY `idx_item_max_stock` (`max_stock`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -63,4 +67,4 @@ CREATE TABLE `item_definitions` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-01-29 11:12:17
+-- Dump completed on 2026-01-29 15:28:22
