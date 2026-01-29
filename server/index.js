@@ -1615,10 +1615,37 @@ app.get('/api/attachments/:entityType/:entityId', authRequired, async (req, res)
 
 app.post('/api/import-items', authRequired, async (req, res) => {
   const { items } = req.body || {};
-  
+
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Items array is required' });
   }
+
+  const normalizeString = (value) => (value === undefined || value === null ? '' : String(value).trim());
+  const parseDecimal = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    const normalized = String(value).trim().replace(',', '.');
+    const num = Number(normalized);
+    return Number.isFinite(num) ? num : null;
+  };
+  const parseInteger = (value) => {
+    const decimal = parseDecimal(value);
+    return decimal === null ? null : Math.round(decimal);
+  };
+  const parseDate = (value) => {
+    if (!value) return null;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const date = new Date(trimmed);
+      if (Number.isNaN(date.getTime())) return null;
+      return date.toISOString().slice(0, 10);
+    }
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString().slice(0, 10);
+    }
+    return null;
+  };
 
   try {
     const result = await withTransaction(async (conn) => {
@@ -1628,108 +1655,159 @@ app.post('/api/import-items', authRequired, async (req, res) => {
       let lotsUpdated = 0;
       const errors = [];
 
-      // Group items by code to handle multiple LOTs for same material
+      // Normalize rows and group by code
       const itemsByCode = {};
-      for (const item of items) {
-        if (!item.code || !item.name) {
-          errors.push(`Skipped row: missing code or name`);
-          continue;
-        }
-        
-        if (!itemsByCode[item.code]) {
-          itemsByCode[item.code] = [];
-        }
-        itemsByCode[item.code].push(item);
-      }
+      items.forEach((raw, idx) => {
+        const code = normalizeString(raw.code);
+        const name = normalizeString(raw.name);
+        const lotNumber = normalizeString(raw.lotNumber || raw.lotNo);
 
-      // Process each material (by code)
+        if (!code || !name) {
+          errors.push(`Row ${idx + 1}: missing code or name`);
+          return;
+        }
+        if (!lotNumber) {
+          errors.push(`Row ${idx + 1}: missing lot number for item ${code}`);
+          return;
+        }
+
+        const normalizedRow = {
+          code,
+          name,
+          category: normalizeString(raw.category),
+          department: normalizeString(raw.department),
+          unit: normalizeString(raw.unit) || 'adet',
+          minStock: parseInteger(raw.minStock) ?? 0,
+          ideal_stock: parseDecimal(raw.ideal_stock),
+          max_stock: parseDecimal(raw.max_stock),
+          supplier: normalizeString(raw.supplier),
+          catalogNo: normalizeString(raw.catalogNo),
+          brand: normalizeString(raw.brand),
+          storageLocation: normalizeString(raw.storageLocation),
+          storageTemp: normalizeString(raw.storageTemp),
+          chemicalType: normalizeString(raw.chemicalType),
+          notes: normalizeString(raw.notes),
+          lotNumber,
+          initialStock: parseInteger(raw.initialStock) ?? 0,
+          expiryDate: parseDate(raw.expiryDate),
+          receivedDate: parseDate(raw.receivedDate) || new Date().toISOString().slice(0, 10)
+        };
+
+        if (!itemsByCode[code]) {
+          itemsByCode[code] = [];
+        }
+        itemsByCode[code].push(normalizedRow);
+      });
+
       for (const [code, itemRows] of Object.entries(itemsByCode)) {
-        // Use first row for material master data
         const masterItem = itemRows[0];
-        
-        // Check if material already exists
+
         const existing = await all(conn, 'SELECT * FROM item_definitions WHERE code = ?', [code]);
-        
+
         let itemId;
         if (existing.length) {
-          // Update existing material
           itemId = existing[0].id;
           await run(conn, `
             UPDATE item_definitions SET 
               name = ?, category = ?, department = ?, unit = ?, minStock = ?, 
-              supplier = ?, catalogNo = ?, brand = ?, storageLocation = ?, 
+              ideal_stock = ?, max_stock = ?, supplier = ?, catalogNo = ?, brand = ?, storageLocation = ?, 
               storageTemp = ?, chemicalType = ?, status = 'ACTIVE', notes = ?, updatedBy = ?
             WHERE id = ?
           `, [
-            masterItem.name, masterItem.category || '', masterItem.department || '', masterItem.unit || '', 
-            parseInt(masterItem.minStock) || 0, masterItem.supplier || '', masterItem.catalogNo || '',
-            masterItem.brand || '', masterItem.storageLocation || '', masterItem.storageTemp || '',
-            masterItem.chemicalType || '', masterItem.notes || '', req.user.username, itemId
+            masterItem.name,
+            masterItem.category || '',
+            masterItem.department || '',
+            masterItem.unit || '',
+            masterItem.minStock || 0,
+            masterItem.ideal_stock,
+            masterItem.max_stock,
+            masterItem.supplier || '',
+            masterItem.catalogNo || '',
+            masterItem.brand || '',
+            masterItem.storageLocation || '',
+            masterItem.storageTemp || '',
+            masterItem.chemicalType || '',
+            masterItem.notes || '',
+            req.user.username,
+            itemId
           ]);
           updated++;
         } else {
-          // Create new material
           itemId = generateId();
           await run(conn, `
-            INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, status, notes, createdBy)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
+            INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, status, notes, createdBy)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
           `, [
-            itemId, code, masterItem.name, masterItem.category || '', masterItem.department || '',
-            masterItem.unit || '', parseInt(masterItem.minStock) || 0, masterItem.supplier || '', 
-            masterItem.catalogNo || '', masterItem.brand || '', masterItem.storageLocation || '',
-            masterItem.storageTemp || '', masterItem.chemicalType || '', masterItem.notes || '', req.user.username
+            itemId,
+            code,
+            masterItem.name,
+            masterItem.category || '',
+            masterItem.department || '',
+            masterItem.unit || '',
+            masterItem.minStock || 0,
+            masterItem.ideal_stock,
+            masterItem.max_stock,
+            masterItem.supplier || '',
+            masterItem.catalogNo || '',
+            masterItem.brand || '',
+            masterItem.storageLocation || '',
+            masterItem.storageTemp || '',
+            masterItem.chemicalType || '',
+            masterItem.notes || '',
+            req.user.username
           ]);
           created++;
         }
 
-        // Process each LOT for this material
         for (const item of itemRows) {
-          if (item.initialStock && parseInt(item.initialStock) > 0) {
-            const lotNumber = item.lotNumber || item.lotNo || `INITIAL-${code}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            
-            // Validate and normalize expiry date
-            let expiryDate = item.expiryDate;
-            if (expiryDate) {
-              // Check if date is valid MySQL format (yyyy-MM-dd)
-              const dateMatch = expiryDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-              if (!dateMatch) {
-                errors.push(`Invalid date format for ${code} LOT ${lotNumber}: ${expiryDate}`);
-                expiryDate = null;
-              } else {
-                const year = parseInt(dateMatch[1]);
-                if (year < 2000 || year > 2100) {
-                  errors.push(`Date out of range for ${code} LOT ${lotNumber}: ${expiryDate} (year ${year})`);
-                  expiryDate = null;
-                }
-              }
-            }
-            
-            // Check if LOT already exists (by itemId + lotNumber)
-            const existingLot = await all(conn, 'SELECT * FROM lots WHERE itemId = ? AND lotNumber = ?', [itemId, lotNumber]);
-            
-            if (existingLot.length) {
-              // Update existing LOT (add to quantity)
-              const lotId = existingLot[0].id;
-              const addQty = parseInt(item.initialStock);
-              await run(conn, `
-                UPDATE lots SET 
-                  currentQuantity = currentQuantity + ?,
-                  initialQuantity = initialQuantity + ?,
-                  expiryDate = COALESCE(?, expiryDate),
-                  status = 'ACTIVE',
-                  updatedBy = ?
-                WHERE id = ?
-              `, [addQty, addQty, expiryDate, req.user.username, lotId]);
-              lotsUpdated++;
-            } else {
-              // Create new LOT
-              const lotId = generateId();
-              await run(conn, `
-                INSERT INTO lots (id, itemId, lotNumber, expiryDate, receivedDate, initialQuantity, currentQuantity, notes, createdBy)
-                VALUES (?, ?, ?, ?, CURDATE(), ?, ?, 'Excel import', ?)
-              `, [lotId, itemId, lotNumber, expiryDate, parseInt(item.initialStock), parseInt(item.initialStock), req.user.username]);
-              lotsCreated++;
-            }
+          const lotNumber = item.lotNumber;
+          if (!lotNumber) {
+            errors.push(`Item ${code} row skipped: missing Lot No`);
+            continue;
+          }
+
+          const qty = Math.max(item.initialStock || 0, 0);
+          const status = qty > 0 ? 'ACTIVE' : 'DEPLETED';
+          const existingLot = await all(conn, 'SELECT * FROM lots WHERE itemId = ? AND lotNumber = ?', [itemId, lotNumber]);
+
+          if (existingLot.length) {
+            const lotId = existingLot[0].id;
+            await run(conn, `
+              UPDATE lots SET 
+                currentQuantity = ?,
+                initialQuantity = ?,
+                expiryDate = COALESCE(?, expiryDate),
+                receivedDate = COALESCE(?, receivedDate),
+                status = ?,
+                updatedBy = ?
+              WHERE id = ?
+            `, [
+              qty,
+              qty,
+              item.expiryDate,
+              item.receivedDate,
+              status,
+              req.user.username,
+              lotId
+            ]);
+            lotsUpdated++;
+          } else {
+            const lotId = generateId();
+            await run(conn, `
+              INSERT INTO lots (id, itemId, lotNumber, expiryDate, receivedDate, initialQuantity, currentQuantity, notes, createdBy, status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, 'Excel import', ?, ?)
+            `, [
+              lotId,
+              itemId,
+              lotNumber,
+              item.expiryDate,
+              item.receivedDate,
+              qty,
+              qty,
+              req.user.username,
+              status
+            ]);
+            lotsCreated++;
           }
         }
       }

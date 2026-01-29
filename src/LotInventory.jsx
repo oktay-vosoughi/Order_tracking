@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Package, Plus, Search, Layers, ArrowDownCircle, AlertTriangle, Calendar, Trash2, Eye, ChevronDown, ChevronUp, CheckCircle, XCircle, BarChart2, Clock, Building2, Upload, Download } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { DEPARTMENTS, STORAGE_TEMPS, CHEMICAL_TYPES, formatDate, getExpiryColorClass } from './labUtils';
+import { buildLotImportPayload } from './utils/lotExcelImporter';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -109,93 +109,32 @@ const LotInventory = ({ currentUser }) => {
     try { await apiCall(`/item-definitions/${itemId}`, { method: 'DELETE' }); setItemDefinitions(itemDefinitions.filter(i => i.id !== itemId)); setLots(lots.filter(l => l.itemId !== itemId)); } catch (err) { alert('Hata: ' + err.message); }
   };
 
-  const handleExcelImport = (e) => {
+  const handleExcelImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const data = new Uint8Array(evt.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        
-        if (workbook.SheetNames.length < 2) {
-          alert('Excel dosyası en az 2 sayfa içermelidir: 1) Items (Malzemeler), 2) Lots (LOT Kayıtları)');
-          return;
+
+    try {
+      const itemsPayload = await buildLotImportPayload(file);
+      const importResult = await apiCall('/import-items', {
+        method: 'POST',
+        body: JSON.stringify({ items: itemsPayload })
+      });
+
+      await loadData();
+
+      let message = `Excel içe aktarma tamamlandı!\n\nYeni malzeme: ${importResult.created}\nGüncellenen malzeme: ${importResult.updated}\nYeni LOT: ${importResult.lotsCreated}\nGüncellenen LOT: ${importResult.lotsUpdated}`;
+      if (importResult.errors?.length) {
+        message += `\n\nUyarılar:\n- ${importResult.errors.slice(0, 5).join('\n- ')}`;
+        if (importResult.errors.length > 5) {
+          message += `\n- ... ve ${importResult.errors.length - 5} ek uyarı`;
         }
-        
-        const itemsSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const lotsSheet = workbook.Sheets[workbook.SheetNames[1]];
-        const itemsData = XLSX.utils.sheet_to_json(itemsSheet);
-        const lotsData = XLSX.utils.sheet_to_json(lotsSheet);
-        
-        let itemsCreated = 0;
-        let lotsCreated = 0;
-        const itemCodeMap = {};
-        
-        for (const row of itemsData) {
-          if (!row.code || !row.name) continue;
-          try {
-            const itemPayload = {
-              code: row.code,
-              name: row.name,
-              category: row.category || '',
-              department: row.department || '',
-              unit: row.unit || '',
-              minStock: parseInt(row.minStock) || 0,
-              supplier: row.supplier || '',
-              catalogNo: row.catalogNo || '',
-              brand: row.brand || '',
-              storageLocation: row.storageLocation || '',
-              storageTemp: row.storageTemp || '',
-              chemicalType: row.chemicalType || '',
-              msdsUrl: row.msdsUrl || '',
-              notes: row.notes || ''
-            };
-            const res = await apiCall('/item-definitions', { method: 'POST', body: JSON.stringify(itemPayload) });
-            itemCodeMap[row.code] = res.item.id;
-            itemsCreated++;
-          } catch (err) {
-            console.error(`Item ${row.code} error:`, err);
-          }
-        }
-        
-        for (const row of lotsData) {
-          if (!row.itemCode || !row.lotNumber || !row.initialQuantity) continue;
-          const itemId = itemCodeMap[row.itemCode];
-          if (!itemId) {
-            console.error(`Item code ${row.itemCode} not found for LOT ${row.lotNumber}`);
-            continue;
-          }
-          try {
-            const lotPayload = {
-              itemId,
-              lotNumber: row.lotNumber,
-              initialQuantity: parseInt(row.initialQuantity) || 0,
-              manufacturer: row.manufacturer || '',
-              catalogNo: row.catalogNo || '',
-              expiryDate: row.expiryDate || '',
-              receivedDate: row.receivedDate || new Date().toISOString().split('T')[0],
-              department: row.department || '',
-              location: row.location || '',
-              storageLocation: row.storageLocation || '',
-              invoiceNo: row.invoiceNo || '',
-              notes: row.notes || ''
-            };
-            await apiCall('/lots', { method: 'POST', body: JSON.stringify(lotPayload) });
-            lotsCreated++;
-          } catch (err) {
-            console.error(`LOT ${row.lotNumber} error:`, err);
-          }
-        }
-        
-        await loadData();
-        alert(`Excel içe aktarma tamamlandı!\n\n${itemsCreated} malzeme tanımı\n${lotsCreated} LOT kaydı eklendi`);
-      } catch (err) {
-        alert('Excel dosyası okunamadı: ' + err.message);
       }
-    };
-    reader.readAsArrayBuffer(file);
-    e.target.value = '';
+      alert(message);
+    } catch (err) {
+      alert(err.message || 'Excel dosyası okunamadı');
+    } finally {
+      e.target.value = '';
+    }
   };
 
   const downloadExcelTemplate = () => {
@@ -317,7 +256,16 @@ const LotInventory = ({ currentUser }) => {
           {activeView === 'items' && (
             <>
               <button onClick={downloadExcelTemplate} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"><Download size={18} /> Şablon İndir</button>
-              <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer"><Upload size={18} /> Excel Yükle<input type="file" accept=".xlsx,.xls" onChange={handleExcelImport} className="hidden" /></label>
+              <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer">
+                <Upload size={18} /> Excel Yükle
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleExcelImport}
+                  className="hidden"
+                  data-lot-inventory-uploader
+                />
+              </label>
               <button onClick={() => setShowAddItemForm(true)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Plus size={18} /> Yeni Malzeme</button>
             </>
           )}

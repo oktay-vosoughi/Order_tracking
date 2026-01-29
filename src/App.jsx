@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, FileSpreadsheet, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI } from './api';
@@ -20,6 +20,7 @@ import {
 } from './labUtils';
 import { AddItemFormLab, WasteForm, ExpiryAlertDashboard, ExpiryBadge, MSDSLink } from './LabComponents';
 import LotInventory from './LotInventory';
+import { buildLotImportPayload } from './utils/lotExcelImporter';
 
 const RECEIVE_FORM_DEFAULT = {
   receivedQty: '',
@@ -775,136 +776,28 @@ const LabEquipmentTracker = () => {
   const handleExcelUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-    
+
     try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data, { type: 'array' });
-      
-      let allImportedItems = [];
-      let processedSheets = 0;
-      
-      workbook.SheetNames.forEach(sheetName => {
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
-        
-        if (jsonData.length === 0) return;
-        
-        const sheetItems = jsonData.map((row, index) => {
-          const code = String(row['Malzeme Kodu'] || row['Kod'] || row['Code'] || row['MALZEME KODU'] || row['Stok Kodu'] || row['Katalog No'] || '').trim();
-          const name = String(row['Malzeme Adı'] || row['Ad'] || row['Name'] || row['MALZEME ADI'] || row['Malzeme'] || row['İsim'] || row['Malzeme/Kit Adı'] || '').trim();
-          const category = String(row['Kategori'] || row['Category'] || row['Grup'] || row['GRUP'] || '').trim();
-          const unit = String(row['Birim'] || row['Unit'] || row['BİRİM'] || 'adet').trim();
-          const minStock = parseInt(row['Min Stok'] || row['Minimum Stok'] || row['MinStock'] || row['MİN STOK'] || row['Kritik Stok'] || 0);
-          const currentStock = parseInt(row['Mevcut Stok'] || row['Stok'] || row['CurrentStock'] || row['MEVCUT STOK'] || row['Miktar'] || 0);
-          const location = String(row['Konum'] || row['Location'] || row['Raf'] || row['KONUM'] || row['Depo'] || '').trim();
-          const supplier = String(row['Tedarikçi'] || row['Supplier'] || row['Firma'] || row['TEDARİKÇİ'] || row['Dağıtımcı Firma'] || '').trim();
-          const catalogNo = String(row['Katalog No'] || row['Catalog'] || row['Cat No'] || row['KATALOG NO'] || '').trim();
-          const lotNo = String(row['Lot No'] || row['Parti No'] || row['LOT NO'] || '').trim();
-          const brand = String(row['Marka'] || row['Brand'] || row['MARKA'] || '').trim();
-          const storageLocation = String(row['Buzdolabı/Dolap'] || row['Saklama'] || row['Storage'] || '').trim();
-          
-          // CRITICAL FIX: Parse SKT date properly (handles Excel serial numbers)
-          const rawSKT = row['Son Kullanma'] || row['SKT'] || row['Expiry Date'] || '';
-          const expiryDate = parseSKTDate(rawSKT);
-          console.log(`[Excel Import] Row ${index + 1}: ${code} - Raw SKT: ${rawSKT} (type: ${typeof rawSKT}) → Parsed: ${expiryDate}`);
-          
-          const rawOpeningDate = row['Açılış Tarihi'] || row['Opening Date'] || '';
-          const openingDate = parseSKTDate(rawOpeningDate);
-          
-          const storageTemp = String(row['Saklama Sıcaklığı'] || row['Storage Temp'] || '').trim();
-          const chemicalType = String(row['Kimyasal Tipi'] || row['Chemical Type'] || '').trim();
-          const msdsUrl = String(row['MSDS/SDS'] || row['MSDS URL'] || '').trim();
-          
-          const department = String(row['Departman'] || row['Department'] || row['Bölüm'] || '').trim();
-          
-          return {
-            id: Date.now().toString() + '_' + index + '_' + Math.random(),
-            code: code,
-            name: name,
-            category: category,
-            department: department,
-            unit: unit || 'adet',
-            minStock: minStock,
-            currentStock: currentStock,
-            initialStock: currentStock, // For LOT system - creates INITIAL lot
-            location: location,
-            supplier: supplier,
-            catalogNo: catalogNo,
-            lotNo: lotNo,
-            lotNumber: lotNo, // For LOT system
-            brand: brand,
-            storageLocation: storageLocation,
-            expiryDate: expiryDate,
-            openingDate: openingDate,
-            storageTemp: storageTemp,
-            chemicalType: chemicalType,
-            msdsUrl: msdsUrl,
-            wasteStatus: '',
-            status: currentStock <= minStock ? 'SATINAL' : 'STOKTA',
-            createdAt: new Date().toISOString(),
-            createdBy: username,
-            sourceSheet: sheetName
-          };
-        });
-        
-        const validSheetItems = sheetItems.filter(item => item.code || item.name);
-        allImportedItems = [...allImportedItems, ...validSheetItems];
-        if (validSheetItems.length > 0) processedSheets++;
-      });
-      
-      if (allImportedItems.length === 0) {
-        alert('Excel dosyasında geçerli veri bulunamadı.\n\nEn az "Malzeme Kodu" veya "Malzeme Adı" sütunu gereklidir.');
-        return;
-      }
-      
-      // Import to unified LOT system via API (SINGLE SOURCE OF TRUTH)
-      let importResult = null;
-      try {
-        importResult = await importItems(allImportedItems);
-        console.log('LOT system import result:', importResult);
-        
-        // Reload unified data after import - this is the ONLY data source now
-        await loadUnifiedData();
-      } catch (lotError) {
-        console.error('LOT system import error:', lotError);
-        alert('LOT sistemi hatası: ' + (lotError?.message || 'Bilinmeyen hata'));
-        return;
-      }
-      
-      // REMOVED: localStorage dual-write - unified stock API is now single source of truth
-      // No longer saving to localStorage items array to prevent data divergence
-      
-      setUploadStats({
-        totalItems: allImportedItems.length,
-        sheets: processedSheets,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Show detailed import results
+      const itemsPayload = await buildLotImportPayload(file);
+      const importResult = await importItems(itemsPayload);
+      await loadUnifiedData();
+
       let message = `✅ Excel Import Başarılı!\n\n`;
-      message += `📦 Malzemeler:\n`;
-      message += `  • Yeni: ${importResult?.created || 0}\n`;
-      message += `  • Güncellenen: ${importResult?.updated || 0}\n\n`;
-      message += `🏷️ LOT'lar:\n`;
-      message += `  • Yeni LOT: ${importResult?.lotsCreated || 0}\n`;
-      message += `  • Güncellenen LOT: ${importResult?.lotsUpdated || 0}\n\n`;
-      message += `📊 Toplam satır: ${allImportedItems.length}\n`;
-      message += `📄 Sayfa: ${processedSheets}`;
-      
-      if (importResult?.errors && importResult.errors.length > 0) {
-        message += `\n\n⚠️ Uyarılar:\n${importResult.errors.slice(0, 5).join('\n')}`;
+      message += `📦 Malzemeler:\n  • Yeni: ${importResult?.created || 0}\n  • Güncellenen: ${importResult?.updated || 0}\n\n`;
+      message += `🏷️ LOT'lar:\n  • Yeni LOT: ${importResult?.lotsCreated || 0}\n  • Güncellenen LOT: ${importResult?.lotsUpdated || 0}`;
+      if (importResult?.errors?.length) {
+        message += `\n\n⚠️ Uyarılar:\n- ${importResult.errors.slice(0, 5).join('\n- ')}`;
         if (importResult.errors.length > 5) {
-          message += `\n... ve ${importResult.errors.length - 5} uyarı daha`;
+          message += `\n- ... ve ${importResult.errors.length - 5} ek uyarı`;
         }
       }
-      
+
       alert(message);
-      event.target.value = '';
-      
-      setTimeout(() => setUploadStats(null), 5000);
     } catch (error) {
       console.error('Excel yükleme hatası:', error);
-      alert('Excel dosyası yüklenirken hata oluştu.\n\nHata: ' + error.message);
+      alert('Excel dosyası yüklenirken hata oluştu.\n\nHata: ' + (error?.message || 'Bilinmeyen hata'));
+    } finally {
+      event.target.value = '';
     }
   };
 
