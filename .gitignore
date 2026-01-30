@@ -1,10 +1,33 @@
 node_modules/
 dist/
 .vite/
+
+# System/OS
 .DS_Store
+Thumbs.db
+
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment & secrets
+.env
+.env.*
+src/.env
+server/.env
+server/.env.*
+
+# Local artifacts
 *.xlsx
-.env.local
-.env.development
-.env.production
-.env.test
+*.bak
+*.sqlite
+
+# Editor/IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Notes / personal folders
+myNotes/

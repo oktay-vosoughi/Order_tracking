@@ -100,7 +100,7 @@ const LabEquipmentTracker = () => {
   const [bootstrapMode, setBootstrapMode] = useState(false);
 
   const [users, setUsers] = useState([]);
-  const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'LAB_MANAGER' });
+  const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'SATINAL_LOJISTIK' });
   const [editingUserId, setEditingUserId] = useState(null);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
@@ -112,21 +112,27 @@ const LabEquipmentTracker = () => {
   // Role-based capability helpers
   const userRole = currentUser?.role;
   const isAdmin = userRole === 'ADMIN';
-  const isLabManager = userRole === 'LAB_MANAGER';
-  const isProcurement = userRole === 'PROCUREMENT';
+  const isSatinal = userRole === 'SATINAL';
+  const isSatinalLojistik = userRole === 'SATINAL_LOJISTIK';
   const isObserver = userRole === 'OBSERVER';
+  const ROLE_LABELS = {
+    ADMIN: 'ADMIN',
+    SATINAL: 'SATINAL',
+    SATINAL_LOJISTIK: 'SATINAL_LOJISTIK',
+    OBSERVER: 'OBSERVER'
+  };
   
   // Capability checks based on RBAC matrix
   const canManageUsers = isAdmin;
   const canViewStock = true; // All roles can view stock
-  const canCreateRequest = isAdmin || isLabManager;
-  const canApprove = isAdmin || isLabManager;
-  const canOrder = isAdmin || isProcurement;
-  const canReceive = isAdmin || isProcurement;
-  const canDistribute = isAdmin || isLabManager || isProcurement;
+  const canCreateRequest = isAdmin || isSatinalLojistik;
+  const canApprove = isAdmin || isSatinalLojistik;
+  const canOrder = isAdmin || isSatinal;
+  const canReceive = isAdmin || isSatinal;
+  const canDistribute = isAdmin || isSatinalLojistik;
   const canViewDagit = true; // All roles can view distributions
-  const canViewTalep = isAdmin || isLabManager || isProcurement; // OBSERVER cannot see Talep
-  const canViewSiparis = isAdmin || isProcurement; // Only PROCUREMENT can see orders
+  const canViewTalep = isAdmin || isSatinal || isSatinalLojistik;
+  const canViewSiparis = isAdmin || isSatinal;
   
   const username = currentUser?.username || '';
   
@@ -1410,9 +1416,10 @@ const LabEquipmentTracker = () => {
                   onChange={(e) => setUserCreateForm({ ...userCreateForm, role: e.target.value })}
                   className="px-4 py-2 border rounded-lg"
                 >
-                  <option value="LAB_MANAGER">LAB_MANAGER (Talep + Onayla + Dağıt)</option>
-                  <option value="PROCUREMENT">PROCUREMENT (Sipariş + Teslim Al + Dağıt)</option>
+                  <option value="SATINAL_LOJISTIK">SATINAL_LOJISTIK (Talep + Onayla + Dağıt)</option>
+                  <option value="SATINAL">SATINAL (Sipariş + Teslim Al)</option>
                   <option value="OBSERVER">OBSERVER (Sadece Görüntüleme)</option>
+                  <option value="ADMIN">ADMIN (Tüm Yetkiler)</option>
                 </select>
               </div>
 

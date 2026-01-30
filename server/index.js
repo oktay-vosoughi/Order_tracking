@@ -18,6 +18,13 @@ const MYSQL_DATABASE = process.env.MYSQL_DATABASE || 'order_Tracking';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-in-production';
 
+const ROLES = {
+  ADMIN: 'ADMIN',
+  SATINAL: 'SATINAL',
+  SATINAL_LOJISTIK: 'SATINAL_LOJISTIK',
+  OBSERVER: 'OBSERVER'
+};
+
 const pool = mysql.createPool({
   host: MYSQL_HOST,
   port: MYSQL_PORT,
@@ -134,11 +141,14 @@ const requireRole = (allowedRoles) => (req, res, next) => {
   next();
 };
 
-// Capability checks
-const canApprove = (req, res, next) => requireRole(['ADMIN', 'LAB_MANAGER'])(req, res, next);
-const canOrder = (req, res, next) => requireRole(['ADMIN', 'PROCUREMENT'])(req, res, next);
-const canDistribute = (req, res, next) => requireRole(['ADMIN', 'LAB_MANAGER', 'PROCUREMENT'])(req, res, next);
-const canRequest = (req, res, next) => requireRole(['ADMIN', 'LAB_MANAGER'])(req, res, next);
+// Capability checks (aligned with new SATINAL roles)
+const canApprove = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
+const canOrder = (req, res, next) => requireRole([ROLES.ADMIN, ROLES.SATINAL])(req, res, next);
+const canDistribute = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
+const canRequest = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
 
 const countUsers = async () => {
   const rows = await all(pool, 'SELECT COUNT(*) AS cnt FROM users');
@@ -243,7 +253,7 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
   }
 
   if (role) {
-    const validRoles = ['LAB_MANAGER', 'PROCUREMENT', 'OBSERVER'];
+    const validRoles = [ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.OBSERVER];
     if (!validRoles.includes(role)) {
       res.status(400).json({ error: 'INVALID_ROLE' });
       return;
@@ -368,7 +378,7 @@ app.post('/api/users', authRequired, adminRequired, async (req, res) => {
     res.status(400).json({ error: 'INVALID_INPUT' });
     return;
   }
-  const validRoles = ['LAB_MANAGER', 'PROCUREMENT', 'OBSERVER'];
+  const validRoles = [ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.OBSERVER];
   if (!validRoles.includes(role)) {
     res.status(400).json({ error: 'INVALID_ROLE' });
     return;
@@ -2131,12 +2141,20 @@ app.post('/api/clear-all', authRequired, adminRequired, async (req, res) => {
   try {
     await withTransaction(async (conn) => {
       // Delete all data from all tables
-      await run(conn, 'DELETE FROM receipts');
-      await run(conn, 'DELETE FROM waste_records');
-      await run(conn, 'DELETE FROM distributions');
-      await run(conn, 'DELETE FROM purchases');
-      await run(conn, 'DELETE FROM lots');
-      await run(conn, "UPDATE item_definitions SET status = 'INACTIVE'"); // Soft delete items
+      const truncateTables = [
+        'distribution_lots',
+        'usage_records',
+        'counting_records',
+        'distributions',
+        'receipts',
+        'waste_records',
+        'purchases',
+        'lots'
+      ];
+      for (const table of truncateTables) {
+        await run(conn, `DELETE FROM \`${table}\``);
+      }
+      await run(conn, "UPDATE item_definitions SET status = 'INACTIVE', totalStock = 0, activeLotCount = 0");
     });
     res.json({ status: 'cleared' });
   } catch (error) {
