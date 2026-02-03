@@ -1,0 +1,157 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap');
+
+:root {
+  --color-navy: #102253;
+  --color-navy-dark: #0a1636;
+  --color-cyan: #00aEEF;
+  --color-cyan-dark: #0084c4;
+  --color-silver: #8a8d8f;
+  --color-gray: #54575c;
+  --color-charcoal: #2e323a;
+  --color-offwhite: rgba(255, 255, 255, 0.96);
+}
+
+body {
+  font-family: 'Barlow', 'Segoe UI', sans-serif;
+  background: linear-gradient(135deg, rgba(16, 34, 83, 0.98) 0%, rgba(16, 34, 83, 0.92) 25%, rgba(0, 174, 239, 0.95) 65%, rgba(138, 141, 143, 0.9) 100%) fixed;
+  min-height: 100vh;
+  color: var(--color-charcoal);
+}
+
+.theme-shell {
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.brand-card {
+  background: var(--color-offwhite);
+  border-radius: 1.5rem;
+  border: 1px solid rgba(138, 141, 143, 0.25);
+  box-shadow: 0 25px 65px rgba(10, 16, 31, 0.18);
+}
+
+.surface-panel {
+  background: var(--color-offwhite);
+  border-radius: 1.25rem;
+  border: 1px solid rgba(138, 141, 143, 0.2);
+  box-shadow: 0 20px 45px rgba(16, 34, 83, 0.12);
+}
+
+.action-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.2rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.action-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.08);
+}
+
+.btn-navy {
+  background: linear-gradient(120deg, var(--color-navy) 0%, var(--color-navy-dark) 100%);
+  color: #fff !important;
+}
+
+.btn-cyan {
+  background: linear-gradient(120deg, var(--color-cyan) 0%, var(--color-cyan-dark) 100%);
+  color: #042335 !important;
+}
+
+.btn-silver {
+  background: var(--color-silver);
+  color: #0f1729 !important;
+}
+
+.btn-charcoal {
+  background: var(--color-charcoal);
+  color: #fff !important;
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(138, 141, 143, 0.35);
+  border-radius: 0.85rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.glass-input:focus {
+  border-color: var(--color-cyan);
+  box-shadow: 0 0 0 3px rgba(0, 174, 239, 0.25);
+  outline: none;
+}
+
+.tab-chip {
+  border-radius: 9999px;
+  padding: 0.55rem 1.25rem;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.tab-chip-active {
+  background: var(--color-navy);
+  color: #fff !important;
+  box-shadow: 0 12px 30px rgba(16, 34, 83, 0.25);
+}
+
+.tab-chip-accent-active {
+  background: var(--color-cyan);
+  color: #042335 !important;
+  box-shadow: 0 12px 30px rgba(0, 174, 239, 0.3);
+}
+
+.tab-chip-dark-active {
+  background: var(--color-charcoal);
+  color: #fff !important;
+  box-shadow: 0 12px 25px rgba(46, 50, 58, 0.3);
+}
+
+.tab-chip-inactive {
+  background: rgba(255, 255, 255, 0.35);
+  color: var(--color-gray);
+  border-color: rgba(138, 141, 143, 0.35);
+}
+
+.pill-toggle {
+  border-radius: 9999px;
+  padding: 0.45rem 1.2rem;
+  border: 1px solid rgba(138, 141, 143, 0.4);
+  background: rgba(255, 255, 255, 0.45);
+  color: var(--color-gray);
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.pill-toggle--active {
+  background: var(--color-cyan);
+  color: #042335;
+  border-color: transparent;
+  box-shadow: 0 12px 30px rgba(0, 174, 239, 0.3);
+}
+
+.role-chip {
+  padding: 0.15rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(0, 174, 239, 0.18);
+  color: #032034;
+}
+
+.role-chip--admin {
+  background: rgba(16, 34, 83, 0.18);
+  color: var(--color-navy);
+}
+
+.role-chip--observer {
+  background: rgba(138, 141, 143, 0.22);
+  color: var(--color-gray);
+}

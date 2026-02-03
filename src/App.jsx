@@ -21,6 +21,8 @@ import {
 import { AddItemFormLab, WasteForm, ExpiryAlertDashboard, ExpiryBadge, MSDSLink } from './LabComponents';
 import LotInventory from './LotInventory';
 import { buildLotImportPayload } from './utils/lotExcelImporter';
+import './theme.css';
+import logoIcon from './logos/icon.png';
 
 const RECEIVE_FORM_DEFAULT = {
   receivedQty: '',
@@ -108,6 +110,21 @@ const LabEquipmentTracker = () => {
     confirmPassword: ''
   });
   const [passwordChangeStatus, setPasswordChangeStatus] = useState(null);
+
+  const tabClass = (tab, variant = 'primary') => {
+    const isActive = activeTab === tab;
+    const base = 'tab-chip ';
+    if (!isActive) return `${base}tab-chip-inactive`;
+    if (variant === 'accent') return `${base}tab-chip-accent-active`;
+    if (variant === 'dark') return `${base}tab-chip-dark-active`;
+    return `${base}tab-chip-active`;
+  };
+
+  const roleChipClass = () => {
+    if (currentUser?.role === 'ADMIN') return 'role-chip role-chip--admin';
+    if (currentUser?.role === 'OBSERVER') return 'role-chip role-chip--observer';
+    return 'role-chip';
+  };
   
   // Role-based capability helpers
   const userRole = currentUser?.role;
@@ -1090,8 +1107,8 @@ const LabEquipmentTracker = () => {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 flex items-center justify-center">
-        <div className="bg-white rounded-xl shadow-lg p-6 text-gray-700">
+      <div className="theme-shell flex items-center justify-center">
+        <div className="brand-card px-8 py-10 text-lg text-slate-600">
           Yükleniyor...
         </div>
       </div>
@@ -1100,10 +1117,18 @@ const LabEquipmentTracker = () => {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 flex items-center justify-center">
-        <div className="bg-white rounded-xl shadow-lg p-6 max-w-md w-full">
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">Giriş</h1>
-          <p className="text-sm text-gray-600 mb-4">
+      <div className="theme-shell flex items-center justify-center">
+        <div className="brand-card p-8 max-w-md w-full">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="p-3 rounded-2xl bg-white/90 shadow-md">
+              <img src={logoIcon} alt="GTMLIMS" className="w-12 h-12 object-contain" />
+            </div>
+            <div>
+              <p className="text-sm uppercase tracking-[0.4em] text-slate-500">GTMLIMS</p>
+              <h1 className="text-2xl font-bold text-slate-900">Laboratuvar Malzeme Takip</h1>
+            </div>
+          </div>
+          <p className="text-sm text-slate-600 mb-4">
             {bootstrapMode ? 'İlk kurulum: İlk kullanıcı ADMIN olarak oluşturulacak.' : 'Kullanıcı adı ve şifrenizle giriş yapın.'}
           </p>
 
@@ -1112,14 +1137,14 @@ const LabEquipmentTracker = () => {
             placeholder="Kullanıcı Adı"
             value={loginForm.username}
             onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
-            className="w-full px-4 py-2 border rounded-lg mb-3"
+            className="w-full glass-input px-4 py-3 mb-3"
           />
           <input
             type="password"
             placeholder="Şifre"
             value={loginForm.password}
             onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-            className="w-full px-4 py-2 border rounded-lg mb-4"
+            className="w-full glass-input px-4 py-3 mb-5"
           />
 
           {authError && (
@@ -1130,14 +1155,14 @@ const LabEquipmentTracker = () => {
 
           <button
             onClick={handleLogin}
-            className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700"
+            className="w-full action-chip btn-navy justify-center"
           >
             {bootstrapMode ? 'İlk Admin Oluştur' : 'Giriş Yap'}
           </button>
 
           <button
             onClick={() => setBootstrapMode((v) => !v)}
-            className="w-full mt-3 text-indigo-600 underline text-sm"
+            className="w-full mt-3 text-cyan-200 underline text-sm text-center"
           >
             {bootstrapMode ? 'Normal girişe dön' : 'İlk kurulum (bootstrap) modunu aç'}
           </button>
@@ -1147,53 +1172,58 @@ const LabEquipmentTracker = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className="theme-shell">
       <div className="max-w-7xl mx-auto">
-        <div className="bg-white rounded-xl shadow-lg p-4 md:p-6 mb-6">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-800 flex items-center gap-3">
-                <Package className="text-indigo-600" size={36} />
-                Laboratuvar Malzeme Takip
-              </h1>
-              <p className="text-sm text-gray-600 mt-2 flex items-center gap-2">
-                <User size={16} />
-                Kullanıcı: <strong>{username}</strong>
-                <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${(currentUser?.role === 'ADMIN' || currentUser?.role === 'APPROVER') ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                  {currentUser?.role || 'REQUESTER'}
-                </span>
-                <button onClick={handleLogout} className="text-indigo-600 underline text-xs ml-2">
-                  Çıkış
-                </button>
-              </p>
+        <div className="brand-card p-6 md:p-8 mb-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
+            <div className="flex items-start gap-4">
+              <div className="p-3 rounded-2xl bg-white/90 shadow-md">
+                <img src={logoIcon} alt="GTMLIMS" className="w-14 h-14 object-contain" />
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.5em] text-slate-500">GTMLIMS</p>
+                <h1 className="text-2xl md:text-3xl font-bold text-slate-900 flex items-center gap-2">
+                  Laboratuvar Malzeme Takip
+                </h1>
+                <p className="text-sm text-slate-600 mt-2 flex items-center gap-2 flex-wrap">
+                  <User size={16} />
+                  Kullanıcı: <strong>{username}</strong>
+                  <span className={roleChipClass()}>
+                    {currentUser?.role || 'REQUESTER'}
+                  </span>
+                  <button onClick={handleLogout} className="text-cyan-500 underline text-xs ml-1">
+                    Çıkış
+                  </button>
+                </p>
+              </div>
             </div>
             <div className="flex gap-2 flex-wrap">
               {expiryStats.critical > 0 && (
-                <button onClick={() => setShowExpiryAlert(true)} className="flex items-center gap-2 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm animate-pulse">
+                <button onClick={() => setShowExpiryAlert(true)} className="action-chip btn-charcoal text-sm animate-pulse">
                   <AlertTriangle size={18} />
                   SKT Uyarı ({expiryStats.critical})
                 </button>
               )}
               {expiryStats.expiringSoon > 0 && expiryStats.critical === 0 && (
-                <button onClick={() => setShowExpiryAlert(true)} className="flex items-center gap-2 px-3 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 text-sm">
+                <button onClick={() => setShowExpiryAlert(true)} className="action-chip btn-silver text-sm">
                   <Calendar size={18} />
                   SKT Raporu ({expiryStats.expiringSoon})
                 </button>
               )}
-              <button onClick={downloadTemplate} className="flex items-center gap-2 px-3 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 text-sm">
+              <button onClick={downloadTemplate} className="action-chip btn-silver text-sm">
                 <FileSpreadsheet size={18} />
                 Şablon
               </button>
-              <label className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 cursor-pointer text-sm">
+              <label className="action-chip btn-cyan text-sm cursor-pointer">
                 <Upload size={18} />
                 Excel Yükle
                 <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="hidden" />
               </label>
-              <button onClick={() => handleExcelExport(exportStock, 'Stok_Takip.xlsx')} className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
+              <button onClick={() => handleExcelExport(exportStock, 'Stok_Takip.xlsx')} className="action-chip btn-charcoal text-sm">
                 <Download size={18} />
                 Excel'e Aktar
               </button>
-              <button onClick={() => setShowAddForm(true)} className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm">
+              <button onClick={() => setShowAddForm(true)} className="action-chip btn-navy text-sm">
                 <Plus size={18} />
                 Yeni
               </button>
@@ -1201,85 +1231,83 @@ const LabEquipmentTracker = () => {
           </div>
           
           {uploadStats && (
-            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-green-800 text-sm">
-                ✅ <strong>{uploadStats.totalItems}</strong> malzeme yüklendi ({uploadStats.sheets} sayfa)
-              </p>
+            <div className="mb-4 px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-green-800 text-sm">
+              ✅ <strong>{uploadStats.totalItems}</strong> malzeme yüklendi ({uploadStats.sheets} sayfa)
             </div>
           )}
           
           <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
             {canViewStock && (
-              <button onClick={() => setActiveTab('stock')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'stock' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
+              <button onClick={() => setActiveTab('stock')} className={`${tabClass('stock')} flex items-center gap-2 whitespace-nowrap`}>
                 <Package size={18} />
                 Stok
               </button>
             )}
             {canViewTalep && (
-              <button onClick={() => setActiveTab('requests')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'requests' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
+              <button onClick={() => setActiveTab('requests')} className={`${tabClass('requests')} flex items-center gap-2 whitespace-nowrap`}>
                 <ShoppingCart size={18} />
                 Talepler ({purchases.filter(p => p.status === 'TALEP_EDILDI').length})
               </button>
             )}
             {canViewDagit && (
-              <button onClick={() => setActiveTab('distributions')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'distributions' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
+              <button onClick={() => setActiveTab('distributions')} className={`${tabClass('distributions')} flex items-center gap-2 whitespace-nowrap`}>
                 <FileCheck size={18} />
                 Dağıtım
               </button>
             )}
             {!isObserver && (
-              <button onClick={() => setActiveTab('waste')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'waste' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
+              <button onClick={() => setActiveTab('waste')} className={`${tabClass('waste')} flex items-center gap-2 whitespace-nowrap`}>
                 <Recycle size={18} />
                 Atık ({wasteRecords.length})
               </button>
             )}
             {canViewStock && (
-              <button onClick={() => setActiveTab('total_stock')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'total_stock' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
+              <button onClick={() => setActiveTab('total_stock')} className={`${tabClass('total_stock')} flex items-center gap-2 whitespace-nowrap`}>
                 <BarChart2 size={18} />
                 Genel Stok Görünümü
               </button>
             )}
             {!isObserver && (
-              <button onClick={() => setActiveTab('lot_inventory')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'lot_inventory' ? 'bg-green-600 text-white' : 'bg-green-100 text-green-700')}>
+              <button onClick={() => setActiveTab('lot_inventory')} className={`${tabClass('lot_inventory', 'accent')} flex items-center gap-2 whitespace-nowrap`}>
                 <Package size={18} />
                 LOT Stok Yönetimi
               </button>
             )}
             {canManageUsers && (
-              <button onClick={() => setActiveTab('users')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'users' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600')}>
+              <button onClick={() => setActiveTab('users')} className={`${tabClass('users')} flex items-center gap-2 whitespace-nowrap`}>
                 <User size={18} />
                 Kullanıcılar
               </button>
             )}
             {currentUser && (
-              <button onClick={() => setActiveTab('account')} className={'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition whitespace-nowrap ' + (activeTab === 'account' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700')}>
+              <button onClick={() => setActiveTab('account')} className={`${tabClass('account', 'dark')} flex items-center gap-2 whitespace-nowrap`}>
                 <Lock size={18} />
                 Hesabım
               </button>
             )}
           </div>
           
-          <div className="flex gap-4 mb-6 flex-wrap">
+          <div className="flex gap-4 mb-2 flex-wrap">
             <div className="flex-1 relative min-w-[200px]">
-              <Search className="absolute left-3 top-3 text-gray-400" size={20} />
+              <Search className="absolute left-3 top-3 text-slate-400" size={20} />
               <input
                 type="text"
                 placeholder="Ara..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full glass-input pl-10 pr-4 py-3"
               />
             </div>
             {activeTab === 'stock' && (
               <>
-                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-4 py-2 border rounded-lg">
+                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="glass-input px-4 py-3">
                   <option value="all">Tümü</option>
                   <option value="STOKTA">Stokta</option>
                   <option value="SATINAL">Satın Al</option>
                 </select>
                 <button
                   onClick={() => setFefoMode(!fefoMode)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition ${fefoMode ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+                  className={`pill-toggle ${fefoMode ? 'pill-toggle--active' : ''}`}
                   title="FEFO (First Expired First Out) - SKT'ye göre sırala"
                 >
                   <Calendar size={18} />
