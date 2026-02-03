@@ -662,11 +662,13 @@ app.put('/api/item-definitions/:id', authRequired, async (req, res) => {
   }
 });
 
-// Delete item definition (soft delete to avoid foreign key constraint issues)
+// Delete item definition (hard delete with cascading lot removal)
 app.delete('/api/item-definitions/:id', authRequired, adminRequired, async (req, res) => {
   try {
-    // Soft delete: set status to INACTIVE instead of hard delete
-    await run(pool, "UPDATE item_definitions SET status = 'INACTIVE' WHERE id = ?", [req.params.id]);
+    await withTransaction(async (conn) => {
+      await run(conn, 'DELETE FROM lots WHERE itemId = ?', [req.params.id]);
+      await run(conn, 'DELETE FROM item_definitions WHERE id = ?', [req.params.id]);
+    });
     res.json({ status: 'deleted' });
   } catch (error) {
     console.error('Failed to delete item definition', error);
