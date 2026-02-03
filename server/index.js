@@ -238,8 +238,8 @@ app.post('/api/auth/bootstrap', async (req, res) => {
 });
 
 app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
-  const { username, role } = req.body || {};
-  if (!username && !role) {
+  const { username, role, password } = req.body || {};
+  if (!username && !role && !password) {
     res.status(400).json({ error: 'INVALID_INPUT' });
     return;
   }
@@ -260,6 +260,16 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
     }
     updates.push('role = ?');
     params.push(String(role));
+  }
+
+  if (password) {
+    if (String(password).length < 8) {
+      res.status(400).json({ error: 'WEAK_PASSWORD', message: 'Şifre en az 8 karakter olmalı' });
+      return;
+    }
+    const passwordHash = await bcrypt.hash(String(password), 10);
+    updates.push('passwordHash = ?');
+    params.push(passwordHash);
   }
 
   params.push(req.params.id);

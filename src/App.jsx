@@ -353,23 +353,28 @@ const LabEquipmentTracker = () => {
   };
 
   const handleSaveUser = async () => {
-    if (!userCreateForm.username.trim()) {
+    const trimmedUsername = userCreateForm.username.trim();
+    if (!trimmedUsername) {
       alert('Kullanıcı adı zorunludur');
       return;
     }
 
-    const trimmedUsername = userCreateForm.username.trim();
+    if (!editingUserId && !userCreateForm.password) {
+      alert('Yeni kullanıcı için şifre gereklidir');
+      return;
+    }
+
+    if (editingUserId && userCreateForm.password && userCreateForm.password.length < 8) {
+      alert('Yeni şifre en az 8 karakter olmalıdır');
+      return;
+    }
 
     try {
       let res;
       if (editingUserId) {
-        res = await updateUser(editingUserId, trimmedUsername, userCreateForm.role);
+        res = await updateUser(editingUserId, trimmedUsername, userCreateForm.role, userCreateForm.password || undefined);
         alert('Kullanıcı güncellendi');
       } else {
-        if (!userCreateForm.password) {
-          alert('Yeni kullanıcı için şifre gereklidir');
-          return;
-        }
         res = await createUser(trimmedUsername, userCreateForm.password, userCreateForm.role);
         alert('Kullanıcı oluşturuldu');
       }
