@@ -142,11 +142,13 @@ const LabEquipmentTracker = () => {
   // Capability checks based on RBAC matrix
   const canManageUsers = isAdmin;
   const canViewStock = true; // All roles can view stock
+  const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik;
   const canCreateRequest = isAdmin || isSatinalLojistik;
   const canApprove = isAdmin || isSatinalLojistik;
   const canOrder = isAdmin || isSatinal;
   const canReceive = isAdmin || isSatinal;
   const canDistribute = isAdmin || isSatinalLojistik;
+  const canImportItems = canModifyInventory;
   const canViewDagit = true; // All roles can view distributions
   const canViewTalep = isAdmin || isSatinal || isSatinalLojistik;
   const canViewSiparis = isAdmin || isSatinal;
@@ -1210,27 +1212,37 @@ const LabEquipmentTracker = () => {
                   SKT Raporu ({expiryStats.expiringSoon})
                 </button>
               )}
-              <button onClick={downloadTemplate} className="action-chip btn-silver text-sm">
-                <FileSpreadsheet size={18} />
-                Şablon
-              </button>
-              <label className="action-chip btn-cyan text-sm cursor-pointer">
-                <Upload size={18} />
-                Excel Yükle
-                <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="hidden" />
-              </label>
-              <button onClick={() => handleExcelExport(exportStock, 'Stok_Takip.xlsx')} className="action-chip btn-charcoal text-sm">
-                <Download size={18} />
-                Excel'e Aktar
-              </button>
-              <button onClick={() => setShowAddForm(true)} className="action-chip btn-navy text-sm">
-                <Plus size={18} />
-                Yeni
-              </button>
+              {canModifyInventory && (
+                <>
+                  <button onClick={downloadTemplate} className="action-chip btn-silver text-sm">
+                    <FileSpreadsheet size={18} />
+                    Şablon
+                  </button>
+                  <label className="action-chip btn-cyan text-sm cursor-pointer">
+                    <Upload size={18} />
+                    Excel Yükle
+                    <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="hidden" />
+                  </label>
+                  <button onClick={() => handleExcelExport(exportStock, 'Stok_Takip.xlsx')} className="action-chip btn-charcoal text-sm">
+                    <Download size={18} />
+                    Excel'e Aktar
+                  </button>
+                  <button onClick={() => setShowAddForm(true)} className="action-chip btn-navy text-sm">
+                    <Plus size={18} />
+                    Yeni
+                  </button>
+                </>
+              )}
+              {!canModifyInventory && (
+                <button onClick={() => handleExcelExport(exportStock, 'Stok_Takip.xlsx')} className="action-chip btn-charcoal text-sm">
+                  <Download size={18} />
+                  Excel'e Aktar
+                </button>
+              )}
             </div>
           </div>
           
-          {uploadStats && (
+          {uploadStats && canModifyInventory && (
             <div className="mb-4 px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-green-800 text-sm">
               ✅ <strong>{uploadStats.totalItems}</strong> malzeme yüklendi ({uploadStats.sheets} sayfa)
             </div>
@@ -1305,20 +1317,22 @@ const LabEquipmentTracker = () => {
                   <option value="STOKTA">Stokta</option>
                   <option value="SATINAL">Satın Al</option>
                 </select>
-                <button
-                  onClick={() => setFefoMode(!fefoMode)}
-                  className={`pill-toggle ${fefoMode ? 'pill-toggle--active' : ''}`}
-                  title="FEFO (First Expired First Out) - SKT'ye göre sırala"
-                >
-                  <Calendar size={18} />
-                  FEFO {fefoMode ? 'Açık' : 'Kapalı'}
-                </button>
+                {canModifyInventory && (
+                  <button
+                    onClick={() => setFefoMode(!fefoMode)}
+                    className={`pill-toggle ${fefoMode ? 'pill-toggle--active' : ''}`}
+                    title="FEFO (First Expired First Out) - SKT'ye göre sırala"
+                  >
+                    <Calendar size={18} />
+                    FEFO {fefoMode ? 'Açık' : 'Kapalı'}
+                  </button>
+                )}
               </>
             )}
           </div>
         </div>
 
-        {showAddForm && (
+        {showAddForm && canModifyInventory && (
           <AddItemFormLab
             newItem={newItem}
             setNewItem={setNewItem}
@@ -1808,7 +1822,15 @@ const LabEquipmentTracker = () => {
                                 Belge
                               </button>
                             )}
-                            <button onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }} className="px-2 py-1 bg-red-100 text-red-600 rounded text-xs"><Trash2 size={12} /></button>
+                            {canModifyInventory && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }}
+                                className="px-2 py-1 bg-red-100 text-red-600 rounded text-xs"
+                                title="Malzemeyi Sil"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
