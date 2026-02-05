@@ -141,14 +141,15 @@ const requireRole = (allowedRoles) => (req, res, next) => {
   next();
 };
 
-// Capability checks (aligned with new SATINAL roles)
+// Capability checks (aligned with updated SATINAL roles)
 const canApprove = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.SATINAL])(req, res, next);
+const canOrder = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
-const canOrder = (req, res, next) => requireRole([ROLES.ADMIN, ROLES.SATINAL])(req, res, next);
 const canDistribute = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canRequest = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 
 const countUsers = async () => {
   const rows = await all(pool, 'SELECT COUNT(*) AS cnt FROM users');
@@ -1749,6 +1750,8 @@ app.post('/api/import-items', authRequired, async (req, res) => {
           receivedDate: parseDate(raw.receivedDate) || new Date().toISOString().slice(0, 10)
         };
 
+        console.log('[ImportItems] Row %d (%s / %s) expiry raw=%s parsed=%s', idx + 1, code, lotNumber, raw.expiryDate, normalizedRow.expiryDate);
+
         if (!itemsByCode[code]) {
           itemsByCode[code] = [];
         }
@@ -2152,7 +2155,7 @@ app.get('/api/export/stock', authRequired, async (req, res) => {
 app.post('/api/clear-all', authRequired, adminRequired, async (req, res) => {
   try {
     await withTransaction(async (conn) => {
-      // Delete all data from all tables
+      // Delete all data from all tables (skip missing tables gracefully)
       const truncateTables = [
         'distribution_lots',
         'usage_records',
@@ -2163,10 +2166,45 @@ app.post('/api/clear-all', authRequired, adminRequired, async (req, res) => {
         'purchases',
         'lots'
       ];
+
       for (const table of truncateTables) {
-        await run(conn, `DELETE FROM \`${table}\``);
+        try {
+          await run(conn, `DELETE FROM \`${table}\``);
+        } catch (tableError) {
+          if (tableError?.code === 'ER_NO_SUCH_TABLE') {
+            console.warn(`[clear-all] Skipping missing table: ${table}`);
+            continue;
+          }
+          throw tableError;
+        }
       }
-      await run(conn, "UPDATE item_definitions SET status = 'INACTIVE', totalStock = 0, activeLotCount = 0");
+
+      // Reset item definitions if the table/columns exist in current schema
+      try {
+        const columns = await all(conn, 'SHOW COLUMNS FROM item_definitions');
+        const available = new Set(columns.map((col) => col.Field));
+        const updateClauses = [];
+
+        if (available.has('status')) {
+          updateClauses.push("status = 'INACTIVE'");
+        }
+        if (available.has('totalStock')) {
+          updateClauses.push('totalStock = 0');
+        }
+        if (available.has('activeLotCount')) {
+          updateClauses.push('activeLotCount = 0');
+        }
+
+        if (updateClauses.length > 0) {
+          await run(conn, `UPDATE item_definitions SET ${updateClauses.join(', ')}`);
+        }
+      } catch (itemDefErr) {
+        if (itemDefErr?.code === 'ER_NO_SUCH_TABLE') {
+          console.warn('[clear-all] item_definitions table not found, skipping reset');
+        } else {
+          throw itemDefErr;
+        }
+      }
     });
     res.json({ status: 'cleared' });
   } catch (error) {

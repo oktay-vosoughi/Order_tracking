@@ -95,6 +95,7 @@ const LabEquipmentTracker = () => {
   const [expandedMaterialId, setExpandedMaterialId] = useState(null);
   const [expandedMaterialLots, setExpandedMaterialLots] = useState([]);
   const [loadingLots, setLoadingLots] = useState(false);
+  const [purchaseStatusFilter, setPurchaseStatusFilter] = useState(null);
 
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
@@ -143,11 +144,11 @@ const LabEquipmentTracker = () => {
   const canManageUsers = isAdmin;
   const canViewStock = true; // All roles can view stock
   const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik;
-  const canCreateRequest = isAdmin || isSatinalLojistik;
-  const canApprove = isAdmin || isSatinalLojistik;
-  const canOrder = isAdmin || isSatinal;
-  const canReceive = isAdmin || isSatinal;
-  const canDistribute = isAdmin || isSatinalLojistik;
+  const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik;
+  const canApprove = isAdmin || isSatinal;
+  const canOrder = isAdmin || isSatinalLojistik;
+  const canReceive = isAdmin || isSatinalLojistik;
+  const canDistribute = isAdmin || isSatinal || isSatinalLojistik;
   const canImportItems = canModifyInventory;
   const canViewDagit = true; // All roles can view distributions
   const canViewTalep = isAdmin || isSatinal || isSatinalLojistik;
@@ -167,9 +168,9 @@ const LabEquipmentTracker = () => {
     }
   }, [currentUser]);
 
-  // Reset filters when switching between tabs to avoid stale state hiding data
+  // Reset stock filters when leaving the stock tab to avoid stale state
   useEffect(() => {
-    if (activeTab !== 'stock') return;
+    if (activeTab === 'stock') return;
     setSearchTerm('');
     setFilterStatus('all');
   }, [activeTab]);
@@ -583,8 +584,8 @@ const LabEquipmentTracker = () => {
   });
   
   const markAsOrdered = async (purchase) => {
-    if (!canApprove) {
-      alert('Bu işlem için APPROVER/ADMIN yetkisi gereklidir');
+    if (!canOrder) {
+      alert('Bu işlem için SATINAL_LOJISTIK/ADMIN yetkisi gereklidir');
       return;
     }
     if (!orderForm.supplierName.trim()) {
@@ -611,8 +612,8 @@ const LabEquipmentTracker = () => {
   const [receiveForm, setReceiveForm] = useState({ ...RECEIVE_FORM_DEFAULT });
   
   const addReceipt = async (purchase) => {
-    if (!canApprove) {
-      alert('Bu işlem için APPROVER/ADMIN yetkisi gereklidir');
+    if (!canReceive) {
+      alert('Bu işlem için SATINAL_LOJISTIK/ADMIN yetkisi gereklidir');
       return;
     }
     if (!receiveForm.receivedQty || receiveForm.receivedQty <= 0) {
@@ -759,23 +760,72 @@ const LabEquipmentTracker = () => {
     const min = Number(i.minStock ?? 0);
     return min > 0 && total < min;
   }).length;
+  const normalizeStatus = (value) => {
+    if (!value) return value;
+    if (value === 'SATINAL') return 'SATIN_AL';
+    return value;
+  };
+
   const toPurchaseCount = displayItems.filter(i => {
-    const stockStatus = i.stockStatus || i.status;
+    const stockStatus = normalizeStatus(i.stockStatus || i.status);
     return stockStatus === 'SATIN_AL';
-  }).length || lowStockCountFromData;
+  }).length;
 
   const purchaseStatusCounts = {
     pending: purchases.filter(p => p.status === 'TALEP_EDILDI').length,
     approved: purchases.filter(p => p.status === 'ONAYLANDI').length,
-    ordered: purchases.filter(p => ['SIPARIS_VERILDI', 'KISMI_TESLIM'].includes(p.status)).length,
+    ordered: purchases.filter(p => ['SIPARIS_VERILDI', 'KISMI_TESLIM', 'KISMEN_GELDI'].includes(p.status)).length,
     completed: purchases.filter(p => ['TESLIM_ALINDI', 'GELDI'].includes(p.status)).length
+  };
+
+  const PURCHASE_STATUS_FILTERS = {
+    pending: {
+      label: 'Bekleyen',
+      statuses: ['TALEP_EDILDI'],
+      accent: 'text-yellow-600'
+    },
+    approved: {
+      label: 'Onaylı',
+      statuses: ['ONAYLANDI'],
+      accent: 'text-blue-600'
+    },
+    ordered: {
+      label: 'Siparişte',
+      statuses: ['SIPARIS_VERILDI', 'KISMI_TESLIM', 'KISMEN_GELDI'],
+      accent: 'text-purple-600'
+    },
+    completed: {
+      label: 'Tamamlanan',
+      statuses: ['TESLIM_ALINDI', 'GELDI'],
+      accent: 'text-green-600'
+    }
+  };
+
+  const filteredPurchases = purchaseStatusFilter && PURCHASE_STATUS_FILTERS[purchaseStatusFilter]
+    ? purchases.filter(p => PURCHASE_STATUS_FILTERS[purchaseStatusFilter].statuses.includes(p.status))
+    : purchases;
+
+  const statusCardDisplay = Object.keys(PURCHASE_STATUS_FILTERS).map((key) => ({
+    key,
+    label: PURCHASE_STATUS_FILTERS[key].label,
+    accent: PURCHASE_STATUS_FILTERS[key].accent,
+    count: purchaseStatusCounts[key] || 0
+  }));
+
+  const handleStatusCardClick = (key) => {
+    if (!key) return;
+    setActiveTab('requests');
+    setPurchaseStatusFilter((current) => (current === key ? null : key));
   };
 
   const filteredItems = (() => {
     let filtered = displayItems.filter(item => {
       const matchesSearch = item.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            item.code?.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesFilter = filterStatus === 'all' || item.status === filterStatus;
+      const matchesFilter =
+        filterStatus === 'all' ||
+        normalizeStatus(item.status) === filterStatus ||
+        normalizeStatus(item.stockStatus) === filterStatus;
       return matchesSearch && matchesFilter;
     });
     
@@ -1315,7 +1365,7 @@ const LabEquipmentTracker = () => {
                 <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="glass-input px-4 py-3">
                   <option value="all">Tümü</option>
                   <option value="STOKTA">Stokta</option>
-                  <option value="SATINAL">Satın Al</option>
+                  <option value="SATIN_AL">Satın Al</option>
                 </select>
                 {canModifyInventory && (
                   <button
@@ -1710,7 +1760,20 @@ const LabEquipmentTracker = () => {
             })()}
             
             <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-              <div className="overflow-x-auto">
+              {purchaseStatusFilter && PURCHASE_STATUS_FILTERS[purchaseStatusFilter] && (
+              <div className="px-4 py-3 bg-indigo-50 border-b border-indigo-100 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm text-indigo-800">
+                  Şu anda <strong>{PURCHASE_STATUS_FILTERS[purchaseStatusFilter].label}</strong> durumundaki talepler gösteriliyor.
+                </div>
+                <button
+                  onClick={() => setPurchaseStatusFilter(null)}
+                  className="text-sm text-indigo-700 hover:text-indigo-900 font-medium"
+                >
+                  Filtreyi Temizle
+                </button>
+              </div>
+            )}
+            <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
@@ -2113,7 +2176,7 @@ const LabEquipmentTracker = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {purchases.map((purchase) => (
+                  {filteredPurchases.map((purchase) => (
                     <tr key={purchase.id} className="hover:bg-gray-50">
                       <td className="px-3 py-2 font-medium">{purchase.requestNumber}</td>
                       <td className="px-3 py-2">
@@ -2161,10 +2224,12 @@ const LabEquipmentTracker = () => {
                   ))}
                 </tbody>
               </table>
-              {purchases.length === 0 && (
+              {filteredPurchases.length === 0 && (
                 <div className="text-center py-12 text-gray-500">
                   <ShoppingCart size={48} className="mx-auto mb-4 opacity-50" />
-                  <p>Henüz satın alma talebi yok</p>
+                  <p>
+                    {purchaseStatusFilter ? 'Bu filtreye uygun talep bulunamadı' : 'Henüz satın alma talebi yok'}
+                  </p>
                 </div>
               )}
             </div>
@@ -2304,30 +2369,53 @@ const LabEquipmentTracker = () => {
         )}
 
         <div className="mt-6 grid grid-cols-2 md:grid-cols-6 gap-4">
-          <div className="bg-white rounded-lg shadow p-4">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('stock');
+              setPurchaseStatusFilter(null);
+              setFilterStatus('all');
+              setSearchTerm('');
+            }}
+            className="bg-white rounded-lg shadow p-4 text-left transition hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
             <div className="text-sm text-gray-600 mb-1">Toplam Malzeme</div>
             <div className="text-2xl font-bold text-indigo-600">{totalMaterialCount}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-xs text-gray-400 mt-1">Stoktaki tüm malzemeleri göster</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('stock');
+              setPurchaseStatusFilter(null);
+              setFilterStatus('SATIN_AL');
+              setSearchTerm('');
+            }}
+            className="bg-white rounded-lg shadow p-4 text-left transition hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
             <div className="text-sm text-gray-600 mb-1">Satın Alınacak</div>
             <div className="text-2xl font-bold text-red-600">{toPurchaseCount}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-600 mb-1">Bekleyen</div>
-            <div className="text-2xl font-bold text-yellow-600">{purchaseStatusCounts.pending}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-600 mb-1">Onaylı</div>
-            <div className="text-2xl font-bold text-blue-600">{purchaseStatusCounts.approved}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-600 mb-1">Siparişte</div>
-            <div className="text-2xl font-bold text-purple-600">{purchaseStatusCounts.ordered}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-600 mb-1">Tamamlanan</div>
-            <div className="text-2xl font-bold text-green-600">{purchaseStatusCounts.completed}</div>
-          </div>
+            <div className="text-xs text-gray-400 mt-1">Stoktaki "Satın Al" durumlarını göster</div>
+          </button>
+          {statusCardDisplay.map(({ key, label, accent, count }) => {
+            const isActive = purchaseStatusFilter === key;
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => handleStatusCardClick(key)}
+                className={`bg-white rounded-lg p-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${isActive ? 'ring-2 ring-indigo-400 shadow-lg' : 'shadow hover:shadow-md'} cursor-pointer`}
+                aria-pressed={isActive}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-sm text-gray-600">{label}</div>
+                  {isActive && <span className="text-[10px] text-indigo-500 font-semibold">AKTİF</span>}
+                </div>
+                <div className={`text-2xl font-bold ${accent}`}>{count}</div>
+                <div className="text-xs text-gray-400 mt-1">Tıklayarak filtrele</div>
+              </button>
+            );
+          })}
         </div>
 
         <div className="mt-6 flex justify-center gap-4 flex-wrap">

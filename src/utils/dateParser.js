@@ -35,6 +35,74 @@ export function parseISODate(dateStr) {
 }
 
 /**
+ * Parse common month-first date formats like MM/DD/YYYY (US-style)
+ * @param {string} dateStr
+ * @returns {Date|null}
+ */
+function parseMonthFirstDate(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+
+  const trimmed = dateStr.trim();
+  if (!trimmed) return null;
+
+  const match = trimmed.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})$/);
+  if (!match) return null;
+
+  const month = parseInt(match[1], 10);
+  const day = parseInt(match[2], 10);
+  let year = parseInt(match[3], 10);
+
+  if (year < 100) {
+    year += 2000;
+  }
+
+  if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > 2200) {
+    return null;
+  }
+
+  const date = new Date(year, month - 1, day);
+  if (date.getDate() !== day || date.getMonth() !== month - 1 || date.getFullYear() !== year) {
+    return null;
+  }
+
+  return date;
+}
+
+/**
+ * Parse common day-first date formats like dd.MM.yyyy or dd/MM/yyyy
+ * @param {string} dateStr - Date string in day-first format
+ * @returns {Date|null}
+ */
+function parseDayFirstDate(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+
+  const trimmed = dateStr.trim();
+  if (!trimmed) return null;
+
+  const match = trimmed.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})$/);
+  if (!match) return null;
+
+  const day = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  let year = parseInt(match[3], 10);
+
+  if (year < 100) {
+    year += 2000;
+  }
+
+  if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > 2200) {
+    return null;
+  }
+
+  const date = new Date(year, month - 1, day);
+  if (date.getDate() !== day || date.getMonth() !== month - 1 || date.getFullYear() !== year) {
+    return null;
+  }
+
+  return date;
+}
+
+/**
  * Validate date is within acceptable range for lab inventory
  * @param {Date} date - Date object
  * @returns {boolean}
@@ -102,11 +170,18 @@ export function normalizeExpiryDate(value) {
   if (value instanceof Date) {
     date = value;
   }
-  // Case 2: String (expected case - ISO format from Excel)
+  // Case 2: String (ISO or localized day-first format)
   else if (typeof value === 'string') {
-    date = parseISODate(value);
+    const trimmed = value.trim();
+    date = parseISODate(trimmed) || parseDayFirstDate(trimmed) || parseMonthFirstDate(trimmed);
     if (date) {
-      console.log(`[DateParser] ISO format "${value}" → ${formatDateForDisplay(date)}`);
+      console.log(`[DateParser] Parsed "${value}" → ${formatDateForDisplay(date)}`);
+    } else if (/^\d+$/.test(trimmed)) {
+      const numeric = Number(trimmed);
+      if (numeric > 59 && numeric < 100000) {
+        const ms = (numeric - EXCEL_EPOCH_OFFSET) * 86400 * 1000;
+        date = new Date(ms);
+      }
     }
   }
   // Case 3: Number (Excel serial or timestamp)
@@ -118,14 +193,6 @@ export function normalizeExpiryDate(value) {
       date = new Date(value * 1000); // Unix timestamp in seconds
     } else if (value >= 10000000000) {
       date = new Date(value); // Unix timestamp in milliseconds
-    }
-  }
-  // Case 4: Numeric string (Excel serial stored as text)
-  else if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
-    const numeric = Number(value.trim());
-    if (numeric > 59 && numeric < 100000) {
-      const ms = (numeric - EXCEL_EPOCH_OFFSET) * 86400 * 1000;
-      date = new Date(ms);
     }
   }
   
