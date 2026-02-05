@@ -267,9 +267,14 @@ export async function orderPurchase(purchaseId, supplierName, poNumber, orderedQ
   });
 }
 
+export async function deletePurchase(purchaseId) {
+  return apiFetch(`/purchases/${purchaseId}`, {
+    method: 'DELETE'
+  });
+}
+
 export async function clearAllData() {
-  return apiFetch('/clear-all', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+  return apiFetch('/admin/clear-all', {
+    method: 'POST'
   });
 }

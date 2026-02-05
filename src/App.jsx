@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, FileSpreadsheet, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock } from 'lucide-react';
+import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -33,6 +33,9 @@ const RECEIVE_FORM_DEFAULT = {
   attachmentUrl: '',
   attachmentName: ''
 };
+
+const EXPIRY_WARNING_DAYS = 90;
+const EXPIRY_FILTER_VALUE = 'EXPIRY_WARNING';
 
 // Migration function for old data
 const migrateData = (user, purchases) => {
@@ -188,6 +191,23 @@ const LabEquipmentTracker = () => {
       setWasteRecords(wasteRes?.wasteRecords || []);
     } catch (error) {
       console.error('Failed to load action data:', error);
+    }
+  };
+
+  const markOrderRejected = async (purchase) => {
+    if (!canOrder) {
+      alert('Bu işlem için SATINAL_LOJISTIK/ADMIN yetkisi gereklidir');
+      return;
+    }
+    const reason = prompt('Sipariş verilmedi. Gerekçe giriniz:');
+    if (!reason) return;
+
+    try {
+      await rejectPurchase(purchase.id, reason);
+      await loadAllActionData();
+      alert('Talep sipariş edilmedi olarak işaretlendi.');
+    } catch (error) {
+      alert('İşlem başarısız: ' + (error?.message || 'HATA'));
     }
   };
 
@@ -576,6 +596,17 @@ const LabEquipmentTracker = () => {
     }
   };
   
+  const deletePurchaseRequest = async (purchaseId) => {
+    if (!window.confirm('Bu talep silinecek. Emin misiniz?')) return;
+    try {
+      await deletePurchase(purchaseId);
+      await loadAllActionData();
+      alert('Talep silindi');
+    } catch (error) {
+      alert('Silme işlemi başarısız: ' + (error?.message || 'HATA'));
+    }
+  };
+  
   // Order form state
   const [orderForm, setOrderForm] = useState({
     supplierName: '',
@@ -771,11 +802,22 @@ const LabEquipmentTracker = () => {
     return stockStatus === 'SATIN_AL';
   }).length;
 
+  const isExpiringSoon = (item) => {
+    const expiryDate = item?.nearestExpiry || item?.expiryDate;
+    if (!expiryDate) return false;
+    const days = getDaysUntilExpiry(expiryDate);
+    return typeof days === 'number' && days >= 0 && days <= EXPIRY_WARNING_DAYS;
+  };
+
+  const expiringStockItems = displayItems.filter(isExpiringSoon);
+  const expiringStockCount = expiringStockItems.length;
+
   const purchaseStatusCounts = {
     pending: purchases.filter(p => p.status === 'TALEP_EDILDI').length,
     approved: purchases.filter(p => p.status === 'ONAYLANDI').length,
     ordered: purchases.filter(p => ['SIPARIS_VERILDI', 'KISMI_TESLIM', 'KISMEN_GELDI'].includes(p.status)).length,
-    completed: purchases.filter(p => ['TESLIM_ALINDI', 'GELDI'].includes(p.status)).length
+    completed: purchases.filter(p => ['TESLIM_ALINDI', 'GELDI'].includes(p.status)).length,
+    rejected: purchases.filter(p => p.status === 'REDDEDILDI').length
   };
 
   const PURCHASE_STATUS_FILTERS = {
@@ -798,6 +840,11 @@ const LabEquipmentTracker = () => {
       label: 'Tamamlanan',
       statuses: ['TESLIM_ALINDI', 'GELDI'],
       accent: 'text-green-600'
+    },
+    rejected: {
+      label: 'Reddedildi',
+      statuses: ['REDDEDILDI'],
+      accent: 'text-red-600'
     }
   };
 
@@ -805,7 +852,7 @@ const LabEquipmentTracker = () => {
     ? purchases.filter(p => PURCHASE_STATUS_FILTERS[purchaseStatusFilter].statuses.includes(p.status))
     : purchases;
 
-  const statusCardDisplay = Object.keys(PURCHASE_STATUS_FILTERS).map((key) => ({
+  const statusCardDisplay = ['pending', 'approved', 'ordered', 'completed', 'rejected'].map((key) => ({
     key,
     label: PURCHASE_STATUS_FILTERS[key].label,
     accent: PURCHASE_STATUS_FILTERS[key].accent,
@@ -825,7 +872,8 @@ const LabEquipmentTracker = () => {
       const matchesFilter =
         filterStatus === 'all' ||
         normalizeStatus(item.status) === filterStatus ||
-        normalizeStatus(item.stockStatus) === filterStatus;
+        normalizeStatus(item.stockStatus) === filterStatus ||
+        (filterStatus === EXPIRY_FILTER_VALUE && isExpiringSoon(item));
       return matchesSearch && matchesFilter;
     });
     
@@ -1264,27 +1312,25 @@ const LabEquipmentTracker = () => {
               )}
               {canModifyInventory && (
                 <>
-                  <button onClick={downloadTemplate} className="action-chip btn-silver text-sm">
-                    <FileSpreadsheet size={18} />
-                    Şablon
-                  </button>
-                  <label className="action-chip btn-cyan text-sm cursor-pointer">
-                    <Upload size={18} />
-                    Excel Yükle
-                    <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="hidden" />
-                  </label>
-                  <button onClick={() => handleExcelExport(exportStock, 'Stok_Takip.xlsx')} className="action-chip btn-charcoal text-sm">
+                  {isAdmin && (
+                    <label className="action-chip btn-cyan text-sm cursor-pointer">
+                      <Upload size={18} />
+                      Excel Yükle
+                      <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="hidden" />
+                    </label>
+                  )}
+                  <button onClick={exportToExcel} className="action-chip btn-charcoal text-sm">
                     <Download size={18} />
                     Excel'e Aktar
                   </button>
                   <button onClick={() => setShowAddForm(true)} className="action-chip btn-navy text-sm">
                     <Plus size={18} />
-                    Yeni
+                    Malzeme Ekle
                   </button>
                 </>
               )}
               {!canModifyInventory && (
-                <button onClick={() => handleExcelExport(exportStock, 'Stok_Takip.xlsx')} className="action-chip btn-charcoal text-sm">
+                <button onClick={exportToExcel} className="action-chip btn-charcoal text-sm">
                   <Download size={18} />
                   Excel'e Aktar
                 </button>
@@ -1292,7 +1338,7 @@ const LabEquipmentTracker = () => {
             </div>
           </div>
           
-          {uploadStats && canModifyInventory && (
+          {uploadStats && isAdmin && (
             <div className="mb-4 px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-green-800 text-sm">
               ✅ <strong>{uploadStats.totalItems}</strong> malzeme yüklendi ({uploadStats.sheets} sayfa)
             </div>
@@ -1374,7 +1420,7 @@ const LabEquipmentTracker = () => {
                     title="FEFO (First Expired First Out) - SKT'ye göre sırala"
                   >
                     <Calendar size={18} />
-                    FEFO {fefoMode ? 'Açık' : 'Kapalı'}
+                    SKT Önceliklendir {fefoMode ? 'Açık' : 'Kapalı'}
                   </button>
                 )}
               </>
@@ -1715,49 +1761,75 @@ const LabEquipmentTracker = () => {
         )}
 
         {activeTab === 'stock' && (
-          <div className="space-y-4">
-            {/* Expiry Alerts */}
-            {(() => {
-              const expiringItems = unifiedStock.filter(item => {
-                if (!item.nearestExpiry) return false;
-                const daysUntilExpiry = getDaysUntilExpiry(item.nearestExpiry);
-                return daysUntilExpiry >= 0 && daysUntilExpiry <= 90;
-              }).sort((a, b) => {
-                const daysA = getDaysUntilExpiry(a.nearestExpiry);
-                const daysB = getDaysUntilExpiry(b.nearestExpiry);
-                return daysA - daysB;
-              });
-              
-              if (expiringItems.length === 0) return null;
-              
-              return (
-                <div className="bg-orange-50 border-l-4 border-orange-500 p-4 rounded-lg">
-                  <div className="flex items-start">
-                    <AlertTriangle className="text-orange-600 mr-3 mt-0.5" size={20} />
-                    <div className="flex-1">
-                      <h3 className="text-sm font-semibold text-orange-800 mb-2">SKT Uyarısı - Yaklaşan Son Kullanma Tarihleri</h3>
-                      <div className="space-y-1">
-                        {expiringItems.slice(0, 5).map(item => {
-                          const days = getDaysUntilExpiry(item.nearestExpiry);
-                          const isUrgent = days <= 30;
-                          return (
-                            <div key={item.id} className={`text-xs ${isUrgent ? 'text-red-700 font-semibold' : 'text-orange-700'}`}>
-                              • <strong>{item.name}</strong> ({item.code}) - SKT: {formatDateForDisplay(item.nearestExpiry)} 
-                              <span className="ml-2 px-2 py-0.5 rounded bg-white">
-                                {days === 0 ? 'BUGÜN' : days === 1 ? '1 GÜN' : `${days} GÜN`}
-                              </span>
-                            </div>
-                          );
-                        })}
-                        {expiringItems.length > 5 && (
-                          <div className="text-xs text-orange-600 mt-2">+ {expiringItems.length - 5} malzeme daha...</div>
-                        )}
-                      </div>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('stock');
+                  setPurchaseStatusFilter(null);
+                  setFilterStatus('all');
+                  setSearchTerm('');
+                }}
+                className="bg-white shadow-sm rounded-xl p-4 text-left hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+              >
+                <div className="text-sm text-gray-500">Toplam Malzeme</div>
+                <div className="text-3xl font-bold text-indigo-600">{totalMaterialCount}</div>
+                <div className="text-xs text-gray-400 mt-1">Stoktaki tüm malzemeleri göster</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('stock');
+                  setPurchaseStatusFilter(null);
+                  setFilterStatus('SATIN_AL');
+                  setSearchTerm('');
+                }}
+                className="bg-white shadow-sm rounded-xl p-4 text-left hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+              >
+                <div className="text-sm text-gray-500">Satın Alınacak</div>
+                <div className="text-3xl font-bold text-red-600">{toPurchaseCount}</div>
+                <div className="text-xs text-gray-400 mt-1">Stoktaki "Satın Al" durumlarını göster</div>
+              </button>
+              {statusCardDisplay.map(({ key, label, accent, count }) => {
+                const isActive = purchaseStatusFilter === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => handleStatusCardClick(key)}
+                    className={`bg-white shadow-sm rounded-xl p-4 text-left hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${isActive ? 'ring-2 ring-indigo-400' : ''}`}
+                    aria-pressed={isActive}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-gray-500">{label}</div>
+                      {isActive && <span className="text-[10px] text-indigo-500 font-semibold">AKTİF</span>}
                     </div>
-                  </div>
+                    <div className={`text-3xl font-bold ${accent}`}>{count}</div>
+                    <div className="text-xs text-gray-400 mt-1">Talepleri filtrele</div>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('stock');
+                  setPurchaseStatusFilter(null);
+                  setFilterStatus(EXPIRY_FILTER_VALUE);
+                  setSearchTerm('');
+                }}
+                className={`bg-white shadow-sm rounded-xl p-4 text-left hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${expiringStockCount > 0 ? 'border border-orange-200' : ''}`}
+              >
+                <div className="text-sm text-gray-500 flex items-center gap-2">
+                  <Calendar size={16} className="text-orange-500" />
+                  SKT Uyarısı (≤ {EXPIRY_WARNING_DAYS} gün)
                 </div>
-              );
-            })()}
+                <div className="text-3xl font-bold text-orange-500">{expiringStockCount}</div>
+                <div className="text-xs text-gray-400 mt-1">Yaklaşan SKT'leri göster</div>
+              </button>
+            </div>
+
+            {/* Expiry Alerts */}
             
             <div className="bg-white rounded-xl shadow-lg overflow-hidden">
               {purchaseStatusFilter && PURCHASE_STATUS_FILTERS[purchaseStatusFilter] && (
@@ -1891,7 +1963,7 @@ const LabEquipmentTracker = () => {
                                 className="px-2 py-1 bg-red-100 text-red-600 rounded text-xs"
                                 title="Malzemeyi Sil"
                               >
-                                <Trash2 size={12} />
+                                Sil
                               </button>
                             )}
                           </div>
@@ -2206,17 +2278,35 @@ const LabEquipmentTracker = () => {
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex gap-1 flex-wrap">
-                          {purchase.status === 'TALEP_EDILDI' && canApprove && (
+                          {purchase.status === 'TALEP_EDILDI' && (
                             <>
-                              <button onClick={() => approvePurchaseRequest(purchase.id)} className="px-2 py-1 bg-green-600 text-white rounded text-xs">Onayla</button>
-                              <button onClick={() => rejectPurchaseRequest(purchase.id)} className="px-2 py-1 bg-red-600 text-white rounded text-xs">Reddet</button>
+                              {canApprove && (
+                                <>
+                                  <button onClick={() => approvePurchaseRequest(purchase.id)} className="px-2 py-1 bg-green-600 text-white rounded text-xs">Onayla</button>
+                                  <button onClick={() => rejectPurchaseRequest(purchase.id)} className="px-2 py-1 bg-red-600 text-white rounded text-xs">Reddet</button>
+                                </>
+                              )}
+                              {isAdmin && (
+                                <button onClick={() => deletePurchaseRequest(purchase.id)} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs">Sil</button>
+                              )}
                             </>
                           )}
                           {purchase.status === 'ONAYLANDI' && canOrder && (
-                            <button onClick={() => { setOrderForm({...orderForm, orderedQty: purchase.requestedQty, supplierName: purchase.supplierName || ''}); setShowOrderForm(purchase); }} className="px-2 py-1 bg-purple-600 text-white rounded text-xs">Sipariş Ver</button>
+                            <>
+                              <button onClick={() => { setOrderForm({...orderForm, orderedQty: purchase.requestedQty, supplierName: purchase.supplierName || ''}); setShowOrderForm(purchase); }} className="px-2 py-1 bg-purple-600 text-white rounded text-xs">Sipariş Ver</button>
+                              <button onClick={() => markOrderRejected(purchase)} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs">Sipariş Edilmedi</button>
+                            </>
                           )}
                           {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
                             <button onClick={() => setShowReceiveForm(purchase)} className="px-2 py-1 bg-blue-600 text-white rounded text-xs">Teslim Al</button>
+                          )}
+                          {purchase.status === 'REDDEDILDI' && (
+                            <div className="text-xs text-red-600 font-medium">
+                              Sipariş Edilmedi
+                              {purchase.rejectionReason && (
+                                <div className="text-gray-600 font-normal">Neden: {purchase.rejectionReason}</div>
+                              )}
+                            </div>
                           )}
                         </div>
                       </td>
@@ -2368,65 +2458,15 @@ const LabEquipmentTracker = () => {
           <LotInventory currentUser={currentUser} />
         )}
 
-        <div className="mt-6 grid grid-cols-2 md:grid-cols-6 gap-4">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('stock');
-              setPurchaseStatusFilter(null);
-              setFilterStatus('all');
-              setSearchTerm('');
-            }}
-            className="bg-white rounded-lg shadow p-4 text-left transition hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
-          >
-            <div className="text-sm text-gray-600 mb-1">Toplam Malzeme</div>
-            <div className="text-2xl font-bold text-indigo-600">{totalMaterialCount}</div>
-            <div className="text-xs text-gray-400 mt-1">Stoktaki tüm malzemeleri göster</div>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('stock');
-              setPurchaseStatusFilter(null);
-              setFilterStatus('SATIN_AL');
-              setSearchTerm('');
-            }}
-            className="bg-white rounded-lg shadow p-4 text-left transition hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
-          >
-            <div className="text-sm text-gray-600 mb-1">Satın Alınacak</div>
-            <div className="text-2xl font-bold text-red-600">{toPurchaseCount}</div>
-            <div className="text-xs text-gray-400 mt-1">Stoktaki "Satın Al" durumlarını göster</div>
-          </button>
-          {statusCardDisplay.map(({ key, label, accent, count }) => {
-            const isActive = purchaseStatusFilter === key;
-            return (
-              <button
-                type="button"
-                key={key}
-                onClick={() => handleStatusCardClick(key)}
-                className={`bg-white rounded-lg p-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${isActive ? 'ring-2 ring-indigo-400 shadow-lg' : 'shadow hover:shadow-md'} cursor-pointer`}
-                aria-pressed={isActive}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <div className="text-sm text-gray-600">{label}</div>
-                  {isActive && <span className="text-[10px] text-indigo-500 font-semibold">AKTİF</span>}
-                </div>
-                <div className={`text-2xl font-bold ${accent}`}>{count}</div>
-                <div className="text-xs text-gray-400 mt-1">Tıklayarak filtrele</div>
-              </button>
-            );
-          })}
-        </div>
+        {/* Deprecated bottom boxes removed */}
 
         <div className="mt-6 flex justify-center gap-4 flex-wrap">
-          <button onClick={exportToExcel} className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700">
-            <Download size={20} />
-            Excel'e Aktar
-          </button>
-          <button onClick={clearAllData} className="flex items-center gap-2 px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600">
-            <Trash2 size={20} />
-            Tümünü Temizle
-          </button>
+          {isAdmin && (
+            <button onClick={clearAllData} className="flex items-center gap-2 px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600">
+              <Trash2 size={20} />
+              Tümünü Temizle
+            </button>
+          )}
         </div>
       </div>
     </div>

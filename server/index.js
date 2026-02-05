@@ -150,6 +150,8 @@ const canDistribute = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canRequest = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
+const canReject = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 
 const countUsers = async () => {
   const rows = await all(pool, 'SELECT COUNT(*) AS cnt FROM users');
@@ -1452,7 +1454,7 @@ app.post('/api/purchases/:id/approve', authRequired, canApprove, async (req, res
 });
 
 // Reject purchase request (LAB_MANAGER + ADMIN)
-app.post('/api/purchases/:id/reject', authRequired, canApprove, async (req, res) => {
+app.post('/api/purchases/:id/reject', authRequired, canReject, async (req, res) => {
   const { rejectionReason } = req.body || {};
   
   if (!rejectionReason) {
