@@ -426,6 +426,8 @@ app.post('/api/state', authRequired, async (req, res) => {
   const { items = [], purchases = [], distributions = [], wasteRecords = [] } = req.body || {};
   try {
     await withTransaction(async (conn) => {
+      // Delete in correct order: children before parents (FK constraints)
+      await run(conn, 'DELETE FROM distribution_lots');
       await run(conn, 'DELETE FROM receipts');
       await run(conn, 'DELETE FROM purchases');
       await run(conn, 'DELETE FROM distributions');
@@ -614,8 +616,8 @@ app.post('/api/item-definitions', authRequired, async (req, res) => {
   try {
     const id = generateId();
     await run(pool, `
-      INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, createdBy)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status, createdBy)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
     `, [id, code, name, category || '', department || '', unit || '', minStock || 0, ideal_stock || null, max_stock || null, supplier || '', catalogNo || '', brand || '', storageLocation || '', storageTemp || '', chemicalType || '', msdsUrl || '', notes || '', req.user.username]);
     
     const items = await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [id]);
@@ -1400,7 +1402,7 @@ app.post('/api/purchases', authRequired, canRequest, async (req, res) => {
     res.json({ purchase: purchases[0] });
   } catch (error) {
     console.error('Failed to create purchase request', error);
-    res.status(500).json({ error: 'SERVER_ERROR' });
+    res.status(500).json({ error: 'SERVER_ERROR', message: error?.message || 'Purchase creation failed' });
   }
 });
 
@@ -2215,10 +2217,23 @@ app.post('/api/clear-all', authRequired, adminRequired, async (req, res) => {
   }
 });
 
+// Serve frontend build in production
+const distPath = path.join(__dirname, '..', 'dist');
+app.use(express.static(distPath));
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api')) {
+    res.sendFile(path.join(distPath, 'index.html'));
+  }
+});
+
 const startServer = async () => {
   try {
     await ensureUsersTable();
     await pool.query('SELECT 1');
+    // Fix any item_definitions rows with NULL status
+    try {
+      await pool.query("UPDATE item_definitions SET status = 'ACTIVE' WHERE status IS NULL");
+    } catch (_) { /* ignore if table doesn't exist yet */ }
     console.log(`Connected to MySQL: ${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}`);
   } catch (error) {
     console.error('Failed to connect to MySQL. Check server/.env and ensure the database + tables exist.', error);

@@ -429,7 +429,7 @@ const LabEquipmentTracker = () => {
     code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: ''
   });
   
-  const addItem = () => {
+  const addItem = async () => {
     if (!newItem.name || !newItem.code) {
       alert('Lütfen en azından Malzeme Kodu ve Adı girin');
       return;
@@ -437,7 +437,7 @@ const LabEquipmentTracker = () => {
     
     // Check chemical compatibility with existing items in same location
     if (newItem.chemicalType && newItem.storageLocation) {
-      const sameLocationItems = items.filter(i => 
+      const sameLocationItems = (unifiedStock.length > 0 ? unifiedStock : items).filter(i => 
         i.storageLocation === newItem.storageLocation && 
         i.chemicalType && 
         i.chemicalType !== newItem.chemicalType
@@ -453,22 +453,35 @@ const LabEquipmentTracker = () => {
       }
     }
     
-    const item = {
-      ...newItem,
-      id: Date.now().toString(),
-      status: newItem.currentStock <= newItem.minStock ? 'SATINAL' : 'STOKTA',
-      createdAt: new Date().toISOString(),
-      createdBy: username
-    };
-    
-    const updatedItems = [...items, item];
-    setItems(updatedItems);
-    saveData(updatedItems, purchases, distributions);
-    
-    setNewItem({
-      code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: ''
-    });
-    setShowAddForm(false);
+    try {
+      await createItemDefinition({
+        code: newItem.code,
+        name: newItem.name,
+        category: newItem.category || '',
+        department: newItem.department || '',
+        unit: newItem.unit || '',
+        minStock: newItem.minStock || 0,
+        supplier: newItem.supplier || '',
+        catalogNo: newItem.catalogNo || '',
+        brand: newItem.brand || '',
+        storageLocation: newItem.storageLocation || '',
+        storageTemp: newItem.storageTemp || '',
+        chemicalType: newItem.chemicalType || '',
+        msdsUrl: newItem.msdsUrl || '',
+        notes: newItem.wasteStatus || ''
+      });
+      
+      await loadUnifiedData();
+      
+      setNewItem({
+        code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: ''
+      });
+      setShowAddForm(false);
+      alert('Malzeme başarıyla eklendi!');
+    } catch (error) {
+      console.error('Add item error:', error);
+      alert('Malzeme eklenemedi: ' + (error?.message || 'Bilinmeyen hata'));
+    }
   };
   
   // Waste management functions
