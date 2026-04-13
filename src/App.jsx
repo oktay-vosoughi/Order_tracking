@@ -165,6 +165,7 @@ const LabEquipmentTracker = () => {
 
   useEffect(() => {
     if (currentUser) {
+      console.log('[useEffect currentUser] Loading data for user:', currentUser.username);
       loadData();
       loadAllActionData();
     }
@@ -339,14 +340,25 @@ const LabEquipmentTracker = () => {
   
   const loadUnifiedData = async () => {
     try {
+      console.log('[loadUnifiedData] Starting fetch...');
       const [stockRes, analyticsRes] = await Promise.all([
         fetchUnifiedStock(),
         fetchAnalyticsOverview().catch(() => null)
       ]);
-      if (stockRes?.items) setUnifiedStock(stockRes.items);
+      console.log('[loadUnifiedData] Got response:', { 
+        hasItems: !!stockRes?.items, 
+        itemCount: stockRes?.items?.length,
+        firstItem: stockRes?.items?.[0]?.code 
+      });
+      if (stockRes?.items) {
+        console.log('[loadUnifiedData] Setting unifiedStock with', stockRes.items.length, 'items');
+        setUnifiedStock(stockRes.items);
+      } else {
+        console.warn('[loadUnifiedData] No items in response!');
+      }
       if (analyticsRes) setAnalytics(analyticsRes);
     } catch (error) {
-      console.error('Could not load unified data:', error);
+      console.error('[loadUnifiedData] ERROR:', error);
       // Do NOT overwrite existing data with empty on error
     }
   };

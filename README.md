@@ -5,38 +5,94 @@
 Modern React tabanlı laboratuvar malzeme stok ve satın alma takip uygulaması.
 
 ---
-
-## Kurulum / Installation
-
-```bash
-# Bağımlılıkları yükle
-npm install
-
-# Geliştirme sunucusunu başlat
-npm run dev
-
-# API sunucusunu (Node + Express + SQLite) başlat
 npm run server
-```
+Terminal 2 — Frontend:
 
-Uygulama **http://localhost:3000** adresinde açılacaktır.
-API varsayılan olarak **http://localhost:4000** üzerinde çalışır (Vite proxy otomatik bağlanır).
+bash
+npm run dev
+## Gereksinimler / Prerequisites
 
-### Ortam değişkenleri / Environment variables
-
-Projede örnek değerlerle gelen `.env` dosyası backend ve frontend için ortak kullanılır. Gerekirse aşağıdaki değişkenleri güncelleyebilirsiniz:
-
-- `PORT`: Express API portu (varsayılan `4000`)
-- `DATA_DIR`: SQLite veritabanı klasörü (varsayılan `server/data`)
-- `DB_FILENAME`: SQLite dosya adı (varsayılan `lab-equipment.db`)
-- `SCHEMA_PATH`: Şema dosyası yolu (varsayılan `server/schema.sql`)
-- `VITE_API_URL`: Frontend'in kullandığı API tabanı (dev ortamında `/api` Vite proxy'si ile yönlenir)
-
-`.env` dosyasını değiştirirseniz geliştirme/üretim sunucularını yeniden başlatın.
+- **Node.js** v18+ ve npm
+- **MySQL Server 8.0** (çalışır durumda olmalı)
 
 ---
 
-## 📋 Özellikler / Features
+## Yerel Kurulum / Local Setup
+
+### 1. Bağımlılıkları yükle / Install dependencies
+
+```bash
+npm install
+```
+
+### 2. MySQL veritabanını oluştur / Create the database
+
+MySQL çalışıyorken, şema dosyasını çalıştırarak veritabanını ve tabloları oluşturun:
+
+```bash
+mysql -u root -p < server/schema.sql
+```
+
+> ⚠️ `server/complete_database_schema.sql` dosyası var olan veritabanını **siler ve yeniden oluşturur**. Yalnızca sıfırdan kurulum için kullanın.
+
+### 3. Ortam değişkenlerini ayarla / Configure environment variables
+
+`server/.env` dosyası oluşturun (opsiyonel — aşağıdakiler zaten varsayılan değerlerdir):
+
+```env
+PORT=4000
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=0000
+MYSQL_DATABASE=order_Tracking
+JWT_SECRET=change-this-in-production
+```
+
+> Eğer MySQL root şifreniz farklıysa `MYSQL_PASSWORD` değerini güncelleyin.
+
+### 4. Backend sunucusunu başlat / Start the backend
+
+```bash
+npm run server
+```
+
+Backend **http://localhost:4000** adresinde çalışır.
+
+### 5. Frontend geliştirme sunucusunu başlat / Start the frontend
+
+Ayrı bir terminalde:
+
+```bash
+npm run dev
+```
+
+Frontend **http://localhost:3000** adresinde açılır. Vite, `/api` isteklerini otomatik olarak `http://localhost:4000` adresine yönlendirir (proxy).
+
+### 6. İlk giriş / First login
+
+- Eğer veritabanında hiç kullanıcı yoksa, uygulama sizi otomatik olarak **bootstrap** (ilk admin oluşturma) ekranına yönlendirir.
+- Kullanıcı adı ve şifre belirleyerek ilk ADMIN hesabını oluşturun.
+
+---
+
+### Ortam değişkenleri / Environment variables
+
+| Değişken | Açıklama | Varsayılan |
+|----------|----------|------------|
+| `PORT` | Express API portu | `4000` |
+| `MYSQL_HOST` | MySQL sunucu adresi | `localhost` |
+| `MYSQL_PORT` | MySQL portu | `3306` |
+| `MYSQL_USER` | MySQL kullanıcı adı | `root` |
+| `MYSQL_PASSWORD` | MySQL şifresi | *(boş)* |
+| `MYSQL_DATABASE` | Veritabanı adı | `order_Tracking` |
+| `JWT_SECRET` | JWT token imzalama anahtarı | `change-this-in-production` |
+
+`.env` dosyasını değiştirirseniz sunucuları yeniden başlatın.
+
+---
+
+## Özellikler / Features
 
 ### 1. Kullanıcı Yönetimi / User Management
 - İlk girişte kullanıcı adı sorulur
@@ -143,41 +199,56 @@ Stoktan malzeme çıkışlarını takip eder.
 
 ---
 
-## 💾 Veri Saklama
+## Veri Saklama / Data Storage
 
-Tüm uygulama verisi artık sunucu tarafında **SQLite** veritabanında tutulur:
-- Veritabanı dosyası: `server/data/lab-equipment.db`
+Tüm uygulama verisi sunucu tarafında **MySQL** veritabanında tutulur:
+- Veritabanı: `order_Tracking` (MySQL 8.0)
 - Şema: `server/schema.sql`
-- API uç noktası: `/api/state` (tam uygulama durumunu okur/yazar)
-
-Tarayıcı yalnızca aktif kullanıcı bilgisini (`current_user`) localStorage'da saklar.
-**"Tümünü Temizle"** butonu API tarafındaki tüm verileri sıfırlar (geri alınamaz).
+- Tüm API uç noktaları `/api/` altında çalışır
+- Kimlik doğrulama: JWT token tabanlı (bcrypt ile şifreleme)
 
 ---
 
-## 🛠️ Teknolojiler / Tech Stack
+## Teknolojiler / Tech Stack
 
+**Frontend:**
 - **React 18** - UI framework
-- **Vite** - Build tool
+- **Vite 5** - Build tool & dev server
 - **TailwindCSS** - Styling (CDN)
 - **Lucide React** - Icons
 - **XLSX** - Excel import/export
 
+**Backend:**
+- **Node.js + Express** - REST API
+- **MySQL 8.0** - Veritabanı
+- **mysql2** - MySQL driver
+- **bcryptjs** - Şifre hashleme
+- **jsonwebtoken** - JWT kimlik doğrulama
+
 ---
 
-## 📁 Dosya Yapısı / File Structure
+## Dosya Yapısı / File Structure
 
 ```
 order tracking/
-├── index.html          # Ana HTML
-├── package.json        # Bağımlılıklar
-├── vite.config.js      # Vite yapılandırması
-├── README.md           # Bu dosya
-├── main.js             # Eski versiyon (referans)
-├── lab_equipment_tracker.tsx  # TypeScript referans
-└── src/
-    ├── main.jsx        # React giriş noktası + storage API
-    └── App.jsx         # Ana uygulama bileşeni
+├── index.html              # Ana HTML
+├── package.json            # Bağımlılıklar
+├── vite.config.js          # Vite yapılandırması (proxy ayarları)
+├── README.md               # Bu dosya
+├── src/
+│   ├── main.jsx            # React giriş noktası
+│   ├── App.jsx             # Ana uygulama bileşeni
+│   ├── LabComponents.jsx   # Lab bileşenleri
+│   ├── LotInventory.jsx    # Lot envanter yönetimi
+│   ├── api.js              # API istemci fonksiyonları
+│   └── utils/              # Yardımcı araçlar
+└── server/
+    ├── index.js            # Express API sunucusu
+    ├── schema.sql          # Veritabanı şeması
+    ├── complete_database_schema.sql  # Tam şema (sıfırdan kurulum)
+    ├── run-migration.js    # Migration çalıştırıcı
+    ├── database/           # Tablo tanım dosyaları
+    └── migrations/         # Veritabanı migration dosyaları
 ```
 
 ---
@@ -208,15 +279,15 @@ order tracking/
 
 ---
 
-## ⚠️ Önemli Notlar
+## Önemli Notlar / Important Notes
 
-- Tarayıcı verileri temizlenirse tüm kayıtlar silinir
+- Veriler MySQL veritabanında saklanır, tarayıcı temizlense bile kaybolmaz
 - Düzenli olarak "Excel'e Aktar" ile yedek alın
-- Birden fazla kullanıcı aynı anda kullanamaz (tek kullanıcı modu)
+- Çok kullanıcılı sistem: ADMIN, SATINAL, SATINAL_LOJISTIK, OBSERVER rolleri desteklenir
+- Migration dosyaları `server/migrations/` klasöründe bulunur, `node server/run-migration.js <dosya.sql>` ile çalıştırılır
 
 ---
 
-## 📞 Destek
+## Destek
 
 Sorularınız için geliştirici ile iletişime geçin.
-Medipol2026! genetikuser

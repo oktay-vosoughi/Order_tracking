@@ -1051,6 +1051,7 @@ app.get('/api/reports/department-stock', authRequired, async (_req, res) => {
 // Get unified stock view (items with aggregated lot data)
 app.get('/api/unified-stock', authRequired, async (_req, res) => {
   try {
+    console.log('[/api/unified-stock] Querying database...');
     const items = await all(pool, `
       SELECT 
         id.id,
@@ -1096,9 +1097,10 @@ app.get('/api/unified-stock', authRequired, async (_req, res) => {
       GROUP BY id.id
       ORDER BY id.name ASC
     `);
+    console.log('[/api/unified-stock] Returning', items.length, 'items');
     res.json({ items });
   } catch (error) {
-    console.error('Failed to get unified stock', error);
+    console.error('[/api/unified-stock] ERROR:', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
   }
 });
