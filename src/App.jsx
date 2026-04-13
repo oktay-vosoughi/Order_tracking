@@ -166,7 +166,6 @@ const LabEquipmentTracker = () => {
   useEffect(() => {
     if (currentUser) {
       loadData();
-      loadUnifiedData();
       loadAllActionData();
     }
   }, [currentUser]);
@@ -226,7 +225,7 @@ const LabEquipmentTracker = () => {
       const res = await fetchMe();
       setCurrentUser(res.user);
       setAuthError(null);
-      await loadData();
+      // Data loading is handled by the [currentUser] useEffect
     } catch (error) {
       setCurrentUser(null);
       setAuthError(error?.message || 'UNAUTHORIZED');
@@ -249,7 +248,7 @@ const LabEquipmentTracker = () => {
         : await login(loginForm.username.trim(), loginForm.password);
 
       setCurrentUser(result.user);
-      await loadData();
+      // Data loading is handled by the [currentUser] useEffect
     } catch (error) {
       if (error?.message === 'NO_USERS') {
         setBootstrapMode(true);
@@ -331,24 +330,24 @@ const LabEquipmentTracker = () => {
         }));
         setPurchases(migratedPurchases);
       }
-      
-      // Load unified stock and analytics
-      await loadUnifiedData();
     } catch (error) {
-      console.error('Starting with empty data', error);
+      console.error('Legacy state load failed (non-critical):', error);
     }
+    // Always load unified stock regardless of legacy state success/failure
+    await loadUnifiedData();
   };
   
   const loadUnifiedData = async () => {
     try {
       const [stockRes, analyticsRes] = await Promise.all([
-        fetchUnifiedStock().catch(() => ({ items: [] })),
+        fetchUnifiedStock(),
         fetchAnalyticsOverview().catch(() => null)
       ]);
       if (stockRes?.items) setUnifiedStock(stockRes.items);
       if (analyticsRes) setAnalytics(analyticsRes);
     } catch (error) {
-      console.warn('Could not load unified data:', error);
+      console.error('Could not load unified data:', error);
+      // Do NOT overwrite existing data with empty on error
     }
   };
   
@@ -793,10 +792,6 @@ const LabEquipmentTracker = () => {
   // UNIFIED DATA SOURCE: Use unifiedStock from API instead of localStorage items
   // This ensures "Stok" tab and "LOT Stok Yönetimi" show the same data
   const displayItems = unifiedStock.length > 0 ? unifiedStock : items;
-
-  useEffect(() => {
-    initAuth();
-  }, []);
 
   const totalMaterialCount = analytics?.summary?.totalItems ?? displayItems.length;
   const lowStockCountFromData = displayItems.filter(i => {
