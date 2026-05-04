@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -20,6 +20,7 @@ import {
 } from './labUtils';
 import { AddItemFormLab, WasteForm, ExpiryAlertDashboard, ExpiryBadge, MSDSLink } from './LabComponents';
 import LotInventory from './LotInventory';
+import CepDepo from './CepDepo';
 import { buildLotImportPayload } from './utils/lotExcelImporter';
 import './theme.css';
 import logoIcon from './logos/icon.png';
@@ -75,6 +76,7 @@ const migrateData = (user, purchases) => {
 const LabEquipmentTracker = () => {
   const [items, setItems] = useState([]);
   const [purchases, setPurchases] = useState([]);
+  const [labTechs, setLabTechs] = useState([]); // [{id, username, role}, ...] for username→id resolution
   const [distributions, setDistributions] = useState([]);
   const [currentUser, setCurrentUser] = useState(null); // Now { username, role }
   const [activeTab, setActiveTab] = useState('stock');
@@ -127,6 +129,7 @@ const LabEquipmentTracker = () => {
   const roleChipClass = () => {
     if (currentUser?.role === 'ADMIN') return 'role-chip role-chip--admin';
     if (currentUser?.role === 'OBSERVER') return 'role-chip role-chip--observer';
+    if (currentUser?.role === 'LAB_TECHNICIAN') return 'role-chip role-chip--labtech';
     return 'role-chip';
   };
   
@@ -136,22 +139,38 @@ const LabEquipmentTracker = () => {
   const isSatinal = userRole === 'SATINAL';
   const isSatinalLojistik = userRole === 'SATINAL_LOJISTIK';
   const isObserver = userRole === 'OBSERVER';
+  const isLabTechnician = userRole === 'LAB_TECHNICIAN';
   const ROLE_LABELS = {
     ADMIN: 'ADMIN',
     SATINAL: 'SATINAL',
     SATINAL_LOJISTIK: 'SATINAL_LOJISTIK',
-    OBSERVER: 'OBSERVER'
+    OBSERVER: 'OBSERVER',
+    LAB_TECHNICIAN: 'LAB_TECHNICIAN'
   };
   
   // Capability checks based on RBAC matrix
   const canManageUsers = isAdmin;
   const canViewStock = true; // All roles can view stock
   const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik;
-  const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik;
+  const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isLabTechnician;
   const canApprove = isAdmin || isSatinal;
   const canOrder = isAdmin || isSatinalLojistik;
   const canReceive = isAdmin || isSatinalLojistik;
   const canDistribute = isAdmin || isSatinal || isSatinalLojistik;
+
+  // Pending CEP DEPO lab-tech requests grouped by itemId.
+  // Distinct from regular order-purchase requests: only those flagged as CEP DEPO.
+  const pendingCepRequestsByItem = (() => {
+    const map = {};
+    for (const p of purchases) {
+      const isCep = Number(p.isCepDepoRequest) === 1 || !!p.requestedFor;
+      if (!isCep) continue;
+      if (!['TALEP_EDILDI', 'ONAYLANDI'].includes(p.status)) continue;
+      if (!map[p.itemId]) map[p.itemId] = [];
+      map[p.itemId].push(p);
+    }
+    return map;
+  })();
   const canImportItems = canModifyInventory;
   const canViewDagit = true; // All roles can view distributions
   const canViewTalep = isAdmin || isSatinal || isSatinalLojistik;
@@ -180,15 +199,17 @@ const LabEquipmentTracker = () => {
 
   const loadAllActionData = async () => {
     try {
-      const [purchasesRes, distributionsRes, wasteRes] = await Promise.all([
+      const [purchasesRes, distributionsRes, wasteRes, techRes] = await Promise.all([
         fetchPurchases(),
         fetchDistributionsAPI(),
-        fetchWasteRecords()
+        fetchWasteRecords(),
+        fetchLabTechnicians().catch(() => ({ users: [] }))
       ]);
       
       setPurchases(purchasesRes?.purchases || []);
       setDistributions(distributionsRes?.distributions || []);
       setWasteRecords(wasteRes?.wasteRecords || []);
+      setLabTechs(techRes?.users || []);
     } catch (error) {
       console.error('Failed to load action data:', error);
     }
@@ -436,8 +457,30 @@ const LabEquipmentTracker = () => {
     }
   };
   
+  const [unitEditItem, setUnitEditItem] = useState(null);
+  const [unitEditForm, setUnitEditForm] = useState({ packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK' });
+
+  const handleSaveUnitFields = async () => {
+    if (!unitEditItem) return;
+    try {
+      await updateItemDefinition(unitEditItem.id, {
+        packageUnit: unitEditForm.packageUnit || null,
+        consumptionUnit: unitEditForm.consumptionUnit || null,
+        unitsPerPackage: unitEditForm.unitsPerPackage === '' ? null : Number(unitEditForm.unitsPerPackage) || null,
+        consumptionUnitType: unitEditForm.consumptionUnitType || 'PACK'
+      });
+      await loadUnifiedData();
+      setUnitEditItem(null);
+      alert('Birim bilgileri güncellendi. CEP DEPO bakiyeleri otomatik yeniden hesaplandı.');
+    } catch (err) {
+      alert('Güncelleme başarısız: ' + (err?.message || 'HATA'));
+    }
+  };
+
   const [newItem, setNewItem] = useState({
-    code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: ''
+    code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: '',
+    // CEP DEPO main/sub-unit fields
+    packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK'
   });
   
   const addItem = async () => {
@@ -479,13 +522,19 @@ const LabEquipmentTracker = () => {
         storageTemp: newItem.storageTemp || '',
         chemicalType: newItem.chemicalType || '',
         msdsUrl: newItem.msdsUrl || '',
-        notes: newItem.wasteStatus || ''
+        notes: newItem.wasteStatus || '',
+        // CEP DEPO main/sub-unit fields
+        packageUnit: newItem.packageUnit || null,
+        consumptionUnit: newItem.consumptionUnit || null,
+        unitsPerPackage: newItem.unitsPerPackage === '' ? null : Number(newItem.unitsPerPackage) || null,
+        consumptionUnitType: newItem.consumptionUnitType || 'PACK'
       });
       
       await loadUnifiedData();
       
       setNewItem({
-        code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: ''
+        code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: '',
+        packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK'
       });
       setShowAddForm(false);
       alert('Malzeme başarıyla eklendi!');
@@ -554,27 +603,51 @@ const LabEquipmentTracker = () => {
     }
     
     try {
-      // Call API to create purchase request using imported function
-      const result = await createPurchaseRequest({
-        itemId: item.id,
-        itemCode: item.code,
-        itemName: item.name,
-        department: requestForm.department || item.department || '',
-        requestedQty: parseInt(requestForm.quantity),
-        notes: requestForm.notes,
-        urgency: requestForm.urgency,
-        supplierName: item.supplier || ''
-      });
-      
-      // Reload purchases from database
-      await loadAllActionData();
-      
-      setShowRequestForm(null);
-      setRequestForm({ quantity: 0, notes: '', urgency: 'normal', department: '' });
-      alert('Talep oluşturuldu! Talep No: ' + result.purchase.requestNumber);
+      if (isLabTechnician) {
+        // Lab technicians: route to CEP DEPO request flow, not Satın Al/Lojistik
+        await createPurchaseRequestForLabTech({
+          itemId: item.id,
+          itemCode: item.code,
+          itemName: item.name,
+          requestedQty: parseInt(requestForm.quantity),
+          notes: requestForm.notes,
+          urgency: requestForm.urgency
+        });
+        setShowRequestForm(null);
+        setRequestForm({ quantity: 0, notes: '', urgency: 'normal', department: '' });
+        alert('Talebiniz alındı! CEP DEPO üzerinden dağıtılacak.');
+      } else {
+        // Call API to create purchase request using imported function
+        const result = await createPurchaseRequest({
+          itemId: item.id,
+          itemCode: item.code,
+          itemName: item.name,
+          department: requestForm.department || item.department || '',
+          requestedQty: parseInt(requestForm.quantity),
+          notes: requestForm.notes,
+          urgency: requestForm.urgency,
+          supplierName: item.supplier || ''
+        });
+        
+        // Reload purchases from database
+        await loadAllActionData();
+        
+        setShowRequestForm(null);
+        setRequestForm({ quantity: 0, notes: '', urgency: 'normal', department: '' });
+        alert('Talep oluşturuldu! Talep No: ' + result.purchase.requestNumber);
+      }
     } catch (error) {
       console.error('Purchase request error:', error);
-      alert('Talep oluşturma hatası: ' + (error?.message || 'Bilinmeyen hata'));
+      const code = error?.payload?.error;
+      if (code === 'CEP_DEPO_HAS_STOCK') {
+        alert(
+          `${error.payload.message}\n\nMevcut CEP DEPO bakiyeniz: ` +
+          `${Number(error.payload.remainingPackQty || 0).toFixed(2)} koli / ` +
+          `${Number(error.payload.remainingUnitQty || 0).toFixed(2)} birim`
+        );
+      } else {
+        alert('Talep oluşturma hatası: ' + (error?.payload?.message || error?.message || 'Bilinmeyen hata'));
+      }
     }
   };
   
@@ -748,6 +821,55 @@ const LabEquipmentTracker = () => {
     }
   };
   
+  // For Dağıt modal: per-request editable quantity (key = purchase.id → packQty string).
+  const [cepReqQty, setCepReqQty] = useState({});
+
+  // Approve (if needed) + distribute a CEP DEPO request directly to its lab tech.
+  const approveAndDistributeCepRequest = async (purchase, item) => {
+    const targetUsername = purchase.requestedFor || purchase.requestedBy;
+    const tech = labTechs.find((t) => t.username === targetUsername);
+    if (!tech) {
+      alert('Hedef lab teknisyeni bulunamadı: ' + targetUsername);
+      return;
+    }
+    const qtyStr = cepReqQty[purchase.id] ?? String(purchase.requestedQty);
+    const packQty = Number(qtyStr);
+    if (!packQty || packQty <= 0) {
+      alert('Geçerli bir miktar girin.');
+      return;
+    }
+    if (!window.confirm(
+      `${item.name} — ${packQty} ${item.packageUnit || 'koli'} → ${tech.username}\n` +
+      `Talep No: ${purchase.requestNumber || purchase.id.slice(0,8)}\n\nOnayla ve CEP DEPOya dağıt?`
+    )) return;
+
+    try {
+      // 1) Approve if still TALEP_EDILDI (idempotent — backend allows distribute on
+      //    TALEP_EDILDI too, but recording an approval keeps the audit trail clean).
+      if (purchase.status === 'TALEP_EDILDI') {
+        try { await approvePurchase(purchase.id, 'Dağıtım anında onaylandı'); }
+        catch (e) { /* non-fatal: distribute below will still work */ }
+      }
+      // 2) Distribute to that lab tech's CEP DEPO. Server marks purchase TESLIM_ALINDI.
+      const result = await distributeApprovedRequest({
+        purchaseId: purchase.id,
+        labTechnicianId: tech.id,
+        itemId: item.id,
+        packQty,
+        notes: `Talep #${purchase.requestNumber || purchase.id.slice(0,8)}`
+      });
+      await loadUnifiedData();
+      await loadAllActionData();
+      setCepReqQty((s) => { const n = { ...s }; delete n[purchase.id]; return n; });
+      alert(`Dağıtım başarılı.\n${result.packQty} ${item.packageUnit || 'koli'} / ${result.unitQty} ${item.consumptionUnit || 'birim'} → ${tech.username}`);
+    } catch (err) {
+      const code = err?.payload?.error;
+      if (code === 'ALREADY_DISTRIBUTED') alert('Bu talep zaten dağıtılmış.');
+      else if (code === 'INSUFFICIENT_MAIN_STOCK') alert(err.payload.message);
+      else alert('Dağıtım başarısız: ' + (err?.payload?.message || err?.message || 'HATA'));
+    }
+  };
+
   const [distributeForm, setDistributeForm] = useState({
     quantity: 0,
     receivedBy: '',
@@ -1009,7 +1131,11 @@ const LabEquipmentTracker = () => {
         'Açılış Tarihi': '',
         'Saklama Sıcaklığı': 'Oda Sıcaklığı (RT)',
         'Kimyasal Tipi': 'Nötr',
-        'MSDS/SDS': 'https://example.com/msds/P1000.pdf'
+        'MSDS/SDS': 'https://example.com/msds/P1000.pdf',
+        'Ana Birim': '',
+        'Alt Birim': '',
+        '1 Ana = Kaç Alt': '',
+        'Tüketim Tipi': 'PACK'
       },
       {
         'Malzeme Kodu': 'M002',
@@ -1028,7 +1154,11 @@ const LabEquipmentTracker = () => {
         'Açılış Tarihi': '2026-01-01',
         'Saklama Sıcaklığı': 'Buzdolabı (+2/+8°C)',
         'Kimyasal Tipi': 'Nötr',
-        'MSDS/SDS': ''
+        'MSDS/SDS': '',
+        'Ana Birim': 'koli',
+        'Alt Birim': 'adet',
+        '1 Ana = Kaç Alt': 36,
+        'Tüketim Tipi': 'UNIT'
       }
     ];
     
@@ -1401,6 +1531,10 @@ const LabEquipmentTracker = () => {
                 LOT Stok Yönetimi
               </button>
             )}
+            <button onClick={() => setActiveTab('cep_depo')} className={`${tabClass('cep_depo', 'dark')} flex items-center gap-2 whitespace-nowrap`}>
+              <Package size={18} />
+              CEP DEPO
+            </button>
             {canManageUsers && (
               <button onClick={() => setActiveTab('users')} className={`${tabClass('users')} flex items-center gap-2 whitespace-nowrap`}>
                 <User size={18} />
@@ -1581,6 +1715,7 @@ const LabEquipmentTracker = () => {
                 >
                   <option value="SATINAL_LOJISTIK">SATINAL_LOJISTIK (Talep + Onayla + Dağıt)</option>
                   <option value="SATINAL">SATINAL (Sipariş + Teslim Al)</option>
+                  <option value="LAB_TECHNICIAN">LAB_TECHNICIAN (CEP DEPO sahibi)</option>
                   <option value="OBSERVER">OBSERVER (Sadece Görüntüleme)</option>
                   <option value="ADMIN">ADMIN (Tüm Yetkiler)</option>
                 </select>
@@ -1751,12 +1886,68 @@ const LabEquipmentTracker = () => {
 
         {showDistributeForm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl p-6 max-w-md w-full">
+            <div className="bg-white rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <h2 className="text-xl font-bold mb-4">Malzeme Dağıt</h2>
               <p className="text-sm text-gray-600 mb-4">
                 <strong>{showDistributeForm.name}</strong><br/>
                 Stok: {showDistributeForm.totalStock || showDistributeForm.currentStock || 0} {showDistributeForm.unit}
               </p>
+
+              {/* CEP DEPO request queue for this item */}
+              {(() => {
+                const reqs = pendingCepRequestsByItem[showDistributeForm.id] || [];
+                if (reqs.length === 0) return null;
+                return (
+                  <div className="mb-5 border-2 border-red-200 bg-red-50 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertCircle size={18} className="text-red-600" />
+                      <h3 className="font-bold text-red-700">CEP DEPO Talepleri ({reqs.length})</h3>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-3">
+                      Bu lab teknisyeni talepleri ürünün siparişle ilgili genel talebinden farklıdır. Dağıttığınızda doğrudan ilgili kullanıcının CEP DEPOsuna eklenir.
+                    </p>
+                    <div className="space-y-2">
+                      {reqs.map((p) => {
+                        const target = p.requestedFor || p.requestedBy;
+                        const qtyVal = cepReqQty[p.id] ?? String(p.requestedQty);
+                        return (
+                          <div key={p.id} className="bg-white rounded p-2 border border-red-200 flex flex-col sm:flex-row sm:items-center gap-2">
+                            <div className="flex-1 text-xs">
+                              <div className="font-semibold">
+                                #{p.requestNumber || p.id.slice(0, 8)} — <span className="text-indigo-700">{target}</span>
+                              </div>
+                              <div className="text-gray-600">
+                                İstenen: <strong>{p.requestedQty}</strong> {showDistributeForm.packageUnit || 'koli'}
+                                {' · '}
+                                <span className={`px-1.5 py-0.5 rounded ${p.status === 'ONAYLANDI' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{p.status}</span>
+                                {p.requestedAt && <> · {new Date(p.requestedAt).toLocaleString('tr-TR')}</>}
+                              </div>
+                              {p.notes && <div className="text-gray-500 italic">{p.notes}</div>}
+                            </div>
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={qtyVal}
+                              onChange={(e) => setCepReqQty((s) => ({ ...s, [p.id]: e.target.value }))}
+                              className="w-20 px-2 py-1 border rounded text-sm"
+                              title="Verilecek miktar (varsayılan = istenen)"
+                            />
+                            <button
+                              onClick={() => approveAndDistributeCepRequest(p, showDistributeForm)}
+                              className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs whitespace-nowrap"
+                            >
+                              Onayla & Dağıt
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <h4 className="text-sm font-semibold text-gray-700 mb-2 border-t pt-3">Departman / Genel Dağıtım</h4>
               <input type="number" placeholder="Miktar" value={distributeForm.quantity} onChange={(e) => setDistributeForm({...distributeForm, quantity: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               
               <select
@@ -1950,16 +2141,30 @@ const LabEquipmentTracker = () => {
                             {canCreateRequest && (
                               <button onClick={() => setShowRequestForm(item)} className="px-2 py-1 bg-indigo-600 text-white rounded text-xs">Talep</button>
                             )}
-                            {canDistribute && (
-                              <button onClick={() => setShowDistributeForm(item)} className="px-2 py-1 bg-blue-600 text-white rounded text-xs">Dağıt</button>
-                            )}
+                            {canDistribute && (() => {
+                              const pendingCount = (pendingCepRequestsByItem[item.id] || []).length;
+                              return (
+                                <button
+                                  onClick={() => setShowDistributeForm(item)}
+                                  className={`relative px-2 py-1 ${pendingCount > 0 ? 'bg-red-600 hover:bg-red-700 ring-2 ring-red-300' : 'bg-blue-600 hover:bg-blue-700'} text-white rounded text-xs`}
+                                  title={pendingCount > 0 ? `${pendingCount} CEP DEPO talebi bekliyor` : 'Dağıt'}
+                                >
+                                  Dağıt
+                                  {pendingCount > 0 && (
+                                    <span className="absolute -top-2 -right-2 bg-yellow-400 text-red-900 text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                                      {pendingCount}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })()}
                             {canDistribute && (
                               <button onClick={() => setShowWasteForm(item)} className="px-2 py-1 bg-orange-600 text-white rounded text-xs flex items-center gap-1">
                                 <Recycle size={12} />
                                 Atık
                               </button>
                             )}
-                            {history.length > 0 && (
+                            {!isLabTechnician && history.length > 0 && (
                               <button 
                                 onClick={() => {
                                   const lastReceipt = history.filter(p => p.receipts?.length > 0).flatMap(p => p.receipts).sort((a,b) => new Date(b.receivedAt) - new Date(a.receivedAt))[0];
@@ -1975,6 +2180,24 @@ const LabEquipmentTracker = () => {
                               >
                                 <Eye size={12} />
                                 Belge
+                              </button>
+                            )}
+                            {canModifyInventory && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setUnitEditItem(item);
+                                  setUnitEditForm({
+                                    packageUnit: item.packageUnit || '',
+                                    consumptionUnit: item.consumptionUnit || '',
+                                    unitsPerPackage: item.unitsPerPackage ?? '',
+                                    consumptionUnitType: item.consumptionUnitType || 'PACK'
+                                  });
+                                }}
+                                className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs"
+                                title="CEP DEPO Birim Ayarları"
+                              >
+                                Birim
                               </button>
                             )}
                             {canModifyInventory && (
@@ -2478,6 +2701,10 @@ const LabEquipmentTracker = () => {
           <LotInventory currentUser={currentUser} />
         )}
 
+        {activeTab === 'cep_depo' && (
+          <CepDepo currentUser={currentUser} />
+        )}
+
         {/* Deprecated bottom boxes removed */}
 
         <div className="mt-6 flex justify-center gap-4 flex-wrap">
@@ -2489,6 +2716,94 @@ const LabEquipmentTracker = () => {
           )}
         </div>
       </div>
+
+      {/* CEP DEPO Birim Düzenle Modal */}
+      {unitEditItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-bold mb-1">CEP DEPO Birim Ayarları</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              <strong>{unitEditItem.name}</strong> ({unitEditItem.code})
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ana Birim (talep/depo birimi)</label>
+                <input
+                  type="text"
+                  placeholder="koli, kutu, şişe, paket"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={unitEditForm.packageUnit}
+                  onChange={(e) => setUnitEditForm({ ...unitEditForm, packageUnit: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Alt Birim (CEP DEPO tüketim birimi)</label>
+                <input
+                  type="text"
+                  placeholder="adet, tablet, ml, test"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={unitEditForm.consumptionUnit}
+                  onChange={(e) => setUnitEditForm({ ...unitEditForm, consumptionUnit: e.target.value })}
+                />
+                <p className="text-xs text-gray-400 mt-1">Boş bırakırsanız ana birim ile tüketilir (PACK modu).</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">1 Ana Birim = Kaç Alt Birim?</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="Örn: 50"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={unitEditForm.unitsPerPackage}
+                  disabled={!unitEditForm.consumptionUnit}
+                  onChange={(e) => setUnitEditForm({ ...unitEditForm, unitsPerPackage: e.target.value })}
+                />
+                <p className="text-xs text-gray-400 mt-1">Alt birim varsa zorunludur. Mevcut CEP DEPO bakiyeleri otomatik yeniden hesaplanır.</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tüketim Tipi</label>
+                <select
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={unitEditForm.consumptionUnitType}
+                  onChange={(e) => setUnitEditForm({ ...unitEditForm, consumptionUnitType: e.target.value })}
+                >
+                  <option value="PACK">PACK — ana birim ile tüketilir</option>
+                  <option value="UNIT">UNIT — alt birim ile tüketilir (adet, ml…)</option>
+                  <option value="TEST">TEST — test sayısı ile tüketilir</option>
+                </select>
+              </div>
+
+              {unitEditForm.consumptionUnit && !unitEditForm.unitsPerPackage && (
+                <div className="bg-amber-50 border border-amber-300 text-amber-700 text-sm px-3 py-2 rounded">
+                  ⚠️ Alt birim tanımlandı ama "1 Ana = Kaç Alt" değeri girilmedi. Lütfen doldurun.
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={handleSaveUnitFields}
+                disabled={!!(unitEditForm.consumptionUnit && !unitEditForm.unitsPerPackage)}
+                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+              >
+                Kaydet
+              </button>
+              <button
+                onClick={() => setUnitEditItem(null)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              >
+                İptal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

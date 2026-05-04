@@ -22,8 +22,17 @@ const ROLES = {
   ADMIN: 'ADMIN',
   SATINAL: 'SATINAL',
   SATINAL_LOJISTIK: 'SATINAL_LOJISTIK',
-  OBSERVER: 'OBSERVER'
+  OBSERVER: 'OBSERVER',
+  LAB_TECHNICIAN: 'LAB_TECHNICIAN'
 };
+
+const ALL_ROLES = [
+  ROLES.ADMIN,
+  ROLES.SATINAL,
+  ROLES.SATINAL_LOJISTIK,
+  ROLES.OBSERVER,
+  ROLES.LAB_TECHNICIAN
+];
 
 const pool = mysql.createPool({
   host: MYSQL_HOST,
@@ -153,6 +162,13 @@ const canRequest = (req, res, next) =>
 const canReject = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 
+// CEP DEPO capability helpers
+const canDistributeToCepDepo = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
+const canOverrideRequestBlock = (role) =>
+  role === ROLES.ADMIN || role === ROLES.SATINAL;
+const isLabTechnicianRole = (role) => role === ROLES.LAB_TECHNICIAN;
+
 const countUsers = async () => {
   const rows = await all(pool, 'SELECT COUNT(*) AS cnt FROM users');
   return Number(rows?.[0]?.cnt || 0);
@@ -256,8 +272,7 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
   }
 
   if (role) {
-    const validRoles = [ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.OBSERVER];
-    if (!validRoles.includes(role)) {
+    if (!ALL_ROLES.includes(role)) {
       res.status(400).json({ error: 'INVALID_ROLE' });
       return;
     }
@@ -391,8 +406,7 @@ app.post('/api/users', authRequired, adminRequired, async (req, res) => {
     res.status(400).json({ error: 'INVALID_INPUT' });
     return;
   }
-  const validRoles = [ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.OBSERVER];
-  if (!validRoles.includes(role)) {
+  if (!ALL_ROLES.includes(role)) {
     res.status(400).json({ error: 'INVALID_ROLE' });
     return;
   }
@@ -608,17 +622,39 @@ app.get('/api/item-definitions/:id', authRequired, async (req, res) => {
 
 // Create item definition
 app.post('/api/item-definitions', authRequired, async (req, res) => {
-  const { code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes } = req.body || {};
+  const {
+    code, name, category, department, unit, minStock, ideal_stock, max_stock,
+    supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType,
+    msdsUrl, notes,
+    packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType
+  } = req.body || {};
   if (!code || !name) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Code and name are required' });
+  }
+
+  // Normalize CEP DEPO unit fields.
+  const pkgUnit = packageUnit ? String(packageUnit).trim() || null : null;
+  const conUnit = consumptionUnit ? String(consumptionUnit).trim() || null : null;
+  const upp = unitsPerPackage != null && unitsPerPackage !== '' ? Number(unitsPerPackage) : null;
+  if (upp != null && (!Number.isFinite(upp) || upp <= 0)) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: 'unitsPerPackage must be a positive number' });
+  }
+  const cutRaw = consumptionUnitType ? String(consumptionUnitType).trim().toUpperCase() : null;
+  const cut = (cutRaw && ['PACK', 'UNIT', 'TEST'].includes(cutRaw)) ? cutRaw : 'PACK';
+  // Enforce the business rule: if a sub-unit is declared, a conversion factor is required.
+  if (conUnit && (upp == null)) {
+    return res.status(400).json({
+      error: 'CONVERSION_FACTOR_REQUIRED',
+      message: 'Alt birim tanımlandığında 1 ana birim kaç alt birime eşit olduğunu (unitsPerPackage) belirtmelisiniz.'
+    });
   }
 
   try {
     const id = generateId();
     await run(pool, `
-      INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status, createdBy)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
-    `, [id, code, name, category || '', department || '', unit || '', minStock || 0, ideal_stock || null, max_stock || null, supplier || '', catalogNo || '', brand || '', storageLocation || '', storageTemp || '', chemicalType || '', msdsUrl || '', notes || '', req.user.username]);
+      INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType, status, createdBy)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+    `, [id, code, name, category || '', department || '', unit || '', minStock || 0, ideal_stock || null, max_stock || null, supplier || '', catalogNo || '', brand || '', storageLocation || '', storageTemp || '', chemicalType || '', msdsUrl || '', notes || '', pkgUnit, conUnit, upp, cut, req.user.username]);
     
     const items = await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [id]);
     res.json({ item: items[0] });
@@ -633,8 +669,45 @@ app.post('/api/item-definitions', authRequired, async (req, res) => {
 
 // Update item definition
 app.put('/api/item-definitions/:id', authRequired, async (req, res) => {
-  const { code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status } = req.body || {};
-  
+  const {
+    code, name, category, department, unit, minStock, ideal_stock, max_stock,
+    supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType,
+    msdsUrl, notes, status,
+    packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType
+  } = req.body || {};
+
+  // Normalize CEP DEPO unit fields. `undefined` means "do not change" (COALESCE keeps old value).
+  const pkgUnit = packageUnit === undefined ? null
+    : (packageUnit === null || packageUnit === '' ? null : String(packageUnit).trim());
+  const conUnit = consumptionUnit === undefined ? null
+    : (consumptionUnit === null || consumptionUnit === '' ? null : String(consumptionUnit).trim());
+  let upp = null;
+  if (unitsPerPackage !== undefined && unitsPerPackage !== null && unitsPerPackage !== '') {
+    upp = Number(unitsPerPackage);
+    if (!Number.isFinite(upp) || upp <= 0) {
+      return res.status(400).json({ error: 'INVALID_INPUT', message: 'unitsPerPackage must be a positive number' });
+    }
+  }
+  let cut = null;
+  if (consumptionUnitType !== undefined && consumptionUnitType !== null && consumptionUnitType !== '') {
+    const v = String(consumptionUnitType).trim().toUpperCase();
+    if (!['PACK', 'UNIT', 'TEST'].includes(v)) {
+      return res.status(400).json({ error: 'INVALID_INPUT', message: 'consumptionUnitType must be PACK, UNIT, or TEST' });
+    }
+    cut = v;
+  }
+  // If caller declares a sub-unit on this edit, a factor must be supplied (either now or already set on the row).
+  if (conUnit && upp == null) {
+    const existing = await all(pool, 'SELECT unitsPerPackage FROM item_definitions WHERE id = ?', [req.params.id]);
+    const existingUpp = existing?.[0]?.unitsPerPackage;
+    if (!(existingUpp && Number(existingUpp) > 0)) {
+      return res.status(400).json({
+        error: 'CONVERSION_FACTOR_REQUIRED',
+        message: 'Alt birim tanımlandığında 1 ana birim kaç alt birime eşit olduğunu (unitsPerPackage) belirtmelisiniz.'
+      });
+    }
+  }
+
   try {
     await run(pool, `
       UPDATE item_definitions SET 
@@ -655,12 +728,28 @@ app.put('/api/item-definitions/:id', authRequired, async (req, res) => {
         msdsUrl = COALESCE(?, msdsUrl),
         notes = COALESCE(?, notes),
         status = COALESCE(?, status),
+        packageUnit = COALESCE(?, packageUnit),
+        consumptionUnit = COALESCE(?, consumptionUnit),
+        unitsPerPackage = COALESCE(?, unitsPerPackage),
+        consumptionUnitType = COALESCE(?, consumptionUnitType),
         updatedBy = ?
       WHERE id = ?
-    `, [code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status, req.user.username, req.params.id]);
+    `, [code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status, pkgUnit, conUnit, upp, cut, req.user.username, req.params.id]);
     
     const items = await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [req.params.id]);
-    res.json({ item: items[0] });
+    const updated = items[0];
+
+    // If unitsPerPackage changed, recalculate unitQty in any existing CEP DEPO balances
+    if (updated?.unitsPerPackage && Number(updated.unitsPerPackage) > 0) {
+      await run(pool,
+        `UPDATE cep_depo_balances
+           SET unitQty = packQty * ?
+         WHERE itemId = ? AND status != 'ZERO'`,
+        [Number(updated.unitsPerPackage), req.params.id]
+      );
+    }
+
+    res.json({ item: updated });
   } catch (error) {
     console.error('Failed to update item definition', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
@@ -1267,7 +1356,7 @@ app.post('/api/receive-goods', authRequired, canOrder, async (req, res) => {
 
 // Distribute (LAB_MANAGER + PROCUREMENT + ADMIN)
 app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
-  const { itemId, quantity, receivedBy, department, purpose, useFefo = true, lotId } = req.body || {};
+  const { itemId, quantity, receivedBy, department, purpose, useFefo = true, lotId, purchaseId, labTechnicianId } = req.body || {};
   
   if (!itemId || !quantity || quantity <= 0 || !receivedBy) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Item ID, quantity, and receiver are required' });
@@ -1348,7 +1437,105 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
         `, [dlId, distributionId, dl.lotId, dl.lotNumber, dl.quantityUsed]);
       }
 
-      return { distributionId, distributionLots, totalDistributed: quantity };
+      // -----------------------------------------------------------
+      // CEP DEPO auto-routing
+      // If the receiver is a LAB_TECHNICIAN (either via explicit
+      // labTechnicianId, or because `receivedBy` resolves to a user
+      // with that role), mirror this distribution into CEP DEPO:
+      //   - upsert cep_depo_balances
+      //   - write a DISTRIBUTE_CEP stock_movements row
+      //   - record a cep_depo_distributions header + lot lines
+      //   - mark the linked purchase as TESLIM_ALINDI (if purchaseId)
+      // -----------------------------------------------------------
+      let targetTech = null;
+      if (labTechnicianId) {
+        const rows = await all(conn, 'SELECT id, username, role FROM users WHERE id = ?', [labTechnicianId]);
+        if (rows?.[0] && isLabTechnicianRole(rows[0].role)) targetTech = rows[0];
+      }
+      if (!targetTech && receivedBy) {
+        const rows = await all(conn, 'SELECT id, username, role FROM users WHERE username = ?', [String(receivedBy)]);
+        if (rows?.[0] && isLabTechnicianRole(rows[0].role)) targetTech = rows[0];
+      }
+
+      let cepResult = null;
+      if (targetTech) {
+        // Idempotency guard (same rule as /api/cep-depo/distribute).
+        if (purchaseId) {
+          const prows = await all(conn, 'SELECT id, status FROM purchases WHERE id = ? FOR UPDATE', [purchaseId]);
+          const purchase = prows?.[0];
+          if (!purchase) throw { status: 404, error: 'PURCHASE_NOT_FOUND' };
+          if (purchase.status === 'TESLIM_ALINDI') {
+            throw { status: 409, error: 'ALREADY_DISTRIBUTED', message: 'Bu talep zaten dağıtılmış.' };
+          }
+          if (purchase.status === 'REDDEDILDI') {
+            throw { status: 409, error: 'REQUEST_REJECTED', message: 'Reddedilmiş talep dağıtılamaz.' };
+          }
+        }
+
+        const factor = resolveUnitFactor(item, null);
+        let totalUnitQty = 0;
+        const cepDistributionId = generateId();
+
+        for (const dl of distributionLots) {
+          const lotRows = await all(conn, 'SELECT unitsPerPackage, consumptionUnitType FROM lots WHERE id = ?', [dl.lotId]);
+          const lotFactor = resolveUnitFactor(item, lotRows?.[0] || null);
+          const unitForThisLot = dl.quantityUsed * lotFactor;
+          totalUnitQty += unitForThisLot;
+          await run(conn, `
+            INSERT INTO cep_depo_distribution_lots (id, cepDistributionId, lotId, lotNumber, packQty, unitQty)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `, [generateId(), cepDistributionId, dl.lotId, dl.lotNumber, dl.quantityUsed, unitForThisLot]);
+        }
+
+        await run(conn, `
+          INSERT INTO cep_depo_distributions
+            (id, labTechnicianId, labTechnicianUsername, itemId, packQty, unitQty, purchaseId, distributedBy, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [cepDistributionId, targetTech.id, targetTech.username, itemId, quantity, totalUnitQty, purchaseId || null, req.user.username, purpose || null]);
+
+        await run(conn, `
+          INSERT INTO cep_depo_balances
+            (id, labTechnicianId, labTechnicianUsername, itemId, packQty, unitQty, status, lastDistributedAt, lastDistributionId)
+          VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', NOW(), ?)
+          ON DUPLICATE KEY UPDATE
+            packQty = packQty + VALUES(packQty),
+            unitQty = unitQty + VALUES(unitQty),
+            status = 'ACTIVE',
+            labTechnicianUsername = VALUES(labTechnicianUsername),
+            lastDistributedAt = VALUES(lastDistributedAt),
+            lastDistributionId = VALUES(lastDistributionId)
+        `, [generateId(), targetTech.id, targetTech.username, itemId, quantity, totalUnitQty, cepDistributionId]);
+
+        await run(conn, `
+          INSERT INTO stock_movements
+            (id, movementType, itemId, fromLocation, toLocation, packQty, unitQty,
+             performedByUserId, performedByUsername, labTechnicianId, requestId, refId, notes)
+          VALUES (?, 'DISTRIBUTE_CEP', ?, 'MAIN_DEPOT', 'CEP_DEPO', ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [generateId(), itemId, quantity, totalUnitQty, req.user.id, req.user.username, targetTech.id, purchaseId || null, cepDistributionId, purpose || null]);
+
+        if (purchaseId) {
+          await run(conn,
+            "UPDATE purchases SET status = 'TESLIM_ALINDI', receivedQtyTotal = COALESCE(receivedQtyTotal, 0) + ?, receivedBy = ?, receivedDate = NOW() WHERE id = ?",
+            [quantity, targetTech.username, purchaseId]);
+        }
+
+        // Mark the department-level distribution row as COMPLETED so the
+        // legacy "pending distribution" list doesn't keep showing it.
+        await run(conn,
+          "UPDATE distributions SET status = 'COMPLETED', completedDate = NOW(), completedBy = ?, purpose = CONCAT(COALESCE(purpose,''), ' [CEP DEPO]') WHERE id = ?",
+          [req.user.username, distributionId]);
+
+        cepResult = {
+          routedToCepDepo: true,
+          cepDistributionId,
+          labTechnicianId: targetTech.id,
+          labTechnicianUsername: targetTech.username,
+          packQty: quantity,
+          unitQty: totalUnitQty
+        };
+      }
+
+      return { distributionId, distributionLots, totalDistributed: quantity, cep: cepResult };
     });
 
     res.json(result);
@@ -1377,29 +1564,104 @@ app.post('/api/distribute/:id/confirm', authRequired, canDistribute, async (req,
   }
 });
 
-// Create purchase request (LAB_MANAGER only)
-app.post('/api/purchases', authRequired, canRequest, async (req, res) => {
-  const { itemId, itemCode, itemName, department, requestedQty, notes, urgency, supplierName } = req.body || {};
-  
+// Create purchase request
+//   - LAB_TECHNICIAN may request only if their CEP DEPO balance for the item is zero.
+//   - ADMIN / SATINAL may file on behalf of a lab tech with { requestedFor, overrideReason }
+//     in which case the block is bypassed and a REQUEST_OVERRIDE movement is logged.
+app.post('/api/purchases', authRequired, async (req, res) => {
+  const {
+    itemId, itemCode, itemName, department,
+    requestedQty, notes, urgency, supplierName,
+    requestedFor, overrideReason, isCepDepoRequest
+  } = req.body || {};
+
   if (!itemId || !requestedQty || requestedQty <= 0) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Item ID and quantity are required' });
   }
 
+  const role = req.user?.role;
+  const requesterUsername = req.user?.username || '';
+  const isLabTech = isLabTechnicianRole(role);
+  const isPrivileged = role === ROLES.ADMIN || role === ROLES.SATINAL || role === ROLES.SATINAL_LOJISTIK;
+
+  if (!isLabTech && !isPrivileged) {
+    return res.status(403).json({ error: 'FORBIDDEN' });
+  }
+
+  // Determine the effective lab technician this request is for.
+  let effectiveLabTechUsername = null;
+  let effectiveLabTechId = null;
+  let usedOverride = false;
+
   try {
+    if (requestedFor && requestedFor !== requesterUsername) {
+      // On-behalf flow → must be ADMIN or SATINAL
+      if (!canOverrideRequestBlock(role)) {
+        return res.status(403).json({ error: 'OVERRIDE_FORBIDDEN', message: 'Sadece ADMIN veya SATINAL başkası adına talep oluşturabilir.' });
+      }
+      if (!overrideReason || !String(overrideReason).trim()) {
+        return res.status(400).json({ error: 'OVERRIDE_REASON_REQUIRED', message: 'Override için gerekçe zorunludur.' });
+      }
+      const targetRows = await all(pool, 'SELECT id, username, role FROM users WHERE username = ?', [String(requestedFor)]);
+      const target = targetRows?.[0];
+      if (!target) {
+        return res.status(404).json({ error: 'TARGET_USER_NOT_FOUND' });
+      }
+      if (!isLabTechnicianRole(target.role)) {
+        return res.status(400).json({ error: 'LAB_TECHNICIAN_REQUIRED', message: 'Hedef kullanıcı LAB_TECHNICIAN değil.' });
+      }
+      effectiveLabTechUsername = target.username;
+      effectiveLabTechId = target.id;
+      usedOverride = true;
+    } else if (isLabTech) {
+      effectiveLabTechUsername = requesterUsername;
+      effectiveLabTechId = req.user.id;
+      // Block if remaining CEP DEPO balance > 0
+      const balRows = await all(pool,
+        'SELECT packQty, unitQty FROM cep_depo_balances WHERE labTechnicianId = ? AND itemId = ?',
+        [req.user.id, itemId]);
+      const bal = balRows?.[0];
+      if (bal && (Number(bal.packQty) > 0 || Number(bal.unitQty) > 0)) {
+        return res.status(409).json({
+          error: 'CEP_DEPO_HAS_STOCK',
+          message: 'Bu ürün için CEP DEPO stoğunuz mevcut. Yeni talep oluşturmadan önce mevcut stoğu tüketmeli veya iade etmelisiniz.',
+          remainingPackQty: Number(bal.packQty),
+          remainingUnitQty: Number(bal.unitQty)
+        });
+      }
+    }
+
+    const cepFlag = (effectiveLabTechUsername || isLabTech || isCepDepoRequest) ? 1 : 0;
+
     const purchaseId = generateId();
     const requestNumber = 'REQ-' + Date.now().toString().slice(-6);
-    
+
     await run(pool, `
       INSERT INTO purchases (
         id, requestNumber, itemId, itemCode, itemName, department,
-        requestedQty, requestedBy, requestedAt, requestDate,
+        requestedQty, requestedBy, requestedFor, overrideReason, isCepDepoRequest,
+        requestedAt, requestDate,
         status, supplierName, orderedQty, notes, urgency
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), CURDATE(), 'TALEP_EDILDI', ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), CURDATE(), 'TALEP_EDILDI', ?, ?, ?, ?)
     `, [
       purchaseId, requestNumber, itemId, itemCode || '', itemName || '', department || '',
-      requestedQty, req.user.username, supplierName || '', requestedQty, notes || '', urgency || 'normal'
+      requestedQty, requesterUsername,
+      effectiveLabTechUsername || null,
+      usedOverride ? String(overrideReason).trim() : null,
+      cepFlag,
+      supplierName || '', requestedQty, notes || '', urgency || 'normal'
     ]);
-    
+
+    if (usedOverride) {
+      await run(pool, `
+        INSERT INTO stock_movements (
+          id, movementType, itemId, fromLocation, toLocation,
+          packQty, unitQty, performedByUserId, performedByUsername,
+          labTechnicianId, requestId, notes
+        ) VALUES (?, 'REQUEST_OVERRIDE', ?, 'NONE', 'NONE', 0, 0, ?, ?, ?, ?, ?)
+      `, [generateId(), itemId, req.user.id, requesterUsername, effectiveLabTechId, purchaseId, String(overrideReason).trim()]);
+    }
+
     const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [purchaseId]);
     res.json({ purchase: purchases[0] });
   } catch (error) {
@@ -1408,11 +1670,37 @@ app.post('/api/purchases', authRequired, canRequest, async (req, res) => {
   }
 });
 
-// Get all purchases
-app.get('/api/purchases', authRequired, async (_req, res) => {
+// Get all purchases. Optional filters:
+//   ?for=me          Only rows where the caller is requester or `requestedFor` target.
+//                    For LAB_TECHNICIAN this filter is forced on.
+//   ?status=CSV      One or more statuses (e.g. "ONAYLANDI" or "TALEP_EDILDI,ONAYLANDI").
+//   ?scope=cep       Only CEP DEPO requests (isCepDepoRequest=1 OR requestedFor IS NOT NULL).
+app.get('/api/purchases', authRequired, async (req, res) => {
   try {
+    const role = req.user.role;
+    const forceMine = isLabTechnicianRole(role);
+    const wantsMine = forceMine || req.query.for === 'me';
+    const scopeCep = req.query.scope === 'cep';
+    const statusCsv = typeof req.query.status === 'string' ? req.query.status : '';
+    const statuses = statusCsv.split(',').map((s) => s.trim()).filter(Boolean);
+
+    const where = [];
+    const params = [];
+    if (wantsMine) {
+      where.push('(requestedBy = ? OR requestedFor = ?)');
+      params.push(req.user.username, req.user.username);
+    }
+    if (scopeCep) {
+      where.push('(isCepDepoRequest = 1 OR requestedFor IS NOT NULL)');
+    }
+    if (statuses.length) {
+      where.push(`status IN (${statuses.map(() => '?').join(',')})`);
+      params.push(...statuses);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
     const [purchases, receipts] = await Promise.all([
-      all(pool, 'SELECT * FROM purchases ORDER BY requestedAt DESC'),
+      all(pool, `SELECT * FROM purchases ${whereSql} ORDER BY requestedAt DESC`, params),
       all(pool, 'SELECT * FROM receipts ORDER BY receivedAt DESC')
     ]);
 
@@ -1734,6 +2022,13 @@ app.post('/api/import-items', authRequired, async (req, res) => {
           return;
         }
 
+        // CEP DEPO unit fields
+        const rawPkgUnit = normalizeString(raw.packageUnit);
+        const rawConUnit = normalizeString(raw.consumptionUnit);
+        const rawUpp = parseDecimal(raw.unitsPerPackage);
+        const rawCutRaw = normalizeString(raw.consumptionUnitType).toUpperCase();
+        const rawCut = ['PACK', 'UNIT', 'TEST'].includes(rawCutRaw) ? rawCutRaw : (rawConUnit ? 'UNIT' : 'PACK');
+
         const normalizedRow = {
           code,
           name,
@@ -1753,7 +2048,11 @@ app.post('/api/import-items', authRequired, async (req, res) => {
           lotNumber,
           initialStock: parseInteger(raw.initialStock) ?? 0,
           expiryDate: parseDate(raw.expiryDate),
-          receivedDate: parseDate(raw.receivedDate) || new Date().toISOString().slice(0, 10)
+          receivedDate: parseDate(raw.receivedDate) || new Date().toISOString().slice(0, 10),
+          packageUnit: rawPkgUnit || null,
+          consumptionUnit: rawConUnit || null,
+          unitsPerPackage: rawUpp && rawUpp > 0 ? rawUpp : null,
+          consumptionUnitType: rawCut
         };
 
         console.log('[ImportItems] Row %d (%s / %s) expiry raw=%s parsed=%s', idx + 1, code, lotNumber, raw.expiryDate, normalizedRow.expiryDate);
@@ -1776,7 +2075,12 @@ app.post('/api/import-items', authRequired, async (req, res) => {
             UPDATE item_definitions SET 
               name = ?, category = ?, department = ?, unit = ?, minStock = ?, 
               ideal_stock = ?, max_stock = ?, supplier = ?, catalogNo = ?, brand = ?, storageLocation = ?, 
-              storageTemp = ?, chemicalType = ?, status = 'ACTIVE', notes = ?, updatedBy = ?
+              storageTemp = ?, chemicalType = ?, status = 'ACTIVE', notes = ?,
+              packageUnit = COALESCE(?, packageUnit),
+              consumptionUnit = COALESCE(?, consumptionUnit),
+              unitsPerPackage = COALESCE(?, unitsPerPackage),
+              consumptionUnitType = COALESCE(?, consumptionUnitType),
+              updatedBy = ?
             WHERE id = ?
           `, [
             masterItem.name,
@@ -1793,15 +2097,29 @@ app.post('/api/import-items', authRequired, async (req, res) => {
             masterItem.storageTemp || '',
             masterItem.chemicalType || '',
             masterItem.notes || '',
+            masterItem.packageUnit,
+            masterItem.consumptionUnit,
+            masterItem.unitsPerPackage,
+            masterItem.consumptionUnitType,
             req.user.username,
             itemId
           ]);
+          // Recalculate CEP DEPO balance unitQty if unitsPerPackage is now set
+          if (masterItem.unitsPerPackage && Number(masterItem.unitsPerPackage) > 0) {
+            const balResult = await run(conn,
+              `UPDATE cep_depo_balances SET unitQty = packQty * ?, consumptionUnitType = ? WHERE itemId = ? AND status != 'ZERO'`,
+              [Number(masterItem.unitsPerPackage), masterItem.consumptionUnitType || 'PACK', itemId]
+            );
+            console.log(`[ImportItems] CEP balance recalc for ${code}: factor=${masterItem.unitsPerPackage}, type=${masterItem.consumptionUnitType}, rows updated=${balResult?.affectedRows ?? 0}`);
+          }
+
+          console.log(`[ImportItems] Updated item ${code}: pkgUnit=${masterItem.packageUnit} conUnit=${masterItem.consumptionUnit} upp=${masterItem.unitsPerPackage} cut=${masterItem.consumptionUnitType}`);
           updated++;
         } else {
           itemId = generateId();
           await run(conn, `
-            INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, status, notes, createdBy)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
+            INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, status, notes, packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType, createdBy)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?)
           `, [
             itemId,
             code,
@@ -1819,6 +2137,10 @@ app.post('/api/import-items', authRequired, async (req, res) => {
             masterItem.storageTemp || '',
             masterItem.chemicalType || '',
             masterItem.notes || '',
+            masterItem.packageUnit,
+            masterItem.consumptionUnit,
+            masterItem.unitsPerPackage,
+            masterItem.consumptionUnitType || 'PACK',
             req.user.username
           ]);
           created++;
@@ -2219,6 +2541,566 @@ app.post('/api/clear-all', authRequired, adminRequired, async (req, res) => {
   }
 });
 
+// ============================================================
+// CEP DEPO SYSTEM
+// See docs/audit/CEP_DEPO_DESIGN.md
+// ============================================================
+
+const ensureCepDepoTables = async () => {
+  // item_definitions extensions
+  const ensureColumn = async (table, column, ddl) => {
+    const [rows] = await pool.query(
+      'SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+      [table, column]
+    );
+    if (Number(rows?.[0]?.cnt || 0) === 0) {
+      await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN ${ddl}`);
+    }
+  };
+
+  try {
+    await ensureColumn('item_definitions', 'packageUnit', '`packageUnit` VARCHAR(50) NULL');
+    await ensureColumn('item_definitions', 'consumptionUnit', '`consumptionUnit` VARCHAR(50) NULL');
+    await ensureColumn('item_definitions', 'unitsPerPackage', '`unitsPerPackage` INT NULL');
+    await ensureColumn('item_definitions', 'consumptionUnitType', "`consumptionUnitType` VARCHAR(16) NOT NULL DEFAULT 'PACK'");
+  } catch (e) { console.warn('[ensureCepDepo] item_definitions ALTER skipped:', e?.code || e?.message); }
+
+  try {
+    await ensureColumn('lots', 'packageUnit', '`packageUnit` VARCHAR(50) NULL');
+    await ensureColumn('lots', 'unitsPerPackage', '`unitsPerPackage` INT NULL');
+    await ensureColumn('lots', 'consumptionUnitType', '`consumptionUnitType` VARCHAR(16) NULL');
+  } catch (e) { console.warn('[ensureCepDepo] lots ALTER skipped:', e?.code || e?.message); }
+
+  try {
+    await ensureColumn('purchases', 'requestedFor', '`requestedFor` VARCHAR(100) NULL');
+    await ensureColumn('purchases', 'overrideReason', '`overrideReason` TEXT NULL');
+    await ensureColumn('purchases', 'isCepDepoRequest', '`isCepDepoRequest` TINYINT(1) NOT NULL DEFAULT 0');
+  } catch (e) { console.warn('[ensureCepDepo] purchases ALTER skipped:', e?.code || e?.message); }
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS cep_depo_balances (
+    id VARCHAR(64) NOT NULL,
+    labTechnicianId BIGINT UNSIGNED NOT NULL,
+    labTechnicianUsername VARCHAR(100) NOT NULL,
+    itemId VARCHAR(64) NOT NULL,
+    packQty DECIMAL(12,2) NOT NULL DEFAULT 0,
+    unitQty DECIMAL(14,2) NOT NULL DEFAULT 0,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    lastDistributedAt DATETIME NULL,
+    lastDistributionId VARCHAR(64) NULL,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uniq_cep_balance_tech_item (labTechnicianId, itemId),
+    INDEX idx_cep_balance_item (itemId),
+    INDEX idx_cep_balance_tech (labTechnicianId)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS cep_depo_distributions (
+    id VARCHAR(64) NOT NULL,
+    labTechnicianId BIGINT UNSIGNED NOT NULL,
+    labTechnicianUsername VARCHAR(100) NOT NULL,
+    itemId VARCHAR(64) NOT NULL,
+    packQty DECIMAL(12,2) NOT NULL,
+    unitQty DECIMAL(14,2) NOT NULL,
+    purchaseId VARCHAR(64) NULL,
+    distributedBy VARCHAR(100) NOT NULL,
+    distributedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT NULL,
+    PRIMARY KEY (id),
+    INDEX idx_cep_dist_tech (labTechnicianId),
+    INDEX idx_cep_dist_item (itemId),
+    INDEX idx_cep_dist_purchase (purchaseId)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS cep_depo_distribution_lots (
+    id VARCHAR(64) NOT NULL,
+    cepDistributionId VARCHAR(64) NOT NULL,
+    lotId VARCHAR(64) NOT NULL,
+    lotNumber VARCHAR(100) NULL,
+    packQty DECIMAL(12,2) NOT NULL,
+    unitQty DECIMAL(14,2) NOT NULL,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_cep_distlot_dist (cepDistributionId),
+    INDEX idx_cep_distlot_lot (lotId)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS cep_depo_consumptions (
+    id VARCHAR(64) NOT NULL,
+    labTechnicianId BIGINT UNSIGNED NOT NULL,
+    labTechnicianUsername VARCHAR(100) NOT NULL,
+    itemId VARCHAR(64) NOT NULL,
+    consumptionUnitType VARCHAR(16) NOT NULL,
+    quantity DECIMAL(14,2) NOT NULL,
+    packDelta DECIMAL(12,2) NOT NULL,
+    unitDelta DECIMAL(14,2) NOT NULL,
+    testCount INT NULL,
+    notes TEXT NULL,
+    performedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_cep_cons_tech (labTechnicianId),
+    INDEX idx_cep_cons_item (itemId)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS stock_movements (
+    id VARCHAR(64) NOT NULL,
+    movementType VARCHAR(32) NOT NULL,
+    itemId VARCHAR(64) NOT NULL,
+    fromLocation VARCHAR(32) NOT NULL,
+    toLocation VARCHAR(32) NOT NULL,
+    packQty DECIMAL(12,2) NOT NULL DEFAULT 0,
+    unitQty DECIMAL(14,2) NOT NULL DEFAULT 0,
+    performedByUserId BIGINT UNSIGNED NULL,
+    performedByUsername VARCHAR(100) NULL,
+    labTechnicianId BIGINT UNSIGNED NULL,
+    requestId VARCHAR(64) NULL,
+    refId VARCHAR(64) NULL,
+    notes TEXT NULL,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_sm_item (itemId),
+    INDEX idx_sm_type (movementType),
+    INDEX idx_sm_tech (labTechnicianId),
+    INDEX idx_sm_request (requestId),
+    INDEX idx_sm_created (createdAt)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
+  // Upgrade path: ensure tracking columns exist on pre-existing cep_depo_balances tables.
+  try {
+    await ensureColumn('cep_depo_balances', 'lastDistributedAt', '`lastDistributedAt` DATETIME NULL');
+    await ensureColumn('cep_depo_balances', 'lastDistributionId', '`lastDistributionId` VARCHAR(64) NULL');
+  } catch (e) { console.warn('[ensureCepDepo] cep_depo_balances upgrade skipped:', e?.code || e?.message); }
+};
+
+// Helper: resolve effective pack/unit factor (lot override > item default > 1)
+const resolveUnitFactor = (item, lot) => {
+  const fromLot = lot && Number(lot.unitsPerPackage) > 0 ? Number(lot.unitsPerPackage) : null;
+  const fromItem = item && Number(item.unitsPerPackage) > 0 ? Number(item.unitsPerPackage) : null;
+  return fromLot || fromItem || 1;
+};
+
+const resolveConsumptionUnitType = (item, lot) =>
+  (lot && lot.consumptionUnitType) || (item && item.consumptionUnitType) || 'PACK';
+
+// GET /api/cep-depo/balances — all balances (admin/satinal/lojistik/observer see all)
+app.get('/api/cep-depo/balances', authRequired, async (req, res) => {
+  try {
+    const role = req.user.role;
+    const sql = `
+      SELECT b.*, i.code AS itemCode, i.name AS itemName, i.packageUnit, i.consumptionUnit, i.unitsPerPackage, i.consumptionUnitType
+      FROM cep_depo_balances b
+      LEFT JOIN item_definitions i ON i.id = b.itemId
+      ${isLabTechnicianRole(role) ? 'WHERE b.labTechnicianId = ?' : ''}
+      ORDER BY b.labTechnicianUsername, i.name
+    `;
+    const params = isLabTechnicianRole(role) ? [req.user.id] : [];
+    const balances = await all(pool, sql, params);
+    res.json({ balances });
+  } catch (error) {
+    console.error('Failed to list cep-depo balances', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// GET /api/cep-depo/my-balances — own balances (any authenticated user)
+app.get('/api/cep-depo/my-balances', authRequired, async (req, res) => {
+  try {
+    const balances = await all(pool, `
+      SELECT b.*, i.code AS itemCode, i.name AS itemName, i.packageUnit, i.consumptionUnit, i.unitsPerPackage, i.consumptionUnitType
+      FROM cep_depo_balances b
+      LEFT JOIN item_definitions i ON i.id = b.itemId
+      WHERE b.labTechnicianId = ?
+      ORDER BY i.name
+    `, [req.user.id]);
+    res.json({ balances });
+  } catch (error) {
+    console.error('Failed to list my cep-depo balances', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// POST /api/cep-depo/distribute — Main Depot → Lab Technician's CEP DEPO
+//   Body: { labTechnicianId, itemId, packQty, purchaseId?, notes? }
+//   Uses FEFO across active lots of itemId; deducts lots; upserts cep_depo_balances.
+app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async (req, res) => {
+  const { labTechnicianId, itemId, packQty, purchaseId, notes } = req.body || {};
+  const packQtyNum = Number(packQty);
+  if (!labTechnicianId || !itemId || !(packQtyNum > 0)) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: 'labTechnicianId, itemId ve packQty (>0) zorunludur.' });
+  }
+
+  try {
+    const result = await withTransaction(async (conn) => {
+      const techRows = await all(conn, 'SELECT id, username, role FROM users WHERE id = ?', [labTechnicianId]);
+      const tech = techRows?.[0];
+      if (!tech) throw { status: 404, error: 'TECHNICIAN_NOT_FOUND' };
+      if (!isLabTechnicianRole(tech.role)) throw { status: 400, error: 'LAB_TECHNICIAN_REQUIRED' };
+
+      // Idempotency guard: if a purchaseId is supplied and that purchase is already
+      // in a terminal "delivered" state, reject to prevent duplicate CEP DEPO distribution.
+      if (purchaseId) {
+        const prows = await all(conn, 'SELECT id, status FROM purchases WHERE id = ? FOR UPDATE', [purchaseId]);
+        const purchase = prows?.[0];
+        if (!purchase) throw { status: 404, error: 'PURCHASE_NOT_FOUND' };
+        if (purchase.status === 'TESLIM_ALINDI') {
+          throw { status: 409, error: 'ALREADY_DISTRIBUTED', message: 'Bu talep zaten dağıtılmış.' };
+        }
+        if (purchase.status === 'REDDEDILDI') {
+          throw { status: 409, error: 'REQUEST_REJECTED', message: 'Reddedilmiş talep dağıtılamaz.' };
+        }
+      }
+
+      const itemRows = await all(conn, 'SELECT * FROM item_definitions WHERE id = ?', [itemId]);
+      const item = itemRows?.[0];
+      if (!item) throw { status: 404, error: 'ITEM_NOT_FOUND' };
+
+      // FEFO lot picking
+      const lots = await all(conn, `
+        SELECT * FROM lots
+        WHERE itemId = ? AND status = 'ACTIVE' AND currentQuantity > 0
+        ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC
+        FOR UPDATE
+      `, [itemId]);
+
+      const totalAvailable = lots.reduce((s, l) => s + Number(l.currentQuantity), 0);
+      if (totalAvailable < packQtyNum) {
+        throw { status: 409, error: 'INSUFFICIENT_MAIN_STOCK', message: `Ana depoda yeterli stok yok. Mevcut: ${totalAvailable}, talep: ${packQtyNum}` };
+      }
+
+      const cepDistributionId = generateId();
+      let remaining = packQtyNum;
+      let totalUnitQty = 0;
+      const splits = [];
+
+      for (const lot of lots) {
+        if (remaining <= 0) break;
+        const take = Math.min(Number(lot.currentQuantity), remaining);
+        const factor = resolveUnitFactor(item, lot);
+        const takeUnits = take * factor;
+
+        const newQty = Number(lot.currentQuantity) - take;
+        const newStatus = newQty <= 0 ? 'DEPLETED' : lot.status;
+        await run(conn,
+          'UPDATE lots SET currentQuantity = ?, status = ?, updatedBy = ? WHERE id = ?',
+          [newQty, newStatus, req.user.username, lot.id]);
+
+        splits.push({ lot, take, takeUnits });
+        await run(conn, `
+          INSERT INTO cep_depo_distribution_lots (id, cepDistributionId, lotId, lotNumber, packQty, unitQty)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [generateId(), cepDistributionId, lot.id, lot.lotNumber, take, takeUnits]);
+
+        remaining -= take;
+        totalUnitQty += takeUnits;
+      }
+
+      // Header
+      await run(conn, `
+        INSERT INTO cep_depo_distributions
+          (id, labTechnicianId, labTechnicianUsername, itemId, packQty, unitQty, purchaseId, distributedBy, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [cepDistributionId, tech.id, tech.username, itemId, packQtyNum, totalUnitQty, purchaseId || null, req.user.username, notes || null]);
+
+      // Upsert balance
+      await run(conn, `
+        INSERT INTO cep_depo_balances
+          (id, labTechnicianId, labTechnicianUsername, itemId, packQty, unitQty, status, lastDistributedAt, lastDistributionId)
+        VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', NOW(), ?)
+        ON DUPLICATE KEY UPDATE
+          packQty = packQty + VALUES(packQty),
+          unitQty = unitQty + VALUES(unitQty),
+          status = 'ACTIVE',
+          labTechnicianUsername = VALUES(labTechnicianUsername),
+          lastDistributedAt = VALUES(lastDistributedAt),
+          lastDistributionId = VALUES(lastDistributionId)
+      `, [generateId(), tech.id, tech.username, itemId, packQtyNum, totalUnitQty, cepDistributionId]);
+
+      // Movement
+      await run(conn, `
+        INSERT INTO stock_movements
+          (id, movementType, itemId, fromLocation, toLocation, packQty, unitQty,
+           performedByUserId, performedByUsername, labTechnicianId, requestId, refId, notes)
+        VALUES (?, 'DISTRIBUTE_CEP', ?, 'MAIN_DEPOT', 'CEP_DEPO', ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [generateId(), itemId, packQtyNum, totalUnitQty, req.user.id, req.user.username, tech.id, purchaseId || null, cepDistributionId, notes || null]);
+
+      // If linked to a purchase request, mark it as distributed (best-effort)
+      if (purchaseId) {
+        await run(conn, "UPDATE purchases SET status = 'TESLIM_ALINDI', receivedQtyTotal = COALESCE(receivedQtyTotal, 0) + ? WHERE id = ?", [packQtyNum, purchaseId]);
+      }
+
+      return { cepDistributionId, packQty: packQtyNum, unitQty: totalUnitQty, splits: splits.length };
+    });
+
+    res.json(result);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
+    console.error('CEP DEPO distribute error', error);
+    res.status(500).json({ error: 'SERVER_ERROR', message: error?.message });
+  }
+});
+
+// POST /api/cep-depo/consume — Lab tech records consumption
+//   Body: { itemId, consumptionUnitType: 'PACK'|'UNIT'|'TEST', quantity, testCount?, notes? }
+//   Lab tech can only consume their own; ADMIN may pass labTechnicianId to adjust on behalf.
+app.post('/api/cep-depo/consume', authRequired, async (req, res) => {
+  const role = req.user.role;
+  const isLabTech = isLabTechnicianRole(role);
+  const isAdmin = role === ROLES.ADMIN;
+  if (!isLabTech && !isAdmin) {
+    return res.status(403).json({ error: 'FORBIDDEN', message: 'Sadece LAB_TECHNICIAN veya ADMIN tüketim kaydedebilir.' });
+  }
+
+  const { itemId, consumptionUnitType, quantity, testCount, notes } = req.body || {};
+  const targetTechId = isAdmin && req.body?.labTechnicianId ? req.body.labTechnicianId : req.user.id;
+  const qtyNum = Number(quantity);
+  if (!itemId || !consumptionUnitType || !(qtyNum > 0)) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: 'itemId, consumptionUnitType ve quantity (>0) zorunludur.' });
+  }
+  if (!['PACK', 'UNIT', 'TEST'].includes(consumptionUnitType)) {
+    return res.status(400).json({ error: 'INVALID_UNIT_TYPE' });
+  }
+
+  try {
+    const result = await withTransaction(async (conn) => {
+      const techRows = await all(conn, 'SELECT id, username, role FROM users WHERE id = ?', [targetTechId]);
+      const tech = techRows?.[0];
+      if (!tech) throw { status: 404, error: 'TECHNICIAN_NOT_FOUND' };
+      if (!isLabTechnicianRole(tech.role)) throw { status: 400, error: 'LAB_TECHNICIAN_REQUIRED' };
+
+      const balRows = await all(conn,
+        'SELECT * FROM cep_depo_balances WHERE labTechnicianId = ? AND itemId = ? FOR UPDATE',
+        [tech.id, itemId]);
+      const bal = balRows?.[0];
+      if (!bal) throw { status: 409, error: 'INSUFFICIENT_CEP_BALANCE', message: 'Bu üründe CEP DEPO bakiyeniz yok.' };
+
+      const itemRows = await all(conn, 'SELECT * FROM item_definitions WHERE id = ?', [itemId]);
+      const item = itemRows?.[0];
+      const factor = resolveUnitFactor(item, null);
+
+      // Convert requested consumption into pack & unit deltas
+      let packDelta = 0;
+      let unitDelta = 0;
+      if (consumptionUnitType === 'PACK') {
+        packDelta = qtyNum;
+        unitDelta = qtyNum * factor;
+      } else {
+        // UNIT or TEST → consume from sub-units; pack count is recalculated below
+        unitDelta = qtyNum;
+        packDelta = factor > 1 ? qtyNum / factor : qtyNum;
+      }
+
+      // Validate available balance
+      if (consumptionUnitType === 'PACK') {
+        if (Number(bal.packQty) + 1e-9 < packDelta) {
+          throw {
+            status: 409,
+            error: 'INSUFFICIENT_CEP_BALANCE',
+            message: `CEP DEPO bakiyesi yetersiz. Mevcut: ${bal.packQty} ${item?.packageUnit || 'koli'}, talep: ${packDelta}.`
+          };
+        }
+      } else {
+        if (Number(bal.unitQty) + 1e-9 < unitDelta) {
+          throw {
+            status: 409,
+            error: 'INSUFFICIENT_CEP_BALANCE',
+            message: `CEP DEPO bakiyesi yetersiz. Mevcut: ${bal.unitQty} ${item?.consumptionUnit || 'birim'}, talep: ${unitDelta}.`
+          };
+        }
+      }
+
+      // Compute new balances
+      let newPack, newUnit;
+      if (consumptionUnitType === 'PACK') {
+        newUnit = Math.max(0, Number(bal.unitQty) - unitDelta);
+        newPack = Math.max(0, Number(bal.packQty) - packDelta);
+      } else {
+        // Consume sub-units; packQty = ceil(remaining units / factor) so packs decrement
+        // only when a full pack's worth of units has been consumed
+        newUnit = Math.max(0, Number(bal.unitQty) - unitDelta);
+        newPack = newUnit > 0 && factor > 1 ? Math.ceil(newUnit / factor) : (factor <= 1 ? newUnit : 0);
+      }
+      const newStatus = (newPack <= 0 && newUnit <= 0) ? 'ZERO' : 'ACTIVE';
+      await run(conn, 'UPDATE cep_depo_balances SET packQty = ?, unitQty = ?, status = ? WHERE id = ?',
+        [newPack, newUnit, newStatus, bal.id]);
+
+      const consumptionId = generateId();
+      await run(conn, `
+        INSERT INTO cep_depo_consumptions
+          (id, labTechnicianId, labTechnicianUsername, itemId, consumptionUnitType, quantity, packDelta, unitDelta, testCount, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [consumptionId, tech.id, tech.username, itemId, consumptionUnitType, qtyNum, packDelta, unitDelta, testCount || null, notes || null]);
+
+      await run(conn, `
+        INSERT INTO stock_movements
+          (id, movementType, itemId, fromLocation, toLocation, packQty, unitQty,
+           performedByUserId, performedByUsername, labTechnicianId, refId, notes)
+        VALUES (?, 'CONSUME', ?, 'CEP_DEPO', 'CONSUMED', ?, ?, ?, ?, ?, ?, ?)
+      `, [generateId(), itemId, packDelta, unitDelta, req.user.id, req.user.username, tech.id, consumptionId, notes || null]);
+
+      return { consumptionId, balance: { packQty: newPack, unitQty: newUnit, status: newStatus } };
+    });
+
+    res.json(result);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
+    console.error('CEP DEPO consume error', error);
+    res.status(500).json({ error: 'SERVER_ERROR', message: error?.message });
+  }
+});
+
+// POST /api/cep-depo/return — Lab tech returns unused stock back to Main Depot
+//   Body: { itemId, packQty, lotId? (target lot to credit; if absent, uses latest active lot or creates "RETURN" lot), notes? }
+app.post('/api/cep-depo/return', authRequired, async (req, res) => {
+  const role = req.user.role;
+  const allowed = role === ROLES.ADMIN || role === ROLES.SATINAL || role === ROLES.SATINAL_LOJISTIK || isLabTechnicianRole(role);
+  if (!allowed) return res.status(403).json({ error: 'FORBIDDEN' });
+
+  const { itemId, packQty, lotId, notes } = req.body || {};
+  const targetTechId = (role === ROLES.ADMIN && req.body?.labTechnicianId) ? req.body.labTechnicianId : req.user.id;
+  const packQtyNum = Number(packQty);
+  if (!itemId || !(packQtyNum > 0)) {
+    return res.status(400).json({ error: 'INVALID_INPUT' });
+  }
+
+  try {
+    const result = await withTransaction(async (conn) => {
+      const techRows = await all(conn, 'SELECT id, username, role FROM users WHERE id = ?', [targetTechId]);
+      const tech = techRows?.[0];
+      if (!tech || !isLabTechnicianRole(tech.role)) throw { status: 400, error: 'LAB_TECHNICIAN_REQUIRED' };
+
+      const balRows = await all(conn,
+        'SELECT * FROM cep_depo_balances WHERE labTechnicianId = ? AND itemId = ? FOR UPDATE',
+        [tech.id, itemId]);
+      const bal = balRows?.[0];
+      if (!bal || Number(bal.packQty) < packQtyNum) {
+        throw { status: 409, error: 'INSUFFICIENT_CEP_BALANCE' };
+      }
+
+      const itemRows = await all(conn, 'SELECT * FROM item_definitions WHERE id = ?', [itemId]);
+      const item = itemRows?.[0];
+      const factor = resolveUnitFactor(item, null);
+      const unitQtyNum = packQtyNum * factor;
+
+      // Credit a lot
+      let creditLotId = lotId || null;
+      if (creditLotId) {
+        await run(conn, "UPDATE lots SET currentQuantity = currentQuantity + ?, status = 'ACTIVE', updatedBy = ? WHERE id = ?",
+          [packQtyNum, req.user.username, creditLotId]);
+      } else {
+        // Pick latest active lot or create a RETURN lot
+        const lots = await all(conn, "SELECT id FROM lots WHERE itemId = ? AND status IN ('ACTIVE','DEPLETED') ORDER BY receivedDate DESC LIMIT 1 FOR UPDATE", [itemId]);
+        if (lots.length) {
+          creditLotId = lots[0].id;
+          await run(conn, "UPDATE lots SET currentQuantity = currentQuantity + ?, status = 'ACTIVE', updatedBy = ? WHERE id = ?",
+            [packQtyNum, req.user.username, creditLotId]);
+        } else {
+          creditLotId = generateId();
+          await run(conn, `
+            INSERT INTO lots (id, itemId, lotNumber, receivedDate, initialQuantity, currentQuantity, status, notes, createdBy)
+            VALUES (?, ?, ?, CURDATE(), ?, ?, 'ACTIVE', ?, ?)
+          `, [creditLotId, itemId, 'RETURN-' + Date.now().toString().slice(-6), packQtyNum, packQtyNum, 'CEP DEPO return', req.user.username]);
+        }
+      }
+
+      const newPack = Math.max(0, Number(bal.packQty) - packQtyNum);
+      const newUnit = Math.max(0, Number(bal.unitQty) - unitQtyNum);
+      const newStatus = (newPack <= 0 && newUnit <= 0) ? 'ZERO' : 'ACTIVE';
+      await run(conn, 'UPDATE cep_depo_balances SET packQty = ?, unitQty = ?, status = ? WHERE id = ?',
+        [newPack, newUnit, newStatus, bal.id]);
+
+      await run(conn, `
+        INSERT INTO stock_movements
+          (id, movementType, itemId, fromLocation, toLocation, packQty, unitQty,
+           performedByUserId, performedByUsername, labTechnicianId, refId, notes)
+        VALUES (?, 'RETURN_CEP', ?, 'CEP_DEPO', 'MAIN_DEPOT', ?, ?, ?, ?, ?, ?, ?)
+      `, [generateId(), itemId, packQtyNum, unitQtyNum, req.user.id, req.user.username, tech.id, creditLotId, notes || null]);
+
+      return { creditedLotId: creditLotId, balance: { packQty: newPack, unitQty: newUnit } };
+    });
+
+    res.json(result);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
+    console.error('CEP DEPO return error', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// GET /api/cep-depo/movements — unified ledger
+app.get('/api/cep-depo/movements', authRequired, async (req, res) => {
+  try {
+    const role = req.user.role;
+    const limit = Math.min(Number(req.query.limit) || 500, 5000);
+    const filterTech = isLabTechnicianRole(role) ? req.user.id : (req.query.labTechnicianId || null);
+    const sql = `
+      SELECT m.*, i.code AS itemCode, i.name AS itemName
+      FROM stock_movements m
+      LEFT JOIN item_definitions i ON i.id = m.itemId
+      ${filterTech ? 'WHERE m.labTechnicianId = ?' : ''}
+      ORDER BY m.createdAt DESC
+      LIMIT ${limit}
+    `;
+    const params = filterTech ? [filterTech] : [];
+    const movements = await all(pool, sql, params);
+    res.json({ movements });
+  } catch (error) {
+    console.error('Failed to list stock_movements', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// GET /api/cep-depo/distributions
+app.get('/api/cep-depo/distributions', authRequired, async (req, res) => {
+  try {
+    const role = req.user.role;
+    const sql = `
+      SELECT d.*, i.code AS itemCode, i.name AS itemName
+      FROM cep_depo_distributions d
+      LEFT JOIN item_definitions i ON i.id = d.itemId
+      ${isLabTechnicianRole(role) ? 'WHERE d.labTechnicianId = ?' : ''}
+      ORDER BY d.distributedAt DESC
+    `;
+    const params = isLabTechnicianRole(role) ? [req.user.id] : [];
+    const distributions = await all(pool, sql, params);
+    res.json({ distributions });
+  } catch (error) {
+    console.error('Failed to list cep distributions', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// GET /api/cep-depo/consumptions
+app.get('/api/cep-depo/consumptions', authRequired, async (req, res) => {
+  try {
+    const role = req.user.role;
+    const sql = `
+      SELECT c.*, i.code AS itemCode, i.name AS itemName
+      FROM cep_depo_consumptions c
+      LEFT JOIN item_definitions i ON i.id = c.itemId
+      ${isLabTechnicianRole(role) ? 'WHERE c.labTechnicianId = ?' : ''}
+      ORDER BY c.performedAt DESC
+    `;
+    const params = isLabTechnicianRole(role) ? [req.user.id] : [];
+    const consumptions = await all(pool, sql, params);
+    res.json({ consumptions });
+  } catch (error) {
+    console.error('Failed to list cep consumptions', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// GET /api/lab-technicians — quick list of LAB_TECHNICIAN users (for distribute UI)
+app.get('/api/lab-technicians', authRequired, async (_req, res) => {
+  try {
+    const users = await all(pool,
+      "SELECT id, username FROM users WHERE role = 'LAB_TECHNICIAN' ORDER BY username");
+    res.json({ users });
+  } catch (error) {
+    console.error('Failed to list lab technicians', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
 // Serve frontend build in production
 const distPath = path.join(__dirname, '..', 'dist');
 app.use(express.static(distPath));
@@ -2236,6 +3118,13 @@ const startServer = async () => {
     try {
       await pool.query("UPDATE item_definitions SET status = 'ACTIVE' WHERE status IS NULL");
     } catch (_) { /* ignore if table doesn't exist yet */ }
+    // CEP DEPO tables / columns
+    try {
+      await ensureCepDepoTables();
+      console.log('[ensureCepDepo] CEP DEPO schema verified.');
+    } catch (e) {
+      console.error('[ensureCepDepo] Failed to ensure CEP DEPO schema:', e?.message || e);
+    }
     console.log(`Connected to MySQL: ${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}`);
   } catch (error) {
     console.error('Failed to connect to MySQL. Check server/.env and ensure the database + tables exist.', error);

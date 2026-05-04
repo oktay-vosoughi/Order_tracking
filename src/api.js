@@ -190,6 +190,14 @@ export async function createItemDefinition(data) {
   });
 }
 
+export async function updateItemDefinition(id, data) {
+  return apiFetch(`/item-definitions/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
 // ============================================================
 // EXCEL EXPORT API
 // ============================================================
@@ -276,5 +284,90 @@ export async function deletePurchase(purchaseId) {
 export async function clearAllData() {
   return apiFetch('/admin/clear-all', {
     method: 'POST'
+  });
+}
+
+// ============================================================
+// CEP DEPO API
+// See docs/audit/CEP_DEPO_DESIGN.md
+// ============================================================
+
+export async function fetchLabTechnicians() {
+  return apiFetch('/lab-technicians');
+}
+
+export async function fetchCepDepoBalances() {
+  return apiFetch('/cep-depo/balances');
+}
+
+export async function fetchMyCepDepoBalances() {
+  return apiFetch('/cep-depo/my-balances');
+}
+
+export async function distributeToCepDepo({ labTechnicianId, itemId, packQty, purchaseId, notes }) {
+  return apiFetch('/cep-depo/distribute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ labTechnicianId, itemId, packQty, purchaseId, notes })
+  });
+}
+
+export async function consumeFromCepDepo({ itemId, consumptionUnitType, quantity, testCount, notes, labTechnicianId }) {
+  return apiFetch('/cep-depo/consume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId, consumptionUnitType, quantity, testCount, notes, labTechnicianId })
+  });
+}
+
+export async function returnFromCepDepo({ itemId, packQty, lotId, notes, labTechnicianId }) {
+  return apiFetch('/cep-depo/return', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId, packQty, lotId, notes, labTechnicianId })
+  });
+}
+
+export async function fetchCepDepoMovements(params = {}) {
+  const qs = new URLSearchParams(params).toString();
+  return apiFetch(`/cep-depo/movements${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchCepDepoDistributions() {
+  return apiFetch('/cep-depo/distributions');
+}
+
+export async function fetchCepDepoConsumptions() {
+  return apiFetch('/cep-depo/consumptions');
+}
+
+export async function fetchPurchasesFiltered({ forMe = false, status, scope } = {}) {
+  const qs = new URLSearchParams();
+  if (forMe) qs.set('for', 'me');
+  if (status) qs.set('status', Array.isArray(status) ? status.join(',') : status);
+  if (scope) qs.set('scope', scope);
+  const s = qs.toString();
+  return apiFetch(`/purchases${s ? `?${s}` : ''}`);
+}
+
+// Distribute an approved lab-tech request into its target CEP DEPO in one shot.
+// Relies on purchase.requestedFor OR a passed labTechnicianId.
+export async function distributeApprovedRequest({ purchaseId, labTechnicianId, itemId, packQty, notes }) {
+  return apiFetch('/cep-depo/distribute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ purchaseId, labTechnicianId, itemId, packQty, notes })
+  });
+}
+
+export async function createPurchaseRequestForLabTech({ itemId, itemCode, itemName, requestedQty, requestedFor, overrideReason, notes, urgency }) {
+  return apiFetch('/purchases', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      itemId, itemCode, itemName, requestedQty,
+      requestedFor, overrideReason, notes, urgency,
+      isCepDepoRequest: true
+    })
   });
 }

@@ -91,7 +91,74 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          
+
+          {/* CEP DEPO — main / sub-unit conversion */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Ana Birim (Talep/Depo)
+            </label>
+            <input
+              type="text"
+              placeholder="koli, kutu, paket, şişe"
+              value={newItem.packageUnit || ''}
+              onChange={(e) => setNewItem({ ...newItem, packageUnit: e.target.value })}
+              className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+            />
+            <p className="text-[11px] text-gray-500 mt-1">
+              Lab teknisyeni bu birimde talep eder.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Alt Birim (Tüketim)
+            </label>
+            <input
+              type="text"
+              placeholder="adet, tablet, ml, gram"
+              value={newItem.consumptionUnit || ''}
+              onChange={(e) => setNewItem({ ...newItem, consumptionUnit: e.target.value })}
+              className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+            />
+            <p className="text-[11px] text-gray-500 mt-1">
+              CEP DEPO bu birimden tüketilir. Boş bırakırsanız ana birim kullanılır.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              1 Ana Birim = Kaç Alt Birim?
+            </label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              placeholder="36"
+              value={newItem.unitsPerPackage ?? ''}
+              onChange={(e) => setNewItem({ ...newItem, unitsPerPackage: e.target.value })}
+              className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+              disabled={!newItem.consumptionUnit}
+            />
+            <p className="text-[11px] text-gray-500 mt-1">
+              Örn. 1 koli = <strong>36</strong> adet. Alt birim varsa zorunludur.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Tüketim Birim Tipi
+            </label>
+            <select
+              value={newItem.consumptionUnitType || 'PACK'}
+              onChange={(e) => setNewItem({ ...newItem, consumptionUnitType: e.target.value })}
+              className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="PACK">PACK (ana birim ile tüketilir)</option>
+              <option value="UNIT">UNIT (alt birim ile tüketilir)</option>
+              <option value="TEST">TEST (test sayısı ile tüketilir)</option>
+            </select>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Min Stok</label>
             <input
