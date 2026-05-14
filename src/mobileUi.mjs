@@ -78,6 +78,16 @@ export function getPurchaseStatusFilterOptions(counts = {}) {
   ];
 }
 
+export function getLotPreview(lots = [], limit = 3) {
+  if (!Array.isArray(lots)) return [];
+  return lots.slice(0, Math.max(0, limit));
+}
+
+export function getHiddenLotCount(lots = [], limit = 3) {
+  if (!Array.isArray(lots)) return 0;
+  return Math.max(0, lots.length - Math.max(0, limit));
+}
+
 export function getVisibleTabOptions({
   canViewStock,
   canViewTalep,

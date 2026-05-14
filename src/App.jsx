@@ -24,6 +24,8 @@ import CepDepo from './CepDepo';
 import { buildLotImportPayload } from './utils/lotExcelImporter';
 import {
   PURCHASE_STATUS_FILTERS,
+  getHiddenLotCount,
+  getLotPreview,
   getPurchaseStatusBadge,
   getPurchaseStatusFilterOptions,
   getVisibleTabOptions
@@ -107,6 +109,8 @@ const LabEquipmentTracker = () => {
   const [expandedMaterialLots, setExpandedMaterialLots] = useState([]);
   const [loadingLots, setLoadingLots] = useState(false);
   const [purchaseStatusFilter, setPurchaseStatusFilter] = useState(null);
+  const [expandedPurchaseId, setExpandedPurchaseId] = useState(null);
+  const [showAllMobileLotsFor, setShowAllMobileLotsFor] = useState(null);
 
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
@@ -1016,8 +1020,11 @@ const LabEquipmentTracker = () => {
     if (expandedMaterialId === materialId) {
       setExpandedMaterialId(null);
       setExpandedMaterialLots([]);
+      setShowAllMobileLotsFor(null);
     } else {
       setExpandedMaterialId(materialId);
+      setExpandedMaterialLots([]);
+      setShowAllMobileLotsFor(null);
       setLoadingLots(true);
       try {
         const res = await fetchItemLots(materialId);
@@ -2078,7 +2085,197 @@ const LabEquipmentTracker = () => {
                 </button>
               </div>
             )}
-            <div className="overflow-x-auto">
+            <div className="sm:hidden divide-y divide-gray-100">
+              {filteredItems.map((item) => {
+                const history = getItemHistory(item.id);
+                const pending = history.find(h => h.status === 'TALEP_EDILDI' || h.status === 'ONAYLANDI');
+                const isExpanded = expandedMaterialId === item.id;
+                const totalStock = Number(item.totalStock ?? item.currentStock ?? 0);
+                const pendingOrderQty = Number(item.pendingOrderQty ?? 0);
+                const minStock = item.minStock || 0;
+                const isLowStock = totalStock < minStock;
+                const showAllLots = showAllMobileLotsFor === item.id;
+                const lotPreviewLimit = showAllLots ? expandedMaterialLots.length : 3;
+                const lotPreview = getLotPreview(expandedMaterialLots, lotPreviewLimit);
+                const hiddenLotCount = getHiddenLotCount(expandedMaterialLots, lotPreviewLimit);
+                const pendingCepCount = (pendingCepRequestsByItem[item.id] || []).length;
+
+                return (
+                  <div key={item.id} className={`mobile-item-card ${isLowStock ? 'mobile-item-card--warning' : ''}`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleMaterialLots(item.id)}
+                      className="mobile-card-summary"
+                      aria-expanded={isExpanded}
+                    >
+                      <div className="min-w-0 text-left">
+                        <div className="text-xs font-semibold text-gray-500">{item.code}</div>
+                        <div className="mobile-card-title">{item.name}</div>
+                        <div className="mobile-meta-row">
+                          {item.brand && <span>{item.brand}</span>}
+                          {item.department && <span>{item.department}</span>}
+                          {item.activeLotCount > 0 && <span>{item.activeLotCount} LOT</span>}
+                        </div>
+                      </div>
+                      <div className="mobile-card-side">
+                        <span className={`status-pill ${isLowStock ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                          {isLowStock ? 'SATIN AL' : 'STOKTA'}
+                        </span>
+                        {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                      </div>
+                    </button>
+
+                    <div className="mobile-card-metrics">
+                      <div>
+                        <div className="mobile-metric-label">Stok</div>
+                        <div className={isLowStock ? 'mobile-metric-value text-red-600' : 'mobile-metric-value text-green-600'}>
+                          {totalStock} / {minStock} {item.unit}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mobile-metric-label">SKT</div>
+                        <div className="mobile-metric-value text-gray-700">
+                          {item.nearestExpiry ? formatDate(item.nearestExpiry) : 'Yok'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {pendingOrderQty > 0 && (
+                      <div className="mobile-inline-note">
+                        +{Math.floor(pendingOrderQty)} beklemede, tahmini stok {Math.floor(totalStock + pendingOrderQty)}
+                      </div>
+                    )}
+
+                    {isExpanded && (
+                      <div className="mobile-card-details">
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <div className="mobile-metric-label">Kategori</div>
+                            <div className="font-semibold text-gray-800">{item.category || '-'}</div>
+                          </div>
+                          <div>
+                            <div className="mobile-metric-label">Kimyasal</div>
+                            <div className="font-semibold text-gray-800">{item.chemicalType ? CHEMICAL_TYPES[item.chemicalType] : '-'}</div>
+                          </div>
+                        </div>
+
+                        <div className="pt-2">
+                          <div className="mobile-section-title">LOT Detayları</div>
+                          {loadingLots ? (
+                            <div className="mobile-empty-note">Yükleniyor...</div>
+                          ) : expandedMaterialLots.length === 0 ? (
+                            <div className="mobile-empty-note">Henüz LOT kaydı yok</div>
+                          ) : (
+                            <div className="space-y-2">
+                              {lotPreview.map((lot) => {
+                                const daysUntilExpiry = lot.expiryDate ? Math.ceil((new Date(lot.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) : null;
+                                const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
+                                const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
+                                return (
+                                  <div key={lot.id} className="mobile-lot-row">
+                                    <div className="min-w-0">
+                                      <div className="font-mono text-xs font-semibold text-gray-800 truncate">{lot.lotNumber}</div>
+                                      <div className={isExpired ? 'text-xs text-red-600' : isExpiringSoon ? 'text-xs text-orange-600' : 'text-xs text-gray-500'}>
+                                        {lot.expiryDate ? formatDate(lot.expiryDate) : 'SKT yok'}
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <div className="font-bold text-green-600">{lot.currentQuantity}</div>
+                                      <div className="text-[10px] text-gray-500">{lot.status === 'ACTIVE' ? 'Aktif' : lot.status === 'DEPLETED' ? 'Tükendi' : 'Süresi Doldu'}</div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {hiddenLotCount > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAllMobileLotsFor(item.id)}
+                                  className="mobile-expand-link"
+                                >
+                                  +{hiddenLotCount} LOT daha göster
+                                </button>
+                              )}
+                              {showAllLots && expandedMaterialLots.length > 3 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAllMobileLotsFor(null)}
+                                  className="mobile-expand-link"
+                                >
+                                  LOT listesini kısalt
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 pt-2">
+                          {canCreateRequest && (
+                            <button onClick={() => setShowRequestForm(item)} className="status-action status-action--order">Talep</button>
+                          )}
+                          {canDistribute && (
+                            <button
+                              onClick={() => setShowDistributeForm(item)}
+                              className={`status-action ${pendingCepCount > 0 ? 'status-action--reject' : 'status-action--receive'}`}
+                              title={pendingCepCount > 0 ? `${pendingCepCount} CEP DEPO talebi bekliyor` : 'Dağıt'}
+                            >
+                              Dağıt{pendingCepCount > 0 ? ` (${pendingCepCount})` : ''}
+                            </button>
+                          )}
+                          {canDistribute && (
+                            <button onClick={() => setShowWasteForm(item)} className="status-action status-action--muted">Atık</button>
+                          )}
+                          {canModifyInventory && (
+                            <button
+                              onClick={() => {
+                                setUnitEditItem(item);
+                                setUnitEditForm({
+                                  packageUnit: item.packageUnit || '',
+                                  consumptionUnit: item.consumptionUnit || '',
+                                  unitsPerPackage: item.unitsPerPackage ?? '',
+                                  consumptionUnitType: item.consumptionUnitType || 'PACK'
+                                });
+                              }}
+                              className="status-action status-action--muted"
+                            >
+                              Birim
+                            </button>
+                          )}
+                          {canModifyInventory && (
+                            <button onClick={() => deleteItem(item.id)} className="status-action status-action--reject">Sil</button>
+                          )}
+                          {!isLabTechnician && history.length > 0 && (
+                            <button
+                              onClick={() => {
+                                const lastReceipt = history.filter(p => p.receipts?.length > 0).flatMap(p => p.receipts).sort((a,b) => new Date(b.receivedAt) - new Date(a.receivedAt))[0];
+                                if (lastReceipt?.attachmentUrl) {
+                                  const win = window.open();
+                                  win.document.write(`<iframe src="${lastReceipt.attachmentUrl}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
+                                } else {
+                                  alert('Bu malzeme için fatura/belge bulunamadı.');
+                                }
+                              }}
+                              className="status-action status-action--muted"
+                            >
+                              Belge
+                            </button>
+                          )}
+                          {pending && <span className="mobile-inline-note">Talep var</span>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {filteredItems.length === 0 && (
+                <div className="text-center py-12 text-gray-500">
+                  <Package size={42} className="mx-auto mb-4 opacity-50" />
+                  <p>Henüz malzeme eklenmemiş</p>
+                  <p className="text-sm mt-2">Excel yükleyin veya manuel ekleyin</p>
+                </div>
+              )}
+            </div>
+
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
@@ -2601,16 +2798,25 @@ const LabEquipmentTracker = () => {
             <div className="sm:hidden divide-y divide-gray-100">
               {filteredPurchases.map((purchase) => {
                 const statusBadge = getPurchaseStatusBadge(purchase.status);
+                const isExpanded = expandedPurchaseId === purchase.id;
                 return (
                   <div key={purchase.id} className="p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedPurchaseId((current) => current === purchase.id ? null : purchase.id)}
+                      className="mobile-card-summary"
+                      aria-expanded={isExpanded}
+                    >
+                      <div className="min-w-0 text-left">
                         <div className="text-xs font-semibold text-gray-500">{purchase.requestNumber}</div>
                         <div className="font-semibold text-gray-900 break-words">{purchase.itemName}</div>
                         <div className="text-xs text-gray-500">{purchase.department}</div>
                       </div>
-                      <span className={`status-pill shrink-0 ${statusBadge.className}`}>{statusBadge.label}</span>
-                    </div>
+                      <div className="mobile-card-side">
+                        <span className={`status-pill shrink-0 ${statusBadge.className}`}>{statusBadge.label}</span>
+                        {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                      </div>
+                    </button>
 
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
@@ -2623,48 +2829,52 @@ const LabEquipmentTracker = () => {
                         <div className="text-xs text-gray-500">{new Date(purchase.requestDate).toLocaleDateString('tr-TR')}</div>
                       </div>
                     </div>
-
                     {purchase.urgency === 'urgent' && <span className="status-pill bg-red-50 text-red-700 border-red-200">ACİL</span>}
-                    {purchase.approvedBy && <div className="text-xs text-gray-500">Onaylayan: {purchase.approvedBy}</div>}
-                    {purchase.orderedBy && <div className="text-xs text-gray-500">Sipariş: {purchase.orderedBy} - {purchase.poNumber}</div>}
-                    {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMEN_GELDI' || purchase.status === 'GELDI') && (
-                      <div className="text-xs text-indigo-600">
-                        Gelen: {purchase.receivedQtyTotal || 0} / {purchase.orderedQty || purchase.requestedQty}
-                      </div>
-                    )}
 
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {purchase.status === 'TALEP_EDILDI' && (
-                        <>
-                          {canApprove && (
+                    {isExpanded && (
+                      <div className="mobile-card-details">
+                        {purchase.approvedBy && <div className="text-xs text-gray-500">Onaylayan: {purchase.approvedBy}</div>}
+                        {purchase.orderedBy && <div className="text-xs text-gray-500">Sipariş: {purchase.orderedBy} - {purchase.poNumber}</div>}
+                        {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMEN_GELDI' || purchase.status === 'GELDI') && (
+                          <div className="text-xs text-indigo-600">
+                            Gelen: {purchase.receivedQtyTotal || 0} / {purchase.orderedQty || purchase.requestedQty}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {purchase.status === 'TALEP_EDILDI' && (
                             <>
-                              <button onClick={() => approvePurchaseRequest(purchase.id)} className="status-action status-action--approve">Onayla</button>
-                              <button onClick={() => rejectPurchaseRequest(purchase.id)} className="status-action status-action--reject">Reddet</button>
+                              {canApprove && (
+                                <>
+                                  <button onClick={() => approvePurchaseRequest(purchase.id)} className="status-action status-action--approve">Onayla</button>
+                                  <button onClick={() => rejectPurchaseRequest(purchase.id)} className="status-action status-action--reject">Reddet</button>
+                                </>
+                              )}
+                              {isAdmin && (
+                                <button onClick={() => deletePurchaseRequest(purchase.id)} className="status-action status-action--muted">Sil</button>
+                              )}
                             </>
                           )}
-                          {isAdmin && (
-                            <button onClick={() => deletePurchaseRequest(purchase.id)} className="status-action status-action--muted">Sil</button>
+                          {purchase.status === 'ONAYLANDI' && canOrder && (
+                            <>
+                              <button onClick={() => { setOrderForm({...orderForm, orderedQty: purchase.requestedQty, supplierName: purchase.supplierName || ''}); setShowOrderForm(purchase); }} className="status-action status-action--order">Sipariş Ver</button>
+                              <button onClick={() => markOrderRejected(purchase)} className="status-action status-action--muted">Sipariş Edilmedi</button>
+                            </>
                           )}
-                        </>
-                      )}
-                      {purchase.status === 'ONAYLANDI' && canOrder && (
-                        <>
-                          <button onClick={() => { setOrderForm({...orderForm, orderedQty: purchase.requestedQty, supplierName: purchase.supplierName || ''}); setShowOrderForm(purchase); }} className="status-action status-action--order">Sipariş Ver</button>
-                          <button onClick={() => markOrderRejected(purchase)} className="status-action status-action--muted">Sipariş Edilmedi</button>
-                        </>
-                      )}
-                      {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
-                        <button onClick={() => setShowReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
-                      )}
-                      {purchase.status === 'REDDEDILDI' && (
-                        <div className="text-xs text-red-600 font-medium">
-                          Sipariş Edilmedi
-                          {purchase.rejectionReason && (
-                            <div className="text-gray-600 font-normal">Neden: {purchase.rejectionReason}</div>
+                          {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
+                            <button onClick={() => setShowReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
+                          )}
+                          {purchase.status === 'REDDEDILDI' && (
+                            <div className="text-xs text-red-600 font-medium">
+                              Sipariş Edilmedi
+                              {purchase.rejectionReason && (
+                                <div className="text-gray-600 font-normal">Neden: {purchase.rejectionReason}</div>
+                              )}
+                            </div>
                           )}
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

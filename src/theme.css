@@ -249,3 +249,140 @@ body {
   color: #475569;
   border-color: #cbd5e1;
 }
+
+.mobile-item-card {
+  padding: 1rem;
+  background: #fff;
+}
+
+.mobile-item-card--warning {
+  background: #fff7f7;
+}
+
+.mobile-card-summary {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.mobile-card-summary:focus-visible {
+  border-radius: 0.85rem;
+  outline: 3px solid rgba(0, 174, 239, 0.28);
+  outline-offset: 3px;
+}
+
+.mobile-card-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #111827;
+  font-weight: 700;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.mobile-card-side {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.mobile-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.mobile-meta-row span {
+  max-width: 100%;
+  border-radius: 999px;
+  background: #f1f5f9;
+  padding: 0.15rem 0.45rem;
+}
+
+.mobile-card-metrics {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.mobile-metric-label {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.mobile-metric-value {
+  margin-top: 0.1rem;
+  font-weight: 700;
+}
+
+.mobile-inline-note {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 0.65rem;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.mobile-card-details {
+  margin-top: 0.85rem;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.85rem;
+}
+
+.mobile-section-title {
+  margin-bottom: 0.45rem;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.mobile-empty-note {
+  border-radius: 0.75rem;
+  background: #f8fafc;
+  color: #64748b;
+  padding: 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.mobile-lot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.65rem;
+}
+
+.mobile-expand-link {
+  display: flex;
+  width: 100%;
+  min-height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #93c5fd;
+  border-radius: 0.75rem;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.8rem;
+  font-weight: 800;
+}

@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  getHiddenLotCount,
+  getLotPreview,
   getPurchaseStatusFilterOptions,
   getVisibleTabOptions
 } from './mobileUi.mjs';
@@ -51,4 +53,17 @@ test('builds purchase status filter options including approved and rejected stat
   );
   assert.equal(options.find((option) => option.value === 'approved').label, 'Onaylı (3)');
   assert.equal(options.find((option) => option.value === 'rejected').label, 'Reddedildi (5)');
+});
+
+test('limits lot previews for expanded mobile cards', () => {
+  const lots = [
+    { id: 'lot-1' },
+    { id: 'lot-2' },
+    { id: 'lot-3' },
+    { id: 'lot-4' }
+  ];
+
+  assert.deepEqual(getLotPreview(lots, 2).map((lot) => lot.id), ['lot-1', 'lot-2']);
+  assert.equal(getHiddenLotCount(lots, 2), 2);
+  assert.equal(getHiddenLotCount(lots, 8), 0);
 });
