@@ -484,8 +484,8 @@ export const ExpiryAlertDashboard = ({ items, onClose }) => {
         {expiredItems.length > 0 && (
           <div className="mb-6">
             <h3 className="text-lg font-bold text-red-600 mb-2">⚠️ Süresi Dolmuş Ürünler</h3>
-            <div className="bg-red-50 border border-red-300 rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="bg-red-50 border border-red-300 rounded-lg overflow-x-auto">
+              <table className="w-full text-sm min-w-[600px]">
                 <thead className="bg-red-100">
                   <tr>
                     <th className="px-3 py-2 text-left">Kod</th>
@@ -518,8 +518,8 @@ export const ExpiryAlertDashboard = ({ items, onClose }) => {
         {critical7Days.length > 0 && (
           <div className="mb-6">
             <h3 className="text-lg font-bold text-red-600 mb-2">🔴 Kritik - 7 Gün İçinde Dolacak</h3>
-            <div className="bg-red-50 border border-red-200 rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="bg-red-50 border border-red-200 rounded-lg overflow-x-auto">
+              <table className="w-full text-sm min-w-[600px]">
                 <thead className="bg-red-50">
                   <tr>
                     <th className="px-3 py-2 text-left">Kod</th>
@@ -554,8 +554,8 @@ export const ExpiryAlertDashboard = ({ items, onClose }) => {
         {warning30Days.length > 0 && (
           <div className="mb-6">
             <h3 className="text-lg font-bold text-orange-600 mb-2">🟠 Uyarı - 30 Gün İçinde Dolacak</h3>
-            <div className="bg-orange-50 border border-orange-200 rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="bg-orange-50 border border-orange-200 rounded-lg overflow-x-auto">
+              <table className="w-full text-sm min-w-[600px]">
                 <thead className="bg-orange-50">
                   <tr>
                     <th className="px-3 py-2 text-left">Kod</th>

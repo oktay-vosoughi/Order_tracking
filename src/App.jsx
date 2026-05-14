@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -22,6 +22,12 @@ import { AddItemFormLab, WasteForm, ExpiryAlertDashboard, ExpiryBadge, MSDSLink 
 import LotInventory from './LotInventory';
 import CepDepo from './CepDepo';
 import { buildLotImportPayload } from './utils/lotExcelImporter';
+import {
+  PURCHASE_STATUS_FILTERS,
+  getPurchaseStatusBadge,
+  getPurchaseStatusFilterOptions,
+  getVisibleTabOptions
+} from './mobileUi.mjs';
 import './theme.css';
 import logoIcon from './logos/icon.png';
 
@@ -184,7 +190,6 @@ const LabEquipmentTracker = () => {
 
   useEffect(() => {
     if (currentUser) {
-      console.log('[useEffect currentUser] Loading data for user:', currentUser.username);
       loadData();
       loadAllActionData();
     }
@@ -361,26 +366,14 @@ const LabEquipmentTracker = () => {
   
   const loadUnifiedData = async () => {
     try {
-      console.log('[loadUnifiedData] Starting fetch...');
       const [stockRes, analyticsRes] = await Promise.all([
         fetchUnifiedStock(),
         fetchAnalyticsOverview().catch(() => null)
       ]);
-      console.log('[loadUnifiedData] Got response:', { 
-        hasItems: !!stockRes?.items, 
-        itemCount: stockRes?.items?.length,
-        firstItem: stockRes?.items?.[0]?.code 
-      });
-      if (stockRes?.items) {
-        console.log('[loadUnifiedData] Setting unifiedStock with', stockRes.items.length, 'items');
-        setUnifiedStock(stockRes.items);
-      } else {
-        console.warn('[loadUnifiedData] No items in response!');
-      }
+      if (stockRes?.items) setUnifiedStock(stockRes.items);
       if (analyticsRes) setAnalytics(analyticsRes);
     } catch (error) {
       console.error('[loadUnifiedData] ERROR:', error);
-      // Do NOT overwrite existing data with empty on error
     }
   };
   
@@ -420,7 +413,7 @@ const LabEquipmentTracker = () => {
   };
 
   const resetUserForm = () => {
-    setUserCreateForm({ username: '', password: '', role: 'LAB_MANAGER' });
+    setUserCreateForm({ username: '', password: '', role: 'SATINAL_LOJISTIK' });
     setEditingUserId(null);
   };
 
@@ -653,7 +646,7 @@ const LabEquipmentTracker = () => {
   
   const approvePurchaseRequest = async (purchaseId) => {
     if (!canApprove) {
-      alert('Bu işlem için APPROVER/ADMIN yetkisi gereklidir');
+      alert('Bu işlem için SATINAL/ADMIN yetkisi gereklidir');
       return;
     }
     const purchase = purchases.find(p => p.id === purchaseId);
@@ -677,7 +670,7 @@ const LabEquipmentTracker = () => {
   
   const rejectPurchaseRequest = async (purchaseId) => {
     if (!canApprove) {
-      alert('Bu işlem için APPROVER/ADMIN yetkisi gereklidir');
+      alert('Bu işlem için SATINAL/ADMIN yetkisi gereklidir');
       return;
     }
     const reason = prompt('Red nedeni:');
@@ -962,34 +955,6 @@ const LabEquipmentTracker = () => {
     rejected: purchases.filter(p => p.status === 'REDDEDILDI').length
   };
 
-  const PURCHASE_STATUS_FILTERS = {
-    pending: {
-      label: 'Bekleyen',
-      statuses: ['TALEP_EDILDI'],
-      accent: 'text-yellow-600'
-    },
-    approved: {
-      label: 'Onaylı',
-      statuses: ['ONAYLANDI'],
-      accent: 'text-blue-600'
-    },
-    ordered: {
-      label: 'Siparişte',
-      statuses: ['SIPARIS_VERILDI', 'KISMI_TESLIM', 'KISMEN_GELDI'],
-      accent: 'text-purple-600'
-    },
-    completed: {
-      label: 'Tamamlanan',
-      statuses: ['TESLIM_ALINDI', 'GELDI'],
-      accent: 'text-green-600'
-    },
-    rejected: {
-      label: 'Reddedildi',
-      statuses: ['REDDEDILDI'],
-      accent: 'text-red-600'
-    }
-  };
-
   const filteredPurchases = purchaseStatusFilter && PURCHASE_STATUS_FILTERS[purchaseStatusFilter]
     ? purchases.filter(p => PURCHASE_STATUS_FILTERS[purchaseStatusFilter].statuses.includes(p.status))
     : purchases;
@@ -1001,10 +966,29 @@ const LabEquipmentTracker = () => {
     count: purchaseStatusCounts[key] || 0
   }));
 
+  const purchaseStatusFilterOptions = getPurchaseStatusFilterOptions(purchaseStatusCounts);
+  const visibleTabOptions = getVisibleTabOptions({
+    canViewStock,
+    canViewTalep,
+    canViewDagit,
+    isObserver,
+    canManageUsers,
+    hasCurrentUser: !!currentUser,
+    pendingRequestCount: purchaseStatusCounts.pending,
+    wasteCount: wasteRecords.length
+  });
+
   const handleStatusCardClick = (key) => {
     if (!key) return;
     setActiveTab('requests');
     setPurchaseStatusFilter((current) => (current === key ? null : key));
+  };
+
+  const handlePurchaseStatusFilterSelect = (value, openRequests = false) => {
+    setPurchaseStatusFilter(value || null);
+    if (openRequests) {
+      setActiveTab('requests');
+    }
   };
 
   const filteredItems = (() => {
@@ -1061,26 +1045,14 @@ const LabEquipmentTracker = () => {
 
   const deleteItem = async (itemId) => {
     if (!confirm('Bu malzemeyi ve tüm LOT kayıtlarını silmek istediğinizden emin misiniz?')) return;
-    
+
     try {
-      // Delete from database via API
-      const response = await fetch(`/api/item-definitions/${itemId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Silme işlemi başarısız');
-      }
-      
-      // Refresh unified stock data
+      await deleteItemDefinition(itemId);
       await loadUnifiedData();
       alert('Malzeme başarıyla silindi');
     } catch (error) {
       console.error('Delete error:', error);
-      alert('Silme hatası: ' + (error.message || 'Bilinmeyen hata'));
+      alert('Silme hatası: ' + (error?.message || 'Bilinmeyen hata'));
     }
   };
 
@@ -1424,7 +1396,7 @@ const LabEquipmentTracker = () => {
   return (
     <div className="theme-shell">
       <div className="max-w-7xl mx-auto">
-        <div className="brand-card p-6 md:p-8 mb-6">
+        <div className="brand-card p-4 sm:p-6 md:p-8 mb-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
             <div className="flex items-start gap-4">
               <div className="p-3 rounded-2xl bg-white/90 shadow-md">
@@ -1439,7 +1411,7 @@ const LabEquipmentTracker = () => {
                   <User size={16} />
                   Kullanıcı: <strong>{username}</strong>
                   <span className={roleChipClass()}>
-                    {currentUser?.role || 'REQUESTER'}
+                    {currentUser?.role || '-'}
                   </span>
                   <button onClick={handleLogout} className="text-cyan-500 underline text-xs ml-1">
                     Çıkış
@@ -1494,7 +1466,21 @@ const LabEquipmentTracker = () => {
             </div>
           )}
           
-          <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+          <div className="mb-4 sm:hidden">
+            <label className="mobile-field-label" htmlFor="mobile-main-menu">Menü</label>
+            <select
+              id="mobile-main-menu"
+              value={activeTab}
+              onChange={(e) => setActiveTab(e.target.value)}
+              className="mobile-select"
+            >
+              {visibleTabOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="hidden sm:flex gap-2 mb-6 overflow-x-auto pb-2">
             {canViewStock && (
               <button onClick={() => setActiveTab('stock')} className={`${tabClass('stock')} flex items-center gap-2 whitespace-nowrap`}>
                 <Package size={18} />
@@ -1753,7 +1739,7 @@ const LabEquipmentTracker = () => {
                       <tr key={u.id} className="hover:bg-gray-50">
                         <td className="px-3 py-2 font-medium">{u.username}</td>
                         <td className="px-3 py-2">
-                          <span className={`px-2 py-1 rounded text-xs ${u.role === 'PROCUREMENT' ? 'bg-purple-100 text-purple-700' : u.role === 'LAB_MANAGER' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>
+                          <span className={`px-2 py-1 rounded text-xs ${u.role === 'ADMIN' ? 'bg-red-100 text-red-700' : u.role === 'SATINAL' ? 'bg-purple-100 text-purple-700' : u.role === 'SATINAL_LOJISTIK' ? 'bg-blue-100 text-blue-700' : u.role === 'LAB_TECHNICIAN' ? 'bg-green-100 text-green-700' : u.role === 'OBSERVER' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
                             {u.role}
                           </span>
                         </td>
@@ -1973,7 +1959,43 @@ const LabEquipmentTracker = () => {
 
         {activeTab === 'stock' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
+            <div className="sm:hidden surface-panel p-4 space-y-3">
+              <div>
+                <label className="mobile-field-label" htmlFor="mobile-stock-filter">Stok Filtresi</label>
+                <select
+                  id="mobile-stock-filter"
+                  value={filterStatus === EXPIRY_FILTER_VALUE ? EXPIRY_FILTER_VALUE : filterStatus === 'SATIN_AL' ? 'SATIN_AL' : 'all'}
+                  onChange={(e) => {
+                    setActiveTab('stock');
+                    setPurchaseStatusFilter(null);
+                    setFilterStatus(e.target.value);
+                    setSearchTerm('');
+                  }}
+                  className="mobile-select"
+                >
+                  <option value="all">Tüm malzemeler ({totalMaterialCount})</option>
+                  <option value="SATIN_AL">Satın alınacak ({toPurchaseCount})</option>
+                  <option value={EXPIRY_FILTER_VALUE}>SKT uyarısı ({expiringStockCount})</option>
+                </select>
+              </div>
+              {canViewTalep && (
+                <div>
+                  <label className="mobile-field-label" htmlFor="mobile-request-filter">Talep Durumu</label>
+                  <select
+                    id="mobile-request-filter"
+                    value={purchaseStatusFilter || ''}
+                    onChange={(e) => handlePurchaseStatusFilterSelect(e.target.value, true)}
+                    className="mobile-select"
+                  >
+                    {purchaseStatusFilterOptions.map((option) => (
+                      <option key={option.value || 'all'} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="hidden sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
               <button
                 type="button"
                 onClick={() => {
@@ -2468,17 +2490,29 @@ const LabEquipmentTracker = () => {
 
         {activeTab === 'requests' && (
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-            <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+            <div className="p-4 border-b bg-gray-50 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
               <h3 className="font-bold text-gray-800">Satın Alma Talepleri</h3>
-              <button 
-                onClick={() => handleExcelExport(exportPurchases, 'Satin_Alma_Talepleri.xlsx')}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                <Download size={18} />
-                Excel'e Aktar
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <select
+                  value={purchaseStatusFilter || ''}
+                  onChange={(e) => handlePurchaseStatusFilterSelect(e.target.value)}
+                  className="mobile-select sm:min-w-[220px]"
+                  aria-label="Talep durumu filtresi"
+                >
+                  {purchaseStatusFilterOptions.map((option) => (
+                    <option key={option.value || 'all'} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <button 
+                  onClick={() => handleExcelExport(exportPurchases, 'Satin_Alma_Talepleri.xlsx')}
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  <Download size={18} />
+                  Excel'e Aktar
+                </button>
+              </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
@@ -2491,7 +2525,9 @@ const LabEquipmentTracker = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {filteredPurchases.map((purchase) => (
+                  {filteredPurchases.map((purchase) => {
+                    const statusBadge = getPurchaseStatusBadge(purchase.status);
+                    return (
                     <tr key={purchase.id} className="hover:bg-gray-50">
                       <td className="px-3 py-2 font-medium">{purchase.requestNumber}</td>
                       <td className="px-3 py-2">
@@ -2505,12 +2541,7 @@ const LabEquipmentTracker = () => {
                         <div className="text-xs text-gray-500">{new Date(purchase.requestDate).toLocaleDateString('tr-TR')}</div>
                       </td>
                       <td className="px-3 py-2">
-                        {purchase.status === 'TALEP_EDILDI' && <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs">Bekliyor</span>}
-                        {purchase.status === 'ONAYLANDI' && <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">Onaylandı</span>}
-                        {purchase.status === 'SIPARIS_VERILDI' && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">Sipariş Verildi</span>}
-                        {purchase.status === 'KISMEN_GELDI' && <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs">Kısmen Geldi</span>}
-                        {purchase.status === 'GELDI' && <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">Tamamlandı</span>}
-                        {purchase.status === 'REDDEDILDI' && <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">Reddedildi</span>}
+                        <span className={`status-pill ${statusBadge.className}`}>{statusBadge.label}</span>
                         {purchase.approvedBy && <div className="text-xs text-gray-500 mt-1">Onaylayan: {purchase.approvedBy}</div>}
                         {purchase.orderedBy && <div className="text-xs text-gray-500">Sipariş: {purchase.orderedBy} - {purchase.poNumber}</div>}
                         {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMEN_GELDI' || purchase.status === 'GELDI') && (
@@ -2525,23 +2556,23 @@ const LabEquipmentTracker = () => {
                             <>
                               {canApprove && (
                                 <>
-                                  <button onClick={() => approvePurchaseRequest(purchase.id)} className="px-2 py-1 bg-green-600 text-white rounded text-xs">Onayla</button>
-                                  <button onClick={() => rejectPurchaseRequest(purchase.id)} className="px-2 py-1 bg-red-600 text-white rounded text-xs">Reddet</button>
+                                  <button onClick={() => approvePurchaseRequest(purchase.id)} className="status-action status-action--approve">Onayla</button>
+                                  <button onClick={() => rejectPurchaseRequest(purchase.id)} className="status-action status-action--reject">Reddet</button>
                                 </>
                               )}
                               {isAdmin && (
-                                <button onClick={() => deletePurchaseRequest(purchase.id)} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs">Sil</button>
+                                <button onClick={() => deletePurchaseRequest(purchase.id)} className="status-action status-action--muted">Sil</button>
                               )}
                             </>
                           )}
                           {purchase.status === 'ONAYLANDI' && canOrder && (
                             <>
-                              <button onClick={() => { setOrderForm({...orderForm, orderedQty: purchase.requestedQty, supplierName: purchase.supplierName || ''}); setShowOrderForm(purchase); }} className="px-2 py-1 bg-purple-600 text-white rounded text-xs">Sipariş Ver</button>
-                              <button onClick={() => markOrderRejected(purchase)} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs">Sipariş Edilmedi</button>
+                              <button onClick={() => { setOrderForm({...orderForm, orderedQty: purchase.requestedQty, supplierName: purchase.supplierName || ''}); setShowOrderForm(purchase); }} className="status-action status-action--order">Sipariş Ver</button>
+                              <button onClick={() => markOrderRejected(purchase)} className="status-action status-action--muted">Sipariş Edilmedi</button>
                             </>
                           )}
                           {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
-                            <button onClick={() => setShowReceiveForm(purchase)} className="px-2 py-1 bg-blue-600 text-white rounded text-xs">Teslim Al</button>
+                            <button onClick={() => setShowReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
                           )}
                           {purchase.status === 'REDDEDILDI' && (
                             <div className="text-xs text-red-600 font-medium">
@@ -2554,12 +2585,92 @@ const LabEquipmentTracker = () => {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
               {filteredPurchases.length === 0 && (
                 <div className="text-center py-12 text-gray-500">
                   <ShoppingCart size={48} className="mx-auto mb-4 opacity-50" />
+                  <p>
+                    {purchaseStatusFilter ? 'Bu filtreye uygun talep bulunamadı' : 'Henüz satın alma talebi yok'}
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="sm:hidden divide-y divide-gray-100">
+              {filteredPurchases.map((purchase) => {
+                const statusBadge = getPurchaseStatusBadge(purchase.status);
+                return (
+                  <div key={purchase.id} className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-gray-500">{purchase.requestNumber}</div>
+                        <div className="font-semibold text-gray-900 break-words">{purchase.itemName}</div>
+                        <div className="text-xs text-gray-500">{purchase.department}</div>
+                      </div>
+                      <span className={`status-pill shrink-0 ${statusBadge.className}`}>{statusBadge.label}</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <div className="text-xs text-gray-500">Miktar</div>
+                        <div className="font-semibold">{purchase.requestedQty}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-500">Talep Eden</div>
+                        <div className="font-semibold">{purchase.requestedBy}</div>
+                        <div className="text-xs text-gray-500">{new Date(purchase.requestDate).toLocaleDateString('tr-TR')}</div>
+                      </div>
+                    </div>
+
+                    {purchase.urgency === 'urgent' && <span className="status-pill bg-red-50 text-red-700 border-red-200">ACİL</span>}
+                    {purchase.approvedBy && <div className="text-xs text-gray-500">Onaylayan: {purchase.approvedBy}</div>}
+                    {purchase.orderedBy && <div className="text-xs text-gray-500">Sipariş: {purchase.orderedBy} - {purchase.poNumber}</div>}
+                    {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMEN_GELDI' || purchase.status === 'GELDI') && (
+                      <div className="text-xs text-indigo-600">
+                        Gelen: {purchase.receivedQtyTotal || 0} / {purchase.orderedQty || purchase.requestedQty}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {purchase.status === 'TALEP_EDILDI' && (
+                        <>
+                          {canApprove && (
+                            <>
+                              <button onClick={() => approvePurchaseRequest(purchase.id)} className="status-action status-action--approve">Onayla</button>
+                              <button onClick={() => rejectPurchaseRequest(purchase.id)} className="status-action status-action--reject">Reddet</button>
+                            </>
+                          )}
+                          {isAdmin && (
+                            <button onClick={() => deletePurchaseRequest(purchase.id)} className="status-action status-action--muted">Sil</button>
+                          )}
+                        </>
+                      )}
+                      {purchase.status === 'ONAYLANDI' && canOrder && (
+                        <>
+                          <button onClick={() => { setOrderForm({...orderForm, orderedQty: purchase.requestedQty, supplierName: purchase.supplierName || ''}); setShowOrderForm(purchase); }} className="status-action status-action--order">Sipariş Ver</button>
+                          <button onClick={() => markOrderRejected(purchase)} className="status-action status-action--muted">Sipariş Edilmedi</button>
+                        </>
+                      )}
+                      {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
+                        <button onClick={() => setShowReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
+                      )}
+                      {purchase.status === 'REDDEDILDI' && (
+                        <div className="text-xs text-red-600 font-medium">
+                          Sipariş Edilmedi
+                          {purchase.rejectionReason && (
+                            <div className="text-gray-600 font-normal">Neden: {purchase.rejectionReason}</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {filteredPurchases.length === 0 && (
+                <div className="text-center py-12 text-gray-500">
+                  <ShoppingCart size={42} className="mx-auto mb-4 opacity-50" />
                   <p>
                     {purchaseStatusFilter ? 'Bu filtreye uygun talep bulunamadı' : 'Henüz satın alma talebi yok'}
                   </p>

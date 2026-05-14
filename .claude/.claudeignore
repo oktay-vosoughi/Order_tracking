@@ -1,0 +1,55 @@
+# Dependencies and generated output
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Runtime caches
+.cache/
+.parcel-cache/
+.turbo/
+.next/
+.nuxt/
+
+# Logs and diagnostics
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+src/.env
+server/.env
+server/.env.*
+
+# Large local/binary artifacts
+*.xlsx
+*.xls
+*.csv
+*.pptx
+*.ppt
+*.pdf
+*.zip
+*.7z
+*.rar
+
+# Local databases and backups
+*.sqlite
+*.sqlite3
+*.db
+*.bak
+*.tmp
+
+# Editor, OS, and personal workspace files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.code-workspace
+myNotes/
+
+# VCS internals
+.git/

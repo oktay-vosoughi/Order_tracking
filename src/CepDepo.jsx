@@ -279,6 +279,7 @@ export default function CepDepo({ currentUser }) {
   };
 
   const balanceTable = (rows) => (
+    <div className="overflow-x-auto -mx-4 sm:mx-0">
     <table className="min-w-full text-sm">
       <thead className="bg-gray-100">
         <tr>
@@ -340,9 +341,11 @@ export default function CepDepo({ currentUser }) {
         })}
       </tbody>
     </table>
+    </div>
   );
 
   const requestsTable = (rows, { showActions } = {}) => (
+    <div className="overflow-x-auto -mx-4 sm:mx-0">
     <table className="min-w-full text-sm">
       <thead className="bg-gray-100">
         <tr>
@@ -397,9 +400,11 @@ export default function CepDepo({ currentUser }) {
         ))}
       </tbody>
     </table>
+    </div>
   );
 
   const movementsTable = (
+    <div className="overflow-x-auto -mx-4 sm:mx-0">
     <table className="min-w-full text-xs">
       <thead className="bg-gray-100">
         <tr>
@@ -431,6 +436,7 @@ export default function CepDepo({ currentUser }) {
         ))}
       </tbody>
     </table>
+    </div>
   );
 
   // ---- views ----

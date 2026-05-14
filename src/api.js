@@ -282,8 +282,14 @@ export async function deletePurchase(purchaseId) {
 }
 
 export async function clearAllData() {
-  return apiFetch('/admin/clear-all', {
+  return apiFetch('/clear-all', {
     method: 'POST'
+  });
+}
+
+export async function deleteItemDefinition(id) {
+  return apiFetch(`/item-definitions/${id}`, {
+    method: 'DELETE'
   });
 }
 

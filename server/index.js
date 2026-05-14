@@ -162,6 +162,9 @@ const canRequest = (req, res, next) =>
 const canReject = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 
+const canManageItems = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
+
 // CEP DEPO capability helpers
 const canDistributeToCepDepo = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
@@ -436,7 +439,7 @@ app.get('/api/state', authRequired, async (_req, res) => {
   }
 });
 
-app.post('/api/state', authRequired, async (req, res) => {
+app.post('/api/state', authRequired, adminRequired, async (req, res) => {
   const { items = [], purchases = [], distributions = [], wasteRecords = [] } = req.body || {};
   try {
     await withTransaction(async (conn) => {
@@ -621,7 +624,7 @@ app.get('/api/item-definitions/:id', authRequired, async (req, res) => {
 });
 
 // Create item definition
-app.post('/api/item-definitions', authRequired, async (req, res) => {
+app.post('/api/item-definitions', authRequired, canManageItems, async (req, res) => {
   const {
     code, name, category, department, unit, minStock, ideal_stock, max_stock,
     supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType,
@@ -668,7 +671,7 @@ app.post('/api/item-definitions', authRequired, async (req, res) => {
 });
 
 // Update item definition
-app.put('/api/item-definitions/:id', authRequired, async (req, res) => {
+app.put('/api/item-definitions/:id', authRequired, canManageItems, async (req, res) => {
   const {
     code, name, category, department, unit, minStock, ideal_stock, max_stock,
     supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType,
@@ -1140,7 +1143,6 @@ app.get('/api/reports/department-stock', authRequired, async (_req, res) => {
 // Get unified stock view (items with aggregated lot data)
 app.get('/api/unified-stock', authRequired, async (_req, res) => {
   try {
-    console.log('[/api/unified-stock] Querying database...');
     const items = await all(pool, `
       SELECT 
         id.id,
@@ -1186,7 +1188,6 @@ app.get('/api/unified-stock', authRequired, async (_req, res) => {
       GROUP BY id.id
       ORDER BY id.name ASC
     `);
-    console.log('[/api/unified-stock] Returning', items.length, 'items');
     res.json({ items });
   } catch (error) {
     console.error('[/api/unified-stock] ERROR:', error);
@@ -1263,8 +1264,8 @@ app.post('/api/receive-goods', authRequired, canOrder, async (req, res) => {
       const normalizedReceiptId = receiptId || generateId();
       const receiptTimestamp = toMySQLDateTime(receivedAt) || toMySQLDateTime(new Date());
 
-      // Check if lot already exists for this item
-      const existingLots = await all(conn, 'SELECT * FROM lots WHERE itemId = ? AND lotNumber = ?', [item.id, lotNumber]);
+      // Check if lot already exists for this item (FOR UPDATE prevents concurrent receive race)
+      const existingLots = await all(conn, 'SELECT * FROM lots WHERE itemId = ? AND lotNumber = ? FOR UPDATE', [item.id, lotNumber]);
       
       let lotId;
       if (existingLots.length) {
@@ -1555,8 +1556,9 @@ app.post('/api/distribute/:id/confirm', authRequired, canDistribute, async (req,
       UPDATE distributions SET status = 'COMPLETED', completedDate = NOW(), completedBy = ?
       WHERE id = ?
     `, [req.user.username, req.params.id]);
-    
+
     const distributions = await all(pool, 'SELECT * FROM distributions WHERE id = ?', [req.params.id]);
+    if (!distributions.length) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ distribution: distributions[0] });
   } catch (error) {
     console.error('Failed to confirm distribution', error);
@@ -1636,31 +1638,33 @@ app.post('/api/purchases', authRequired, async (req, res) => {
     const purchaseId = generateId();
     const requestNumber = 'REQ-' + Date.now().toString().slice(-6);
 
-    await run(pool, `
-      INSERT INTO purchases (
-        id, requestNumber, itemId, itemCode, itemName, department,
-        requestedQty, requestedBy, requestedFor, overrideReason, isCepDepoRequest,
-        requestedAt, requestDate,
-        status, supplierName, orderedQty, notes, urgency
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), CURDATE(), 'TALEP_EDILDI', ?, ?, ?, ?)
-    `, [
-      purchaseId, requestNumber, itemId, itemCode || '', itemName || '', department || '',
-      requestedQty, requesterUsername,
-      effectiveLabTechUsername || null,
-      usedOverride ? String(overrideReason).trim() : null,
-      cepFlag,
-      supplierName || '', requestedQty, notes || '', urgency || 'normal'
-    ]);
+    await withTransaction(async (conn) => {
+      await run(conn, `
+        INSERT INTO purchases (
+          id, requestNumber, itemId, itemCode, itemName, department,
+          requestedQty, requestedBy, requestedFor, overrideReason, isCepDepoRequest,
+          requestedAt, requestDate,
+          status, supplierName, orderedQty, notes, urgency
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), CURDATE(), 'TALEP_EDILDI', ?, ?, ?, ?)
+      `, [
+        purchaseId, requestNumber, itemId, itemCode || '', itemName || '', department || '',
+        requestedQty, requesterUsername,
+        effectiveLabTechUsername || null,
+        usedOverride ? String(overrideReason).trim() : null,
+        cepFlag,
+        supplierName || '', requestedQty, notes || '', urgency || 'normal'
+      ]);
 
-    if (usedOverride) {
-      await run(pool, `
-        INSERT INTO stock_movements (
-          id, movementType, itemId, fromLocation, toLocation,
-          packQty, unitQty, performedByUserId, performedByUsername,
-          labTechnicianId, requestId, notes
-        ) VALUES (?, 'REQUEST_OVERRIDE', ?, 'NONE', 'NONE', 0, 0, ?, ?, ?, ?, ?)
-      `, [generateId(), itemId, req.user.id, requesterUsername, effectiveLabTechId, purchaseId, String(overrideReason).trim()]);
-    }
+      if (usedOverride) {
+        await run(conn, `
+          INSERT INTO stock_movements (
+            id, movementType, itemId, fromLocation, toLocation,
+            packQty, unitQty, performedByUserId, performedByUsername,
+            labTechnicianId, requestId, notes
+          ) VALUES (?, 'REQUEST_OVERRIDE', ?, 'NONE', 'NONE', 0, 0, ?, ?, ?, ?, ?)
+        `, [generateId(), itemId, req.user.id, requesterUsername, effectiveLabTechId, purchaseId, String(overrideReason).trim()]);
+      }
+    });
 
     const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [purchaseId]);
     res.json({ purchase: purchases[0] });
@@ -1738,6 +1742,7 @@ app.post('/api/purchases/:id/approve', authRequired, canApprove, async (req, res
     `, [req.user.username, approvalNote || '', req.params.id]);
     
     const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]);
+    if (!purchases.length) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ purchase: purchases[0] });
   } catch (error) {
     console.error('Failed to approve purchase', error);
@@ -1764,6 +1769,7 @@ app.post('/api/purchases/:id/reject', authRequired, canReject, async (req, res) 
     `, [req.user.username, rejectionReason, req.params.id]);
     
     const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]);
+    if (!purchases.length) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ purchase: purchases[0] });
   } catch (error) {
     console.error('Failed to reject purchase', error);
@@ -1792,9 +1798,37 @@ app.post('/api/purchases/:id/order', authRequired, canOrder, async (req, res) =>
     `, [req.user.username, supplierName, poNumber || '', orderedQty, req.params.id]);
     
     const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]);
+    if (!purchases.length) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ purchase: purchases[0] });
   } catch (error) {
     console.error('Failed to mark as ordered', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// Delete a purchase request (ADMIN only; only allowed in TALEP_EDILDI or REDDEDILDI status)
+app.delete('/api/purchases/:id', authRequired, adminRequired, async (req, res) => {
+  try {
+    const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]);
+    if (!purchases.length) return res.status(404).json({ error: 'NOT_FOUND' });
+
+    const purchase = purchases[0];
+    const deletableStatuses = ['TALEP_EDILDI', 'REDDEDILDI'];
+    if (!deletableStatuses.includes(purchase.status)) {
+      return res.status(400).json({
+        error: 'INVALID_STATUS',
+        message: `Yalnızca ${deletableStatuses.join(' veya ')} durumundaki talepler silinebilir`
+      });
+    }
+
+    await withTransaction(async (conn) => {
+      await run(conn, 'DELETE FROM receipts WHERE purchaseId = ?', [req.params.id]);
+      await run(conn, 'DELETE FROM purchases WHERE id = ?', [req.params.id]);
+    });
+
+    res.json({ status: 'DELETED' });
+  } catch (error) {
+    console.error('Failed to delete purchase', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
   }
 });
@@ -1964,7 +1998,7 @@ app.get('/api/attachments/:entityType/:entityId', authRequired, async (req, res)
 // EXCEL IMPORT - Items with optional initial stock
 // ============================================================
 
-app.post('/api/import-items', authRequired, async (req, res) => {
+app.post('/api/import-items', authRequired, canManageItems, async (req, res) => {
   const { items } = req.body || {};
 
   if (!items || !Array.isArray(items) || items.length === 0) {

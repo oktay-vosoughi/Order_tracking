@@ -1,0 +1,22 @@
+{
+  "env": {
+    "BASH_MAX_OUTPUT_LENGTH": "150000"
+  },
+  "permissions": {
+    "allow": [
+      "PowerShell(Set-Location \"C:\\\\Users\\\\STREAM\\\\Desktop\\\\order tracking\"; \\(Get-ChildItem \"energen-master\" -Force\\).Name)",
+      "PowerShell(pnpm *)",
+      "PowerShell(npm install *)",
+      "PowerShell(New-Item *)",
+      "PowerShell(Copy-Item *)"
+    ],
+    "deny": [
+      "Read(node_modules/**)",
+      "Read(.next/**)",
+      "Read(dist/**)",
+      "Read(coverage/**)",
+      "Read(.git/**)",
+      "Read(**/*.lock)"
+    ]
+  }
+}

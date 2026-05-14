@@ -20,7 +20,13 @@ body {
 
 .theme-shell {
   min-height: 100vh;
-  padding: 1rem;
+  padding: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .theme-shell {
+    padding: 1rem;
+  }
 }
 
 .brand-card {
@@ -154,4 +160,92 @@ body {
 .role-chip--observer {
   background: rgba(138, 141, 143, 0.22);
   color: var(--color-gray);
+}
+
+.mobile-field-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-gray);
+  text-transform: uppercase;
+}
+
+.mobile-select {
+  width: 100%;
+  min-height: 2.75rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgba(138, 141, 143, 0.35);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--color-charcoal);
+  font-weight: 600;
+  padding: 0.65rem 2.25rem 0.65rem 0.85rem;
+  box-shadow: 0 8px 18px rgba(16, 34, 83, 0.08);
+}
+
+.mobile-select:focus {
+  border-color: var(--color-cyan);
+  box-shadow: 0 0 0 3px rgba(0, 174, 239, 0.2);
+  outline: none;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.status-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.status-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(16, 34, 83, 0.12);
+}
+
+.status-action--approve {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+
+.status-action--reject {
+  background: #fff1f2;
+  color: #be123c;
+  border-color: #fecdd3;
+}
+
+.status-action--order {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border-color: #ddd6fe;
+}
+
+.status-action--receive {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.status-action--muted {
+  background: #f8fafc;
+  color: #475569;
+  border-color: #cbd5e1;
 }
