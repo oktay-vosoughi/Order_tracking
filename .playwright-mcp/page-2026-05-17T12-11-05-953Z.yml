@@ -1,0 +1,137 @@
+- generic [ref=e3]:
+  - complementary [ref=e5]:
+    - generic [ref=e6]:
+      - img "GTMLIMS" [ref=e8]
+      - generic [ref=e9]:
+        - strong [ref=e10]: GTMLIMS
+        - text: Lab Malzeme Takip
+    - generic [ref=e11]: Ana Menü
+    - button "Stok" [ref=e12] [cursor=pointer]:
+      - img [ref=e13]
+      - generic [ref=e17]: Stok
+    - button "Talepler" [ref=e18] [cursor=pointer]:
+      - img [ref=e19]
+      - generic [ref=e23]: Talepler
+    - button "Dağıtım" [ref=e24] [cursor=pointer]:
+      - img [ref=e25]
+      - generic [ref=e29]: Dağıtım
+    - button "Atık" [ref=e30] [cursor=pointer]:
+      - img [ref=e31]
+      - generic [ref=e38]: Atık
+    - button "Genel Stok" [ref=e39] [cursor=pointer]:
+      - img [ref=e40]
+      - generic [ref=e41]: Genel Stok
+    - button "LOT Stok" [ref=e42] [cursor=pointer]:
+      - img [ref=e43]
+      - generic [ref=e47]: LOT Stok
+    - button "CEP DEPO" [ref=e48] [cursor=pointer]:
+      - img [ref=e49]
+      - generic [ref=e51]: CEP DEPO
+    - button "Kullanıcılar" [active] [ref=e52] [cursor=pointer]:
+      - img [ref=e53]
+      - generic [ref=e56]: Kullanıcılar
+    - button "Hesabım" [ref=e57] [cursor=pointer]:
+      - img [ref=e58]
+      - generic [ref=e61]: Hesabım
+    - generic [ref=e63]:
+      - generic [ref=e64]: OK
+      - generic [ref=e65]:
+        - strong [ref=e66]: Oktay
+        - text: ADMIN
+      - button "Çıkış" [ref=e67] [cursor=pointer]:
+        - img [ref=e68]
+  - generic [ref=e71]:
+    - generic [ref=e72]:
+      - generic [ref=e73]: Kullanıcılar
+      - generic [ref=e74]:
+        - img [ref=e75]
+        - textbox "Ara..." [ref=e78]
+    - generic [ref=e94]:
+      - generic [ref=e445]:
+        - heading "Kullanıcı Yönetimi" [level=2] [ref=e446]
+        - generic [ref=e447]:
+          - textbox "Kullanıcı Adı" [ref=e448]
+          - textbox "Şifre" [ref=e449]
+          - combobox [ref=e450]:
+            - option "SATINAL_LOJISTIK (Talep + Onayla + Dağıt)" [selected]
+            - option "SATINAL (Sipariş + Teslim Al)"
+            - option "LAB_TECHNICIAN (CEP DEPO sahibi)"
+            - option "OBSERVER (Sadece Görüntüleme)"
+            - option "ADMIN (Tüm Yetkiler)"
+        - generic [ref=e451]:
+          - button "Kullanıcı Oluştur" [ref=e452] [cursor=pointer]
+          - button "Yenile" [ref=e453] [cursor=pointer]
+        - table [ref=e455]:
+          - rowgroup [ref=e456]:
+            - row "Kullanıcı Rol Oluşturan Tarih" [ref=e457]:
+              - columnheader "Kullanıcı" [ref=e458]
+              - columnheader "Rol" [ref=e459]
+              - columnheader "Oluşturan" [ref=e460]
+              - columnheader "Tarih" [ref=e461]
+          - rowgroup [ref=e462]:
+            - row "ngg SATINAL Oktay 30.01.2026 16:25:25 Düzenle" [ref=e463]:
+              - cell "ngg" [ref=e464]
+              - cell "SATINAL" [ref=e465]
+              - cell "Oktay" [ref=e466]
+              - cell "30.01.2026 16:25:25" [ref=e467]
+              - cell "Düzenle" [ref=e468]:
+                - button "Düzenle" [ref=e469] [cursor=pointer]
+            - row "Nilgun SATINAL Oktay 27.01.2026 09:26:57 Düzenle" [ref=e470]:
+              - cell "Nilgun" [ref=e471]
+              - cell "SATINAL" [ref=e472]
+              - cell "Oktay" [ref=e473]
+              - cell "27.01.2026 09:26:57" [ref=e474]
+              - cell "Düzenle" [ref=e475]:
+                - button "Düzenle" [ref=e476] [cursor=pointer]
+            - row "Mehtap SATINAL_LOJISTIK Oktay 27.01.2026 09:26:57 Düzenle" [ref=e477]:
+              - cell "Mehtap" [ref=e478]
+              - cell "SATINAL_LOJISTIK" [ref=e479]
+              - cell "Oktay" [ref=e480]
+              - cell "27.01.2026 09:26:57" [ref=e481]
+              - cell "Düzenle" [ref=e482]:
+                - button "Düzenle" [ref=e483] [cursor=pointer]
+            - row "lab1 LAB_TECHNICIAN Oktay 27.01.2026 09:26:57 Düzenle" [ref=e484]:
+              - cell "lab1" [ref=e485]
+              - cell "LAB_TECHNICIAN" [ref=e486]
+              - cell "Oktay" [ref=e487]
+              - cell "27.01.2026 09:26:57" [ref=e488]
+              - cell "Düzenle" [ref=e489]:
+                - button "Düzenle" [ref=e490] [cursor=pointer]
+            - row "user2 OBSERVER Oktay 27.01.2026 09:26:57 Düzenle" [ref=e491]:
+              - cell "user2" [ref=e492]
+              - cell "OBSERVER" [ref=e493]
+              - cell "Oktay" [ref=e494]
+              - cell "27.01.2026 09:26:57" [ref=e495]
+              - cell "Düzenle" [ref=e496]:
+                - button "Düzenle" [ref=e497] [cursor=pointer]
+            - row "user3 OBSERVER Oktay 27.01.2026 09:26:57 Düzenle" [ref=e498]:
+              - cell "user3" [ref=e499]
+              - cell "OBSERVER" [ref=e500]
+              - cell "Oktay" [ref=e501]
+              - cell "27.01.2026 09:26:57" [ref=e502]
+              - cell "Düzenle" [ref=e503]:
+                - button "Düzenle" [ref=e504] [cursor=pointer]
+            - row "Oktay ADMIN system 27.01.2026 09:26:31 Düzenle" [ref=e505]:
+              - cell "Oktay" [ref=e506]
+              - cell "ADMIN" [ref=e507]
+              - cell "system" [ref=e508]
+              - cell "27.01.2026 09:26:31" [ref=e509]
+              - cell "Düzenle" [ref=e510]:
+                - button "Düzenle" [ref=e511] [cursor=pointer]
+            - row "ng ADMIN system 21.01.2026 11:47:11 Düzenle" [ref=e512]:
+              - cell "ng" [ref=e513]
+              - cell "ADMIN" [ref=e514]
+              - cell "system" [ref=e515]
+              - cell "21.01.2026 11:47:11" [ref=e516]
+              - cell "Düzenle" [ref=e517]:
+                - button "Düzenle" [ref=e518] [cursor=pointer]
+            - row "admin ADMIN system 21.01.2026 11:31:47 Düzenle" [ref=e519]:
+              - cell "admin" [ref=e520]
+              - cell "ADMIN" [ref=e521]
+              - cell "system" [ref=e522]
+              - cell "21.01.2026 11:31:47" [ref=e523]
+              - cell "Düzenle" [ref=e524]:
+                - button "Düzenle" [ref=e525] [cursor=pointer]
+      - button "Tümünü Temizle" [ref=e362] [cursor=pointer]:
+        - img [ref=e363]
+        - text: Tümünü Temizle

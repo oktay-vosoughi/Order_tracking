@@ -1,0 +1,292 @@
+- generic [ref=e3]:
+  - complementary [ref=e29]:
+    - generic [ref=e30]:
+      - img "GTMLIMS" [ref=e32]
+      - generic [ref=e33]:
+        - strong [ref=e34]: GTMLIMS
+        - text: Lab Malzeme Takip
+    - generic [ref=e35]: Ana Menü
+    - button "Stok" [ref=e36] [cursor=pointer]:
+      - img [ref=e37]
+      - generic [ref=e41]: Stok
+    - button "Talepler" [ref=e42] [cursor=pointer]:
+      - img [ref=e43]
+      - generic [ref=e47]: Talepler
+    - button "Dağıtım" [ref=e48] [cursor=pointer]:
+      - img [ref=e49]
+      - generic [ref=e53]: Dağıtım
+    - button "Atık" [ref=e54] [cursor=pointer]:
+      - img [ref=e55]
+      - generic [ref=e62]: Atık
+    - button "Genel Stok" [ref=e63] [cursor=pointer]:
+      - img [ref=e64]
+      - generic [ref=e65]: Genel Stok
+    - button "LOT Stok" [ref=e66] [cursor=pointer]:
+      - img [ref=e67]
+      - generic [ref=e71]: LOT Stok
+    - button "CEP DEPO" [ref=e72] [cursor=pointer]:
+      - img [ref=e73]
+      - generic [ref=e75]: CEP DEPO
+    - button "Kullanıcılar" [ref=e76] [cursor=pointer]:
+      - img [ref=e77]
+      - generic [ref=e80]: Kullanıcılar
+    - button "Hesabım" [ref=e81] [cursor=pointer]:
+      - img [ref=e82]
+      - generic [ref=e85]: Hesabım
+    - generic [ref=e87]:
+      - generic [ref=e88]: OK
+      - generic [ref=e89]:
+        - strong [ref=e90]: Oktay
+        - text: ADMIN
+      - button "Çıkış" [ref=e91] [cursor=pointer]:
+        - img [ref=e92]
+  - generic [ref=e95]:
+    - generic [ref=e96]:
+      - generic [ref=e97]: Stok
+      - generic [ref=e98]:
+        - img [ref=e99]
+        - textbox "Ara..." [ref=e102]
+      - generic [ref=e103]:
+        - combobox [ref=e104]:
+          - option "Tümü" [selected]
+          - option "Stokta"
+          - option "Satın Al"
+        - button "FEFO Kapalı" [ref=e105] [cursor=pointer]:
+          - img [ref=e106]
+          - text: FEFO Kapalı
+        - generic [ref=e108] [cursor=pointer]:
+          - img [ref=e109]
+          - text: Excel Yükle
+        - button "Excel" [ref=e112] [cursor=pointer]:
+          - img [ref=e113]
+          - text: Excel
+        - button "Malzeme Ekle" [ref=e116] [cursor=pointer]:
+          - img [ref=e117]
+          - text: Malzeme Ekle
+    - generic [ref=e118]:
+      - generic [ref=e119]:
+        - generic [ref=e120]:
+          - button "Toplam Malzeme 6 Stoktaki tüm malzemeleri göster" [ref=e121] [cursor=pointer]:
+            - generic [ref=e122]: Toplam Malzeme
+            - generic [ref=e123]: "6"
+            - generic [ref=e124]: Stoktaki tüm malzemeleri göster
+          - button "Satın Alınacak 0 Stoktaki \"Satın Al\" durumlarını göster" [ref=e125] [cursor=pointer]:
+            - generic [ref=e126]: Satın Alınacak
+            - generic [ref=e127]: "0"
+            - generic [ref=e128]: Stoktaki "Satın Al" durumlarını göster
+          - button "Bekleyen 0 Talepleri filtrele" [ref=e129] [cursor=pointer]:
+            - generic [ref=e131]: Bekleyen
+            - generic [ref=e132]: "0"
+            - generic [ref=e133]: Talepleri filtrele
+          - button "Onaylı 0 Talepleri filtrele" [ref=e134] [cursor=pointer]:
+            - generic [ref=e136]: Onaylı
+            - generic [ref=e137]: "0"
+            - generic [ref=e138]: Talepleri filtrele
+          - button "Siparişte 0 Talepleri filtrele" [ref=e139] [cursor=pointer]:
+            - generic [ref=e141]: Siparişte
+            - generic [ref=e142]: "0"
+            - generic [ref=e143]: Talepleri filtrele
+          - button "Tamamlanan 0 Talepleri filtrele" [ref=e144] [cursor=pointer]:
+            - generic [ref=e146]: Tamamlanan
+            - generic [ref=e147]: "0"
+            - generic [ref=e148]: Talepleri filtrele
+          - button "Reddedildi 0 Talepleri filtrele" [ref=e149] [cursor=pointer]:
+            - generic [ref=e151]: Reddedildi
+            - generic [ref=e152]: "0"
+            - generic [ref=e153]: Talepleri filtrele
+          - button "SKT Uyarısı (≤ 90 gün) 1 Yaklaşan SKT'leri göster" [ref=e154] [cursor=pointer]:
+            - generic [ref=e155]:
+              - img [ref=e156]
+              - text: SKT Uyarısı (≤ 90 gün)
+            - generic [ref=e158]: "1"
+            - generic [ref=e159]: Yaklaşan SKT'leri göster
+        - table [ref=e162]:
+          - rowgroup [ref=e163]:
+            - row "Kod Malzeme Stok SKT Durum İşlem" [ref=e164]:
+              - columnheader "Kod" [ref=e165]
+              - columnheader "Malzeme" [ref=e166]
+              - columnheader "Stok" [ref=e167]
+              - columnheader "SKT" [ref=e168]
+              - columnheader "Durum" [ref=e169]
+              - columnheader "İşlem" [ref=e170]
+          - rowgroup [ref=e171]:
+            - row "REF450076 21G İĞNE UCU Greiner Numune Kabul İĞNE 1 LOT 3 / 2 Kutu 500 Gün Kaldı 29.09.2027 STOKTA Talep Dağıt Atık Birim Sil" [ref=e172] [cursor=pointer]:
+              - cell "REF450076" [ref=e173]
+              - cell "21G İĞNE UCU Greiner Numune Kabul İĞNE 1 LOT" [ref=e174]:
+                - generic [ref=e175]:
+                  - generic [ref=e176]:
+                    - generic [ref=e177]: 21G İĞNE UCU
+                    - generic [ref=e178]:
+                      - generic [ref=e179]: Greiner
+                      - generic [ref=e180]: Numune Kabul
+                      - generic [ref=e181]: İĞNE
+                      - generic [ref=e182]: 1 LOT
+                  - button [ref=e183]:
+                    - img [ref=e184]
+              - cell "3 / 2 Kutu" [ref=e186]:
+                - generic [ref=e187]: 3 / 2 Kutu
+              - cell "500 Gün Kaldı 29.09.2027" [ref=e188]:
+                - generic [ref=e189]:
+                  - img [ref=e190]
+                  - text: 500 Gün Kaldı
+                - generic [ref=e192]: 29.09.2027
+              - cell "STOKTA" [ref=e193]
+              - cell "Talep Dağıt Atık Birim Sil" [ref=e194]:
+                - generic [ref=e195]:
+                  - button "Talep" [ref=e196]
+                  - button "Dağıt" [ref=e197]
+                  - button "Atık" [ref=e198]:
+                    - img [ref=e199]
+                    - text: Atık
+                  - button "Birim" [ref=e206]
+                  - button "Sil" [ref=e207]
+            - row "ABADE1 Bosphore Adenovirus Detection Kit ANATOLİA Molecular Kit 1 LOT 26 / 25 kutu 287 Gün Kaldı 28.02.2027 STOKTA Talep Dağıt Atık Birim Sil" [ref=e208] [cursor=pointer]:
+              - cell "ABADE1" [ref=e209]
+              - cell "Bosphore Adenovirus Detection Kit ANATOLİA Molecular Kit 1 LOT" [ref=e210]:
+                - generic [ref=e211]:
+                  - generic [ref=e212]:
+                    - generic [ref=e213]: Bosphore Adenovirus Detection Kit
+                    - generic [ref=e214]:
+                      - generic [ref=e215]: ANATOLİA
+                      - generic [ref=e216]: Molecular
+                      - generic [ref=e217]: Kit
+                      - generic [ref=e218]: 1 LOT
+                  - button [ref=e219]:
+                    - img [ref=e220]
+              - cell "26 / 25 kutu" [ref=e222]:
+                - generic [ref=e223]: 26 / 25 kutu
+              - cell "287 Gün Kaldı 28.02.2027" [ref=e224]:
+                - generic [ref=e225]:
+                  - img [ref=e226]
+                  - text: 287 Gün Kaldı
+                - generic [ref=e228]: 28.02.2027
+              - cell "STOKTA" [ref=e229]
+              - cell "Talep Dağıt Atık Birim Sil" [ref=e230]:
+                - generic [ref=e231]:
+                  - button "Talep" [ref=e232]
+                  - button "Dağıt" [ref=e233]
+                  - button "Atık" [ref=e234]:
+                    - img [ref=e235]
+                    - text: Atık
+                  - button "Birim" [ref=e242]
+                  - button "Sil" [ref=e243]
+            - row "ABHHV2 Bosphore HHV 6 Detection ANATOLİA Molecular Kit 1 LOT 25 / 25 kutu 230 Gün Kaldı 02.01.2027 STOKTA Talep Dağıt Atık Birim Sil" [ref=e244] [cursor=pointer]:
+              - cell "ABHHV2" [ref=e245]
+              - cell "Bosphore HHV 6 Detection ANATOLİA Molecular Kit 1 LOT" [ref=e246]:
+                - generic [ref=e247]:
+                  - generic [ref=e248]:
+                    - generic [ref=e249]: Bosphore HHV 6 Detection
+                    - generic [ref=e250]:
+                      - generic [ref=e251]: ANATOLİA
+                      - generic [ref=e252]: Molecular
+                      - generic [ref=e253]: Kit
+                      - generic [ref=e254]: 1 LOT
+                  - button [ref=e255]:
+                    - img [ref=e256]
+              - cell "25 / 25 kutu" [ref=e258]:
+                - generic [ref=e259]: 25 / 25 kutu
+              - cell "230 Gün Kaldı 02.01.2027" [ref=e260]:
+                - generic [ref=e261]:
+                  - img [ref=e262]
+                  - text: 230 Gün Kaldı
+                - generic [ref=e264]: 02.01.2027
+              - cell "STOKTA" [ref=e265]
+              - cell "Talep Dağıt Atık Birim Sil" [ref=e266]:
+                - generic [ref=e267]:
+                  - button "Talep" [ref=e268]
+                  - button "Dağıt" [ref=e269]
+                  - button "Atık" [ref=e270]:
+                    - img [ref=e271]
+                    - text: Atık
+                  - button "Birim" [ref=e278]
+                  - button "Sil" [ref=e279]
+            - row "REF454222 EDTA TÜP Greiner Numune Kabul TÜP 1 LOT 3 / 2 Paket 75 Gün Kaldı 31.07.2026 STOKTA Talep Dağıt Atık Birim Sil" [ref=e280] [cursor=pointer]:
+              - cell "REF454222" [ref=e281]
+              - cell "EDTA TÜP Greiner Numune Kabul TÜP 1 LOT" [ref=e282]:
+                - generic [ref=e283]:
+                  - generic [ref=e284]:
+                    - generic [ref=e285]: EDTA TÜP
+                    - generic [ref=e286]:
+                      - generic [ref=e287]: Greiner
+                      - generic [ref=e288]: Numune Kabul
+                      - generic [ref=e289]: TÜP
+                      - generic [ref=e290]: 1 LOT
+                  - button [ref=e291]:
+                    - img [ref=e292]
+              - cell "3 / 2 Paket" [ref=e294]:
+                - generic [ref=e295]: 3 / 2 Paket
+              - cell "75 Gün Kaldı 31.07.2026" [ref=e296]:
+                - generic [ref=e297]:
+                  - img [ref=e298]
+                  - text: 75 Gün Kaldı
+                - generic [ref=e300]: 31.07.2026
+              - cell "STOKTA" [ref=e301]
+              - cell "Talep Dağıt Atık Birim Sil" [ref=e302]:
+                - generic [ref=e303]:
+                  - button "Talep" [ref=e304]
+                  - button "Dağıt" [ref=e305]
+                  - button "Atık" [ref=e306]:
+                    - img [ref=e307]
+                    - text: Atık
+                  - button "Birim" [ref=e314]
+                  - button "Sil" [ref=e315]
+            - row "955134 EZ1&2 VİRUS MİNİ kit v2.0(48) Qıagen Molecular Kit 1 LOT 4 / 2 kutu SKT belirtilmemiş STOKTA Talep Dağıt Atık Birim Sil" [ref=e316] [cursor=pointer]:
+              - cell "955134" [ref=e317]
+              - cell "EZ1&2 VİRUS MİNİ kit v2.0(48) Qıagen Molecular Kit 1 LOT" [ref=e318]:
+                - generic [ref=e319]:
+                  - generic [ref=e320]:
+                    - generic [ref=e321]: EZ1&2 VİRUS MİNİ kit v2.0(48)
+                    - generic [ref=e322]:
+                      - generic [ref=e323]: Qıagen
+                      - generic [ref=e324]: Molecular
+                      - generic [ref=e325]: Kit
+                      - generic [ref=e326]: 1 LOT
+                  - button [ref=e327]:
+                    - img [ref=e328]
+              - cell "4 / 2 kutu" [ref=e330]:
+                - generic [ref=e331]: 4 / 2 kutu
+              - cell "SKT belirtilmemiş" [ref=e332]:
+                - generic [ref=e333]: SKT belirtilmemiş
+              - cell "STOKTA" [ref=e334]
+              - cell "Talep Dağıt Atık Birim Sil" [ref=e335]:
+                - generic [ref=e336]:
+                  - button "Talep" [ref=e337]
+                  - button "Dağıt" [ref=e338]
+                  - button "Atık" [ref=e339]:
+                    - img [ref=e340]
+                    - text: Atık
+                  - button "Birim" [ref=e347]
+                  - button "Sil" [ref=e348]
+            - row "REF454089 HEPARİN TÜP Greiner Numune Kabul TÜP 1 LOT 8 / 1 Paket 177 Gün Kaldı 10.11.2026 STOKTA Talep Dağıt Atık Birim Sil" [ref=e349] [cursor=pointer]:
+              - cell "REF454089" [ref=e350]
+              - cell "HEPARİN TÜP Greiner Numune Kabul TÜP 1 LOT" [ref=e351]:
+                - generic [ref=e352]:
+                  - generic [ref=e353]:
+                    - generic [ref=e354]: HEPARİN TÜP
+                    - generic [ref=e355]:
+                      - generic [ref=e356]: Greiner
+                      - generic [ref=e357]: Numune Kabul
+                      - generic [ref=e358]: TÜP
+                      - generic [ref=e359]: 1 LOT
+                  - button [ref=e360]:
+                    - img [ref=e361]
+              - cell "8 / 1 Paket" [ref=e363]:
+                - generic [ref=e364]: 8 / 1 Paket
+              - cell "177 Gün Kaldı 10.11.2026" [ref=e365]:
+                - generic [ref=e366]:
+                  - img [ref=e367]
+                  - text: 177 Gün Kaldı
+                - generic [ref=e369]: 10.11.2026
+              - cell "STOKTA" [ref=e370]
+              - cell "Talep Dağıt Atık Birim Sil" [ref=e371]:
+                - generic [ref=e372]:
+                  - button "Talep" [ref=e373]
+                  - button "Dağıt" [ref=e374]
+                  - button "Atık" [ref=e375]:
+                    - img [ref=e376]
+                    - text: Atık
+                  - button "Birim" [ref=e383]
+                  - button "Sil" [ref=e384]
+      - button "Tümünü Temizle" [ref=e386] [cursor=pointer]:
+        - img [ref=e387]
+        - text: Tümünü Temizle

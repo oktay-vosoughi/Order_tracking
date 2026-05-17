@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  getReadyForOrderCount,
   getHiddenLotCount,
   getLotPreview,
   getPurchaseStatusFilterOptions,
@@ -12,11 +13,13 @@ test('builds the visible mobile navigation options from user capabilities', () =
   const options = getVisibleTabOptions({
     canViewStock: true,
     canViewTalep: true,
+    canViewSiparis: true,
     canViewDagit: true,
     isObserver: false,
     canManageUsers: true,
     hasCurrentUser: true,
     pendingRequestCount: 2,
+    readyForOrderCount: 4,
     wasteCount: 3
   });
 
@@ -25,6 +28,7 @@ test('builds the visible mobile navigation options from user capabilities', () =
     [
       'stock',
       'requests',
+      'orders',
       'distributions',
       'waste',
       'total_stock',
@@ -35,7 +39,17 @@ test('builds the visible mobile navigation options from user capabilities', () =
     ]
   );
   assert.equal(options.find((option) => option.value === 'requests').label, 'Talepler (2)');
+  assert.equal(options.find((option) => option.value === 'orders').label, 'Siparişler (4)');
   assert.equal(options.find((option) => option.value === 'waste').label, 'Atık (3)');
+});
+
+test('counts approved requests ready for logistics ordering', () => {
+  assert.equal(getReadyForOrderCount([
+    { id: 'p-1', status: 'ONAYLANDI' },
+    { id: 'p-2', status: 'TALEP_EDILDI' },
+    { id: 'p-3', status: 'SIPARIS_VERILDI' },
+    { id: 'p-4', status: 'ONAYLANDI' }
+  ]), 2);
 });
 
 test('builds purchase status filter options including approved and rejected states', () => {

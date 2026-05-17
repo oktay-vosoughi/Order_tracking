@@ -40,7 +40,7 @@ mysql -u root -p < server/schema.sql
 `server/.env` dosyası oluşturun (opsiyonel — aşağıdakiler zaten varsayılan değerlerdir):
 
 ```env
-PORT=4000
+PORT=5000
 MYSQL_HOST=localhost
 MYSQL_PORT=3306
 MYSQL_USER=root
@@ -57,7 +57,7 @@ JWT_SECRET=change-this-in-production
 npm run server
 ```
 
-Backend **http://localhost:4000** adresinde çalışır.
+Backend **http://localhost:5000** adresinde çalışır.
 
 ### 5. Frontend geliştirme sunucusunu başlat / Start the frontend
 
@@ -67,7 +67,7 @@ Ayrı bir terminalde:
 npm run dev
 ```
 
-Frontend **http://localhost:3000** adresinde açılır. Vite, `/api` isteklerini otomatik olarak `http://localhost:4000` adresine yönlendirir (proxy).
+Frontend **http://localhost:3002** adresinde açılır. Vite, `/api` isteklerini otomatik olarak `http://localhost:4000` adresine yönlendirir (proxy).
 
 ### 6. İlk giriş / First login
 

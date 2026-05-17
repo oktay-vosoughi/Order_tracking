@@ -78,6 +78,11 @@ export function getPurchaseStatusFilterOptions(counts = {}) {
   ];
 }
 
+export function getReadyForOrderCount(purchases = []) {
+  if (!Array.isArray(purchases)) return 0;
+  return purchases.filter((purchase) => purchase?.status === 'ONAYLANDI').length;
+}
+
 export function getLotPreview(lots = [], limit = 3) {
   if (!Array.isArray(lots)) return [];
   return lots.slice(0, Math.max(0, limit));
@@ -91,11 +96,13 @@ export function getHiddenLotCount(lots = [], limit = 3) {
 export function getVisibleTabOptions({
   canViewStock,
   canViewTalep,
+  canViewSiparis,
   canViewDagit,
   isObserver,
   canManageUsers,
   hasCurrentUser,
   pendingRequestCount = 0,
+  readyForOrderCount = 0,
   wasteCount = 0
 }) {
   const options = [];
@@ -106,6 +113,10 @@ export function getVisibleTabOptions({
 
   if (canViewTalep) {
     options.push({ value: 'requests', label: `Talepler (${pendingRequestCount})` });
+  }
+
+  if (canViewSiparis) {
+    options.push({ value: 'orders', label: `Siparişler (${readyForOrderCount})` });
   }
 
   if (canViewDagit) {

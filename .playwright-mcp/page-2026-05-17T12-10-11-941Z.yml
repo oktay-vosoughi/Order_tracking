@@ -1,0 +1,80 @@
+- generic [ref=e3]:
+  - complementary [ref=e5]:
+    - generic [ref=e6]:
+      - img "GTMLIMS" [ref=e8]
+      - generic [ref=e9]:
+        - strong [ref=e10]: GTMLIMS
+        - text: Lab Malzeme Takip
+    - generic [ref=e11]: Ana Menü
+    - button "Stok" [ref=e12] [cursor=pointer]:
+      - img [ref=e13]
+      - generic [ref=e17]: Stok
+    - button "Talepler" [active] [ref=e18] [cursor=pointer]:
+      - img [ref=e19]
+      - generic [ref=e23]: Talepler
+    - button "Dağıtım" [ref=e24] [cursor=pointer]:
+      - img [ref=e25]
+      - generic [ref=e29]: Dağıtım
+    - button "Atık" [ref=e30] [cursor=pointer]:
+      - img [ref=e31]
+      - generic [ref=e38]: Atık
+    - button "Genel Stok" [ref=e39] [cursor=pointer]:
+      - img [ref=e40]
+      - generic [ref=e41]: Genel Stok
+    - button "LOT Stok" [ref=e42] [cursor=pointer]:
+      - img [ref=e43]
+      - generic [ref=e47]: LOT Stok
+    - button "CEP DEPO" [ref=e48] [cursor=pointer]:
+      - img [ref=e49]
+      - generic [ref=e51]: CEP DEPO
+    - button "Kullanıcılar" [ref=e52] [cursor=pointer]:
+      - img [ref=e53]
+      - generic [ref=e56]: Kullanıcılar
+    - button "Hesabım" [ref=e57] [cursor=pointer]:
+      - img [ref=e58]
+      - generic [ref=e61]: Hesabım
+    - generic [ref=e63]:
+      - generic [ref=e64]: OK
+      - generic [ref=e65]:
+        - strong [ref=e66]: Oktay
+        - text: ADMIN
+      - button "Çıkış" [ref=e67] [cursor=pointer]:
+        - img [ref=e68]
+  - generic [ref=e71]:
+    - generic [ref=e72]:
+      - generic [ref=e73]: Talepler
+      - generic [ref=e74]:
+        - img [ref=e75]
+        - textbox "Ara..." [ref=e78]
+    - generic [ref=e94]:
+      - generic [ref=e366]:
+        - generic [ref=e367]:
+          - heading "Satın Alma Talepleri" [level=3] [ref=e368]
+          - generic [ref=e369]:
+            - combobox "Talep durumu filtresi" [ref=e370]:
+              - option "Tüm talepler" [selected]
+              - option "Bekleyen (0)"
+              - option "Onaylı (0)"
+              - option "Siparişte (0)"
+              - option "Tamamlanan (0)"
+              - option "Reddedildi (0)"
+            - button "Excel'e Aktar" [ref=e371] [cursor=pointer]:
+              - img [ref=e372]
+              - text: Excel'e Aktar
+        - generic [ref=e375]:
+          - table [ref=e376]:
+            - rowgroup [ref=e377]:
+              - row "Talep No Malzeme Miktar Talep Eden Durum İşlem" [ref=e378]:
+                - columnheader "Talep No" [ref=e379]
+                - columnheader "Malzeme" [ref=e380]
+                - columnheader "Miktar" [ref=e381]
+                - columnheader "Talep Eden" [ref=e382]
+                - columnheader "Durum" [ref=e383]
+                - columnheader "İşlem" [ref=e384]
+            - rowgroup
+          - generic [ref=e385]:
+            - img [ref=e386]
+            - paragraph [ref=e390]: Henüz satın alma talebi yok
+      - button "Tümünü Temizle" [ref=e362] [cursor=pointer]:
+        - img [ref=e363]
+        - text: Tümünü Temizle

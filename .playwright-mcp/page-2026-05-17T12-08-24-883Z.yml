@@ -1,0 +1,73 @@
+- generic [ref=e3]:
+  - complementary [ref=e29]:
+    - generic [ref=e30]:
+      - img "GTMLIMS" [ref=e32]
+      - generic [ref=e33]:
+        - strong [ref=e34]: GTMLIMS
+        - text: Lab Malzeme Takip
+    - generic [ref=e35]: Ana Menü
+    - button "Stok" [ref=e36] [cursor=pointer]:
+      - img [ref=e37]
+      - generic [ref=e41]: Stok
+    - button "Talepler" [ref=e42] [cursor=pointer]:
+      - img [ref=e43]
+      - generic [ref=e47]: Talepler
+    - button "Dağıtım" [active] [ref=e48] [cursor=pointer]:
+      - img [ref=e49]
+      - generic [ref=e53]: Dağıtım
+    - button "Atık" [ref=e54] [cursor=pointer]:
+      - img [ref=e55]
+      - generic [ref=e62]: Atık
+    - button "Genel Stok" [ref=e63] [cursor=pointer]:
+      - img [ref=e64]
+      - generic [ref=e65]: Genel Stok
+    - button "LOT Stok" [ref=e66] [cursor=pointer]:
+      - img [ref=e67]
+      - generic [ref=e71]: LOT Stok
+    - button "CEP DEPO" [ref=e72] [cursor=pointer]:
+      - img [ref=e73]
+      - generic [ref=e75]: CEP DEPO
+    - button "Kullanıcılar" [ref=e76] [cursor=pointer]:
+      - img [ref=e77]
+      - generic [ref=e80]: Kullanıcılar
+    - button "Hesabım" [ref=e81] [cursor=pointer]:
+      - img [ref=e82]
+      - generic [ref=e85]: Hesabım
+    - generic [ref=e87]:
+      - generic [ref=e88]: OK
+      - generic [ref=e89]:
+        - strong [ref=e90]: Oktay
+        - text: ADMIN
+      - button "Çıkış" [ref=e91] [cursor=pointer]:
+        - img [ref=e92]
+  - generic [ref=e95]:
+    - generic [ref=e96]:
+      - generic [ref=e97]: Dağıtım
+      - generic [ref=e98]:
+        - img [ref=e99]
+        - textbox "Ara..." [ref=e102]
+    - generic [ref=e118]:
+      - generic [ref=e439]:
+        - generic [ref=e440]:
+          - heading "Dağıtım Kayıtları" [level=3] [ref=e441]
+          - button "Excel'e Aktar" [ref=e442] [cursor=pointer]:
+            - img [ref=e443]
+            - text: Excel'e Aktar
+        - generic [ref=e446]:
+          - table [ref=e447]:
+            - rowgroup [ref=e448]:
+              - row "Malzeme Miktar Veren Alan Amaç Tarih Durum" [ref=e449]:
+                - columnheader "Malzeme" [ref=e450]
+                - columnheader "Miktar" [ref=e451]
+                - columnheader "Veren" [ref=e452]
+                - columnheader "Alan" [ref=e453]
+                - columnheader "Amaç" [ref=e454]
+                - columnheader "Tarih" [ref=e455]
+                - columnheader "Durum" [ref=e456]
+            - rowgroup
+          - generic [ref=e457]:
+            - img [ref=e458]
+            - paragraph [ref=e462]: Henüz dağıtım kaydı yok
+      - button "Tümünü Temizle" [ref=e386] [cursor=pointer]:
+        - img [ref=e387]
+        - text: Tümünü Temizle

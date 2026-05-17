@@ -26,6 +26,7 @@ import {
   PURCHASE_STATUS_FILTERS,
   getHiddenLotCount,
   getLotPreview,
+  getReadyForOrderCount,
   getPurchaseStatusBadge,
   getPurchaseStatusFilterOptions,
   getVisibleTabOptions
@@ -184,7 +185,7 @@ const LabEquipmentTracker = () => {
   const canImportItems = canModifyInventory;
   const canViewDagit = true; // All roles can view distributions
   const canViewTalep = isAdmin || isSatinal || isSatinalLojistik;
-  const canViewSiparis = isAdmin || isSatinal;
+  const canViewSiparis = canOrder;
   
   const username = currentUser?.username || '';
   
@@ -962,6 +963,9 @@ const LabEquipmentTracker = () => {
   const filteredPurchases = purchaseStatusFilter && PURCHASE_STATUS_FILTERS[purchaseStatusFilter]
     ? purchases.filter(p => PURCHASE_STATUS_FILTERS[purchaseStatusFilter].statuses.includes(p.status))
     : purchases;
+  const readyForOrderCount = getReadyForOrderCount(purchases);
+  const orderReadyPurchases = purchases.filter(p => p.status === 'ONAYLANDI');
+  const displayedPurchases = activeTab === 'orders' ? orderReadyPurchases : filteredPurchases;
 
   const statusCardDisplay = ['pending', 'approved', 'ordered', 'completed', 'rejected'].map((key) => ({
     key,
@@ -979,6 +983,8 @@ const LabEquipmentTracker = () => {
     canManageUsers,
     hasCurrentUser: !!currentUser,
     pendingRequestCount: purchaseStatusCounts.pending,
+    canViewSiparis,
+    readyForOrderCount,
     wasteCount: wasteRecords.length
   });
 
@@ -1388,7 +1394,7 @@ const LabEquipmentTracker = () => {
 
   const tabTitles = {
     stock: 'Stok', requests: 'Talepler', distributions: 'Dağıtım',
-    waste: 'Atık', total_stock: 'Genel Stok', lot_inventory: 'LOT Stok',
+    orders: 'Siparişler', waste: 'Atık', total_stock: 'Genel Stok', lot_inventory: 'LOT Stok',
     cep_depo: 'CEP DEPO', users: 'Kullanıcılar', account: 'Hesabım'
   };
   const userInitials = username.slice(0, 2).toUpperCase() || '??';
@@ -1411,6 +1417,12 @@ const LabEquipmentTracker = () => {
           <button className={`nv${activeTab === 'requests' ? ' on' : ''}`} onClick={() => setActiveTab('requests')}>
             <ShoppingCart size={15} /><span>Talepler</span>
             {pendingCount > 0 && <span className="nbdg">{pendingCount}</span>}
+          </button>
+        )}
+        {canViewSiparis && (
+          <button className={`nv${activeTab === 'orders' ? ' on' : ''}`} onClick={() => setActiveTab('orders')}>
+            <Truck size={15} /><span>Siparişler</span>
+            {readyForOrderCount > 0 && <span className="nbdg">{readyForOrderCount}</span>}
           </button>
         )}
         {canViewDagit && (
@@ -1657,8 +1669,8 @@ const LabEquipmentTracker = () => {
                   onChange={(e) => setUserCreateForm({ ...userCreateForm, role: e.target.value })}
                   className="px-4 py-2 border rounded-lg"
                 >
-                  <option value="SATINAL_LOJISTIK">SATINAL_LOJISTIK (Talep + Onayla + Dağıt)</option>
-                  <option value="SATINAL">SATINAL (Sipariş + Teslim Al)</option>
+                  <option value="SATINAL_LOJISTIK">SATINAL_LOJISTIK (Sipariş + Teslim Al + Dağıt)</option>
+                  <option value="SATINAL">SATINAL (Talep + Onayla + Dağıt)</option>
                   <option value="LAB_TECHNICIAN">LAB_TECHNICIAN (CEP DEPO sahibi)</option>
                   <option value="OBSERVER">OBSERVER (Sadece Görüntüleme)</option>
                   <option value="ADMIN">ADMIN (Tüm Yetkiler)</option>
@@ -2636,21 +2648,29 @@ const LabEquipmentTracker = () => {
           </div>
         )}
 
-        {activeTab === 'requests' && (
+        {(activeTab === 'requests' || activeTab === 'orders') && (
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
             <div className="p-4 border-b bg-gray-50 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
-              <h3 className="font-bold text-gray-800">Satın Alma Talepleri</h3>
+              <h3 className="font-bold text-gray-800">
+                {activeTab === 'orders' ? 'Sipariş Bekleyen Talepler' : 'Satın Alma Talepleri'}
+              </h3>
               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                <select
-                  value={purchaseStatusFilter || ''}
-                  onChange={(e) => handlePurchaseStatusFilterSelect(e.target.value)}
-                  className="mobile-select sm:min-w-[220px]"
-                  aria-label="Talep durumu filtresi"
-                >
-                  {purchaseStatusFilterOptions.map((option) => (
-                    <option key={option.value || 'all'} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
+                {activeTab === 'requests' ? (
+                  <select
+                    value={purchaseStatusFilter || ''}
+                    onChange={(e) => handlePurchaseStatusFilterSelect(e.target.value)}
+                    className="mobile-select sm:min-w-[220px]"
+                    aria-label="Talep durumu filtresi"
+                  >
+                    {purchaseStatusFilterOptions.map((option) => (
+                      <option key={option.value || 'all'} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="status-pill bg-blue-50 text-blue-800 border-blue-200 justify-center">
+                    Onaylandı ({readyForOrderCount})
+                  </span>
+                )}
                 <button 
                   onClick={() => handleExcelExport(exportPurchases, 'Satin_Alma_Talepleri.xlsx')}
                   className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
@@ -2673,7 +2693,7 @@ const LabEquipmentTracker = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {filteredPurchases.map((purchase) => {
+                  {displayedPurchases.map((purchase) => {
                     const statusBadge = getPurchaseStatusBadge(purchase.status);
                     return (
                     <tr key={purchase.id} className="hover:bg-gray-50">
@@ -2737,17 +2757,17 @@ const LabEquipmentTracker = () => {
                   })}
                 </tbody>
               </table>
-              {filteredPurchases.length === 0 && (
+              {displayedPurchases.length === 0 && (
                 <div className="text-center py-12 text-gray-500">
                   <ShoppingCart size={48} className="mx-auto mb-4 opacity-50" />
                   <p>
-                    {purchaseStatusFilter ? 'Bu filtreye uygun talep bulunamadı' : 'Henüz satın alma talebi yok'}
+                    {activeTab === 'orders' ? 'Sipariş bekleyen onaylı talep yok' : purchaseStatusFilter ? 'Bu filtreye uygun talep bulunamadı' : 'Henüz satın alma talebi yok'}
                   </p>
                 </div>
               )}
             </div>
             <div className="sm:hidden divide-y divide-gray-100">
-              {filteredPurchases.map((purchase) => {
+              {displayedPurchases.map((purchase) => {
                 const statusBadge = getPurchaseStatusBadge(purchase.status);
                 const isExpanded = expandedPurchaseId === purchase.id;
                 return (
@@ -2829,11 +2849,11 @@ const LabEquipmentTracker = () => {
                   </div>
                 );
               })}
-              {filteredPurchases.length === 0 && (
+              {displayedPurchases.length === 0 && (
                 <div className="text-center py-12 text-gray-500">
                   <ShoppingCart size={42} className="mx-auto mb-4 opacity-50" />
                   <p>
-                    {purchaseStatusFilter ? 'Bu filtreye uygun talep bulunamadı' : 'Henüz satın alma talebi yok'}
+                    {activeTab === 'orders' ? 'Sipariş bekleyen onaylı talep yok' : purchaseStatusFilter ? 'Bu filtreye uygun talep bulunamadı' : 'Henüz satın alma talebi yok'}
                   </p>
                 </div>
               )}
