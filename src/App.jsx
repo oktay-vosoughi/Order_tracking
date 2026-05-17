@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock } from 'lucide-react';
+import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
@@ -1336,63 +1336,49 @@ const LabEquipmentTracker = () => {
 
   if (authLoading) {
     return (
-      <div className="theme-shell flex items-center justify-center">
-        <div className="brand-card px-8 py-10 text-lg text-slate-600">
-          Yükleniyor...
-        </div>
+      <div className="login-bg">
+        <div style={{ color: 'rgba(255,255,255,.8)', fontSize: 15, fontWeight: 600 }}>Yükleniyor...</div>
       </div>
     );
   }
 
   if (!currentUser) {
     return (
-      <div className="theme-shell flex items-center justify-center">
-        <div className="brand-card p-8 max-w-md w-full">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="p-3 rounded-2xl bg-white/90 shadow-md">
-              <img src={logoIcon} alt="GTMLIMS" className="w-12 h-12 object-contain" />
+      <div className="login-bg">
+        <div className="login-card">
+          <div className="login-logo">
+            <div className="login-ico">
+              <img src={logoIcon} alt="GTMLIMS" />
             </div>
-            <div>
-              <p className="text-sm uppercase tracking-[0.4em] text-slate-500">GTMLIMS</p>
-              <h1 className="text-2xl font-bold text-slate-900">Laboratuvar Malzeme Takip</h1>
+            <div className="login-brand">
+              <strong>GTMLIMS</strong>
+              <span>Laboratuvar Malzeme Takip</span>
             </div>
           </div>
-          <p className="text-sm text-slate-600 mb-4">
-            {bootstrapMode ? 'İlk kurulum: İlk kullanıcı ADMIN olarak oluşturulacak.' : 'Kullanıcı adı ve şifrenizle giriş yapın.'}
-          </p>
-
+          <div className="login-title">{bootstrapMode ? 'İlk Kurulum' : 'Giriş Yap'}</div>
+          <div className="login-sub">
+            {bootstrapMode ? 'İlk kullanıcı ADMIN olarak oluşturulacak.' : 'Kullanıcı adı ve şifrenizle giriş yapın.'}
+          </div>
+          {authError && <div className="err-pill">Hata: {authError}</div>}
           <input
             type="text"
+            className="login-input"
             placeholder="Kullanıcı Adı"
             value={loginForm.username}
             onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
-            className="w-full glass-input px-4 py-3 mb-3"
           />
           <input
             type="password"
+            className="login-input"
             placeholder="Şifre"
             value={loginForm.password}
             onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-            className="w-full glass-input px-4 py-3 mb-5"
+            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
           />
-
-          {authError && (
-            <div className="text-sm text-red-600 mb-3">
-              Hata: {authError}
-            </div>
-          )}
-
-          <button
-            onClick={handleLogin}
-            className="w-full action-chip btn-navy justify-center"
-          >
+          <button onClick={handleLogin} className="login-btn">
             {bootstrapMode ? 'İlk Admin Oluştur' : 'Giriş Yap'}
           </button>
-
-          <button
-            onClick={() => setBootstrapMode((v) => !v)}
-            className="w-full mt-3 text-cyan-200 underline text-sm text-center"
-          >
+          <button onClick={() => setBootstrapMode((v) => !v)} className="login-link">
             {bootstrapMode ? 'Normal girişe dön' : 'İlk kurulum (bootstrap) modunu aç'}
           </button>
         </div>
@@ -1400,180 +1386,145 @@ const LabEquipmentTracker = () => {
     );
   }
 
-  return (
-    <div className="theme-shell">
-      <div className="max-w-7xl mx-auto">
-        <div className="brand-card p-4 sm:p-6 md:p-8 mb-6">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
-            <div className="flex items-start gap-4">
-              <div className="p-3 rounded-2xl bg-white/90 shadow-md">
-                <img src={logoIcon} alt="GTMLIMS" className="w-14 h-14 object-contain" />
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.5em] text-slate-500">GTMLIMS</p>
-                <h1 className="text-2xl md:text-3xl font-bold text-slate-900 flex items-center gap-2">
-                  Laboratuvar Malzeme Takip
-                </h1>
-                <p className="text-sm text-slate-600 mt-2 flex items-center gap-2 flex-wrap">
-                  <User size={16} />
-                  Kullanıcı: <strong>{username}</strong>
-                  <span className={roleChipClass()}>
-                    {currentUser?.role || '-'}
-                  </span>
-                  <button onClick={handleLogout} className="text-cyan-500 underline text-xs ml-1">
-                    Çıkış
-                  </button>
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              {expiryStats.critical > 0 && (
-                <button onClick={() => setShowExpiryAlert(true)} className="action-chip btn-charcoal text-sm animate-pulse">
-                  <AlertTriangle size={18} />
-                  SKT Uyarı ({expiryStats.critical})
-                </button>
-              )}
-              {expiryStats.expiringSoon > 0 && expiryStats.critical === 0 && (
-                <button onClick={() => setShowExpiryAlert(true)} className="action-chip btn-silver text-sm">
-                  <Calendar size={18} />
-                  SKT Raporu ({expiryStats.expiringSoon})
-                </button>
-              )}
-              {canModifyInventory && (
-                <>
-                  {isAdmin && (
-                    <label className="action-chip btn-cyan text-sm cursor-pointer">
-                      <Upload size={18} />
-                      Excel Yükle
-                      <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} className="hidden" />
-                    </label>
-                  )}
-                  <button onClick={exportToExcel} className="action-chip btn-charcoal text-sm">
-                    <Download size={18} />
-                    Excel'e Aktar
-                  </button>
-                  <button onClick={() => setShowAddForm(true)} className="action-chip btn-navy text-sm">
-                    <Plus size={18} />
-                    Malzeme Ekle
-                  </button>
-                </>
-              )}
-              {!canModifyInventory && (
-                <button onClick={exportToExcel} className="action-chip btn-charcoal text-sm">
-                  <Download size={18} />
-                  Excel'e Aktar
-                </button>
-              )}
-            </div>
-          </div>
-          
-          {uploadStats && isAdmin && (
-            <div className="mb-4 px-4 py-3 rounded-xl bg-green-50 border border-green-200 text-green-800 text-sm">
-              ✅ <strong>{uploadStats.totalItems}</strong> malzeme yüklendi ({uploadStats.sheets} sayfa)
-            </div>
-          )}
-          
-          <div className="mb-4 sm:hidden">
-            <label className="mobile-field-label" htmlFor="mobile-main-menu">Menü</label>
-            <select
-              id="mobile-main-menu"
-              value={activeTab}
-              onChange={(e) => setActiveTab(e.target.value)}
-              className="mobile-select"
-            >
-              {visibleTabOptions.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </div>
+  const tabTitles = {
+    stock: 'Stok', requests: 'Talepler', distributions: 'Dağıtım',
+    waste: 'Atık', total_stock: 'Genel Stok', lot_inventory: 'LOT Stok',
+    cep_depo: 'CEP DEPO', users: 'Kullanıcılar', account: 'Hesabım'
+  };
+  const userInitials = username.slice(0, 2).toUpperCase() || '??';
+  const pendingCount = purchases.filter(p => p.status === 'TALEP_EDILDI').length;
 
-          <div className="hidden sm:flex gap-2 mb-6 overflow-x-auto pb-2">
-            {canViewStock && (
-              <button onClick={() => setActiveTab('stock')} className={`${tabClass('stock')} flex items-center gap-2 whitespace-nowrap`}>
-                <Package size={18} />
-                Stok
-              </button>
-            )}
-            {canViewTalep && (
-              <button onClick={() => setActiveTab('requests')} className={`${tabClass('requests')} flex items-center gap-2 whitespace-nowrap`}>
-                <ShoppingCart size={18} />
-                Talepler ({purchases.filter(p => p.status === 'TALEP_EDILDI').length})
-              </button>
-            )}
-            {canViewDagit && (
-              <button onClick={() => setActiveTab('distributions')} className={`${tabClass('distributions')} flex items-center gap-2 whitespace-nowrap`}>
-                <FileCheck size={18} />
-                Dağıtım
-              </button>
-            )}
-            {!isObserver && (
-              <button onClick={() => setActiveTab('waste')} className={`${tabClass('waste')} flex items-center gap-2 whitespace-nowrap`}>
-                <Recycle size={18} />
-                Atık ({wasteRecords.length})
-              </button>
-            )}
-            {canViewStock && (
-              <button onClick={() => setActiveTab('total_stock')} className={`${tabClass('total_stock')} flex items-center gap-2 whitespace-nowrap`}>
-                <BarChart2 size={18} />
-                Genel Stok Görünümü
-              </button>
-            )}
-            {!isObserver && (
-              <button onClick={() => setActiveTab('lot_inventory')} className={`${tabClass('lot_inventory', 'accent')} flex items-center gap-2 whitespace-nowrap`}>
-                <Package size={18} />
-                LOT Stok Yönetimi
-              </button>
-            )}
-            <button onClick={() => setActiveTab('cep_depo')} className={`${tabClass('cep_depo', 'dark')} flex items-center gap-2 whitespace-nowrap`}>
-              <Package size={18} />
-              CEP DEPO
-            </button>
-            {canManageUsers && (
-              <button onClick={() => setActiveTab('users')} className={`${tabClass('users')} flex items-center gap-2 whitespace-nowrap`}>
-                <User size={18} />
-                Kullanıcılar
-              </button>
-            )}
-            {currentUser && (
-              <button onClick={() => setActiveTab('account')} className={`${tabClass('account', 'dark')} flex items-center gap-2 whitespace-nowrap`}>
-                <Lock size={18} />
-                Hesabım
-              </button>
-            )}
-          </div>
-          
-          <div className="flex gap-4 mb-2 flex-wrap">
-            <div className="flex-1 relative min-w-[200px]">
-              <Search className="absolute left-3 top-3 text-slate-400" size={20} />
-              <input
-                type="text"
-                placeholder="Ara..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full glass-input pl-10 pr-4 py-3"
-              />
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh' }}>
+      <aside className="sbar">
+        <div className="slogo">
+          <div className="sico"><img src={logoIcon} alt="GTMLIMS" /></div>
+          <div className="snm"><strong>GTMLIMS</strong><span>Lab Malzeme Takip</span></div>
+        </div>
+        <div className="ssec">Ana Menü</div>
+        {canViewStock && (
+          <button className={`nv${activeTab === 'stock' ? ' on' : ''}`} onClick={() => setActiveTab('stock')}>
+            <Package size={15} /><span>Stok</span>
+          </button>
+        )}
+        {canViewTalep && (
+          <button className={`nv${activeTab === 'requests' ? ' on' : ''}`} onClick={() => setActiveTab('requests')}>
+            <ShoppingCart size={15} /><span>Talepler</span>
+            {pendingCount > 0 && <span className="nbdg">{pendingCount}</span>}
+          </button>
+        )}
+        {canViewDagit && (
+          <button className={`nv${activeTab === 'distributions' ? ' on' : ''}`} onClick={() => setActiveTab('distributions')}>
+            <FileCheck size={15} /><span>Dağıtım</span>
+          </button>
+        )}
+        {!isObserver && (
+          <button className={`nv${activeTab === 'waste' ? ' on' : ''}`} onClick={() => setActiveTab('waste')}>
+            <Recycle size={15} /><span>Atık</span>
+            {wasteRecords.length > 0 && <span className="nbdg">{wasteRecords.length}</span>}
+          </button>
+        )}
+        {canViewStock && (
+          <button className={`nv${activeTab === 'total_stock' ? ' on' : ''}`} onClick={() => setActiveTab('total_stock')}>
+            <BarChart2 size={15} /><span>Genel Stok</span>
+          </button>
+        )}
+        {!isObserver && (
+          <button className={`nv${activeTab === 'lot_inventory' ? ' on' : ''}`} onClick={() => setActiveTab('lot_inventory')}>
+            <Package size={15} /><span>LOT Stok</span>
+          </button>
+        )}
+        <button className={`nv${activeTab === 'cep_depo' ? ' on' : ''}`} onClick={() => setActiveTab('cep_depo')}>
+          <Droplet size={15} /><span>CEP DEPO</span>
+        </button>
+        {canManageUsers && (
+          <button className={`nv${activeTab === 'users' ? ' on' : ''}`} onClick={() => setActiveTab('users')}>
+            <User size={15} /><span>Kullanıcılar</span>
+          </button>
+        )}
+        {currentUser && (
+          <button className={`nv${activeTab === 'account' ? ' on' : ''}`} onClick={() => setActiveTab('account')}>
+            <Lock size={15} /><span>Hesabım</span>
+          </button>
+        )}
+        <div className="sbot">
+          <div className="upill">
+            <div className="uav">{userInitials}</div>
+            <div className="uin">
+              <strong>{username}</strong>
+              <span>{currentUser?.role}</span>
             </div>
+            <button className="ulogout" onClick={handleLogout} title="Çıkış">
+              <LogOut size={15} />
+            </button>
+          </div>
+        </div>
+      </aside>
+      <div className="main">
+        <div className="tbar">
+          <span className="ttl">{tabTitles[activeTab] || ''}</span>
+          <div className="srch">
+            <Search size={14} />
+            <input
+              type="text"
+              placeholder="Ara..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="tact">
+            {(expiryStats.critical > 0 || expiryStats.expiringSoon > 0) && (
+              <button onClick={() => setShowExpiryAlert(true)} className="tbar-warn">
+                <AlertTriangle size={13} />
+                SKT {expiryStats.critical > 0 ? expiryStats.critical : expiryStats.expiringSoon}
+              </button>
+            )}
             {activeTab === 'stock' && (
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="tbar-select"
+              >
+                <option value="all">Tümü</option>
+                <option value="STOKTA">Stokta</option>
+                <option value="SATIN_AL">Satın Al</option>
+              </select>
+            )}
+            {activeTab === 'stock' && canModifyInventory && (
               <>
-                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="glass-input px-4 py-3">
-                  <option value="all">Tümü</option>
-                  <option value="STOKTA">Stokta</option>
-                  <option value="SATIN_AL">Satın Al</option>
-                </select>
-                {canModifyInventory && (
-                  <button
-                    onClick={() => setFefoMode(!fefoMode)}
-                    className={`pill-toggle ${fefoMode ? 'pill-toggle--active' : ''}`}
-                    title="FEFO (First Expired First Out) - SKT'ye göre sırala"
-                  >
-                    <Calendar size={18} />
-                    SKT Önceliklendir {fefoMode ? 'Açık' : 'Kapalı'}
-                  </button>
+                <button
+                  onClick={() => setFefoMode(!fefoMode)}
+                  className={`tbar-pill${fefoMode ? ' tbar-pill-on' : ''}`}
+                >
+                  <Calendar size={13} /> FEFO {fefoMode ? 'Açık' : 'Kapalı'}
+                </button>
+                {isAdmin && (
+                  <label className="tbar-btn" style={{ cursor: 'pointer' }}>
+                    <Upload size={13} /> Excel Yükle
+                    <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} style={{ display: 'none' }} />
+                  </label>
                 )}
+                <button onClick={exportToExcel} className="tbar-btn">
+                  <Download size={13} /> Excel
+                </button>
+                <button onClick={() => setShowAddForm(true)} className="tbar-btn tbar-btn-primary">
+                  <Plus size={13} /> Malzeme Ekle
+                </button>
               </>
+            )}
+            {activeTab === 'stock' && !canModifyInventory && (
+              <button onClick={exportToExcel} className="tbar-btn">
+                <Download size={13} /> Excel
+              </button>
             )}
           </div>
         </div>
+        <div className="cnt">
+          {uploadStats && isAdmin && (
+            <div className="alert-banner ab-ok" style={{ marginBottom: 16 }}>
+              ✅ <strong>{uploadStats.totalItems}</strong> malzeme yüklendi ({uploadStats.sheets} sayfa)
+            </div>
+          )}
 
         {showAddForm && canModifyInventory && (
           <AddItemFormLab
@@ -3036,6 +2987,7 @@ const LabEquipmentTracker = () => {
             </button>
           )}
         </div>
+        </div>
       </div>
 
       {/* CEP DEPO Birim Düzenle Modal */}
@@ -3125,7 +3077,7 @@ const LabEquipmentTracker = () => {
         </div>
       )}
 
-    </div>
+  </div>
   );
 };
 
