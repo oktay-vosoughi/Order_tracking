@@ -96,7 +96,7 @@ input, select, textarea { font-family: inherit; }
 .ulogout:hover { color: rgba(255,255,255,.7); background: rgba(255,255,255,.07); }
 
 /* ── Main area ── */
-.main { margin-left: var(--sw); display: flex; flex-direction: column; min-height: 100vh; }
+.main { margin-left: var(--sw); flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
 .tbar {
   height: var(--th); background: var(--sf);
   border-bottom: 1px solid var(--b);
