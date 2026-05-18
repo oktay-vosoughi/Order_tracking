@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut } from 'lucide-react';
+import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
@@ -89,6 +89,7 @@ const LabEquipmentTracker = () => {
   const [distributions, setDistributions] = useState([]);
   const [currentUser, setCurrentUser] = useState(null); // Now { username, role }
   const [activeTab, setActiveTab] = useState('stock');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -1400,62 +1401,69 @@ const LabEquipmentTracker = () => {
   const userInitials = username.slice(0, 2).toUpperCase() || '??';
   const pendingCount = purchases.filter(p => p.status === 'TALEP_EDILDI').length;
 
+  function navClick(tab) {
+    setActiveTab(tab);
+    setSidebarOpen(false);
+  }
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <aside className="sbar">
+      {/* Mobile backdrop */}
+      <div className={`sbar-overlay${sidebarOpen ? ' open' : ''}`} onClick={() => setSidebarOpen(false)} />
+      <aside className={`sbar${sidebarOpen ? ' sbar--open' : ''}`}>
         <div className="slogo">
           <div className="sico"><img src={logoIcon} alt="GTMLIMS" /></div>
           <div className="snm"><strong>GTMLIMS</strong><span>Lab Malzeme Takip</span></div>
         </div>
         <div className="ssec">Ana Menü</div>
         {canViewStock && (
-          <button className={`nv${activeTab === 'stock' ? ' on' : ''}`} onClick={() => setActiveTab('stock')}>
+          <button className={`nv${activeTab === 'stock' ? ' on' : ''}`} onClick={() => navClick('stock')}>
             <Package size={15} /><span>Stok</span>
           </button>
         )}
         {canViewTalep && (
-          <button className={`nv${activeTab === 'requests' ? ' on' : ''}`} onClick={() => setActiveTab('requests')}>
+          <button className={`nv${activeTab === 'requests' ? ' on' : ''}`} onClick={() => navClick('requests')}>
             <ShoppingCart size={15} /><span>Talepler</span>
             {pendingCount > 0 && <span className="nbdg">{pendingCount}</span>}
           </button>
         )}
         {canViewSiparis && (
-          <button className={`nv${activeTab === 'orders' ? ' on' : ''}`} onClick={() => setActiveTab('orders')}>
+          <button className={`nv${activeTab === 'orders' ? ' on' : ''}`} onClick={() => navClick('orders')}>
             <Truck size={15} /><span>Siparişler</span>
             {readyForOrderCount > 0 && <span className="nbdg">{readyForOrderCount}</span>}
           </button>
         )}
         {canViewDagit && (
-          <button className={`nv${activeTab === 'distributions' ? ' on' : ''}`} onClick={() => setActiveTab('distributions')}>
+          <button className={`nv${activeTab === 'distributions' ? ' on' : ''}`} onClick={() => navClick('distributions')}>
             <FileCheck size={15} /><span>Dağıtım</span>
           </button>
         )}
         {!isObserver && (
-          <button className={`nv${activeTab === 'waste' ? ' on' : ''}`} onClick={() => setActiveTab('waste')}>
+          <button className={`nv${activeTab === 'waste' ? ' on' : ''}`} onClick={() => navClick('waste')}>
             <Recycle size={15} /><span>Atık</span>
             {wasteRecords.length > 0 && <span className="nbdg">{wasteRecords.length}</span>}
           </button>
         )}
         {canViewStock && (
-          <button className={`nv${activeTab === 'total_stock' ? ' on' : ''}`} onClick={() => setActiveTab('total_stock')}>
+          <button className={`nv${activeTab === 'total_stock' ? ' on' : ''}`} onClick={() => navClick('total_stock')}>
             <BarChart2 size={15} /><span>Genel Stok</span>
           </button>
         )}
         {!isObserver && (
-          <button className={`nv${activeTab === 'lot_inventory' ? ' on' : ''}`} onClick={() => setActiveTab('lot_inventory')}>
+          <button className={`nv${activeTab === 'lot_inventory' ? ' on' : ''}`} onClick={() => navClick('lot_inventory')}>
             <Package size={15} /><span>LOT Stok</span>
           </button>
         )}
-        <button className={`nv${activeTab === 'cep_depo' ? ' on' : ''}`} onClick={() => setActiveTab('cep_depo')}>
+        <button className={`nv${activeTab === 'cep_depo' ? ' on' : ''}`} onClick={() => navClick('cep_depo')}>
           <Droplet size={15} /><span>CEP DEPO</span>
         </button>
         {canManageUsers && (
-          <button className={`nv${activeTab === 'users' ? ' on' : ''}`} onClick={() => setActiveTab('users')}>
+          <button className={`nv${activeTab === 'users' ? ' on' : ''}`} onClick={() => navClick('users')}>
             <User size={15} /><span>Kullanıcılar</span>
           </button>
         )}
         {currentUser && (
-          <button className={`nv${activeTab === 'account' ? ' on' : ''}`} onClick={() => setActiveTab('account')}>
+          <button className={`nv${activeTab === 'account' ? ' on' : ''}`} onClick={() => navClick('account')}>
             <Lock size={15} /><span>Hesabım</span>
           </button>
         )}
@@ -1474,6 +1482,9 @@ const LabEquipmentTracker = () => {
       </aside>
       <div className="main">
         <div className="tbar">
+          <button className="ham-btn" onClick={() => setSidebarOpen(o => !o)} aria-label="Menü">
+            {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
           <span className="ttl">{tabTitles[activeTab] || ''}</span>
           <div className="srch">
             <Search size={14} />

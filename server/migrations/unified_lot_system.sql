@@ -219,12 +219,18 @@ CREATE TABLE IF NOT EXISTS `distribution_lots` (
 
 -- ============================================================
 -- 9. ITEMS TABLE - Add department column if missing
+-- NOTE: items is legacy; replaced by item_definitions in lot-based schema
 -- ============================================================
-SET @col_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
-                   WHERE TABLE_SCHEMA = 'order_Tracking' 
-                   AND TABLE_NAME = 'items' 
-                   AND COLUMN_NAME = 'department');
-SET @sql = IF(@col_exists = 0, 
+SET @tbl_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+                   WHERE TABLE_SCHEMA = 'order_Tracking'
+                   AND TABLE_NAME = 'items');
+SET @col_exists = IF(@tbl_exists > 0,
+                   (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = 'order_Tracking'
+                    AND TABLE_NAME = 'items'
+                    AND COLUMN_NAME = 'department'),
+                   1);
+SET @sql = IF(@tbl_exists > 0 AND @col_exists = 0, 
               'ALTER TABLE items ADD COLUMN department VARCHAR(100) NULL AFTER category',
               'SELECT 1');
 PREPARE stmt FROM @sql;

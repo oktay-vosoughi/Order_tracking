@@ -12,4 +12,6 @@ ALTER TABLE `receipts`
 MODIFY COLUMN `attachmentUrl` LONGTEXT NULL;
 
 -- Add index on lotNumber for better performance
-CREATE INDEX IF NOT EXISTS `idx_lots_lotNumber` ON `lots` (`lotNumber`);
+SET @idx = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA='order_Tracking' AND TABLE_NAME='lots' AND INDEX_NAME='idx_lots_lotNumber');
+SET @sql = IF(@idx = 0, 'CREATE INDEX `idx_lots_lotNumber` ON `lots` (`lotNumber`)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

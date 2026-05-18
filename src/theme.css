@@ -39,6 +39,7 @@ input, select, textarea { font-family: inherit; }
   width: var(--sw); background: var(--nd);
   display: flex; flex-direction: column;
   position: fixed; top: 0; left: 0; bottom: 0; z-index: 100;
+  transition: transform .25s cubic-bezier(.4,0,.2,1);
 }
 .slogo {
   display: flex; align-items: center; gap: 10px;
@@ -95,8 +96,32 @@ input, select, textarea { font-family: inherit; }
 }
 .ulogout:hover { color: rgba(255,255,255,.7); background: rgba(255,255,255,.07); }
 
+/* ── Sidebar overlay (mobile backdrop) ── */
+.sbar-overlay {
+  display: none; position: fixed; inset: 0; z-index: 99;
+  background: rgba(0,0,0,.45); backdrop-filter: blur(2px);
+}
+.sbar-overlay.open { display: block; }
+
+/* ── Hamburger toggle (mobile only) ── */
+.ham-btn {
+  display: none; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 7px;
+  border: 1px solid var(--b); background: var(--sf);
+  color: var(--t2); cursor: pointer; flex-shrink: 0;
+}
+.ham-btn:hover { background: var(--bg); }
+
 /* ── Main area ── */
 .main { margin-left: var(--sw); flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
+
+/* ── Mobile layout ── */
+@media (max-width: 768px) {
+  .sbar { transform: translateX(-100%); }
+  .sbar.sbar--open { transform: translateX(0); }
+  .main { margin-left: 0; }
+  .ham-btn { display: flex; }
+}
 .tbar {
   height: var(--th); background: var(--sf);
   border-bottom: 1px solid var(--b);

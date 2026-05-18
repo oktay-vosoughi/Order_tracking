@@ -1,16 +1,39 @@
 -- Safe migration to add laboratory-specific fields to existing items table
+-- NOTE: items table is legacy (replaced by item_definitions in lot-based schema)
+-- Compatible with MySQL 5.7+ and MySQL 8+
 USE `order_Tracking`;
 
--- Add new columns to items table (will fail silently if they already exist)
-ALTER TABLE `items` ADD COLUMN `expiryDate` VARCHAR(40) NULL AFTER `status`;
-ALTER TABLE `items` ADD COLUMN `openingDate` VARCHAR(40) NULL AFTER `expiryDate`;
-ALTER TABLE `items` ADD COLUMN `storageTemp` VARCHAR(50) NULL AFTER `openingDate`;
-ALTER TABLE `items` ADD COLUMN `chemicalType` VARCHAR(100) NULL AFTER `storageTemp`;
-ALTER TABLE `items` ADD COLUMN `msdsUrl` TEXT NULL AFTER `chemicalType`;
-ALTER TABLE `items` ADD COLUMN `wasteStatus` VARCHAR(50) NULL AFTER `msdsUrl`;
+-- Add new columns to items only if the legacy items table still exists
+SET @tbl = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='order_Tracking' AND TABLE_NAME='items');
 
--- Add index for expiry date
-ALTER TABLE `items` ADD INDEX `idx_items_expiryDate` (`expiryDate`);
+SET @col = IF(@tbl>0, (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='order_Tracking' AND TABLE_NAME='items' AND COLUMN_NAME='expiryDate'), 1);
+SET @sql = IF(@tbl>0 AND @col=0, 'ALTER TABLE `items` ADD COLUMN `expiryDate` VARCHAR(40) NULL AFTER `status`', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col = IF(@tbl>0, (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='order_Tracking' AND TABLE_NAME='items' AND COLUMN_NAME='openingDate'), 1);
+SET @sql = IF(@tbl>0 AND @col=0, 'ALTER TABLE `items` ADD COLUMN `openingDate` VARCHAR(40) NULL AFTER `expiryDate`', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col = IF(@tbl>0, (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='order_Tracking' AND TABLE_NAME='items' AND COLUMN_NAME='storageTemp'), 1);
+SET @sql = IF(@tbl>0 AND @col=0, 'ALTER TABLE `items` ADD COLUMN `storageTemp` VARCHAR(50) NULL AFTER `openingDate`', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col = IF(@tbl>0, (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='order_Tracking' AND TABLE_NAME='items' AND COLUMN_NAME='chemicalType'), 1);
+SET @sql = IF(@tbl>0 AND @col=0, 'ALTER TABLE `items` ADD COLUMN `chemicalType` VARCHAR(100) NULL AFTER `storageTemp`', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col = IF(@tbl>0, (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='order_Tracking' AND TABLE_NAME='items' AND COLUMN_NAME='msdsUrl'), 1);
+SET @sql = IF(@tbl>0 AND @col=0, 'ALTER TABLE `items` ADD COLUMN `msdsUrl` TEXT NULL AFTER `chemicalType`', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col = IF(@tbl>0, (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='order_Tracking' AND TABLE_NAME='items' AND COLUMN_NAME='wasteStatus'), 1);
+SET @sql = IF(@tbl>0 AND @col=0, 'ALTER TABLE `items` ADD COLUMN `wasteStatus` VARCHAR(50) NULL AFTER `msdsUrl`', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Add index for expiry date (only if items table exists and index is missing)
+SET @idx = IF(@tbl>0, (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA='order_Tracking' AND TABLE_NAME='items' AND INDEX_NAME='idx_items_expiryDate'), 1);
+SET @sql = IF(@tbl>0 AND @idx=0, 'ALTER TABLE `items` ADD INDEX `idx_items_expiryDate` (`expiryDate`)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- Create waste_records table for tracking expired/contaminated products
 CREATE TABLE IF NOT EXISTS `waste_records` (
