@@ -2513,6 +2513,40 @@ app.get('/api/export/stock', authRequired, async (req, res) => {
   }
 });
 
+// Export Talepler — EBYS format (kategori, Urun, birim, miktar)
+// GET /api/export/talep-ebys?date=YYYY-MM-DD[&department=XXX]
+app.get('/api/export/talep-ebys', authRequired, async (req, res) => {
+  try {
+    const { date, department } = req.query;
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'INVALID_INPUT', message: 'date parametresi zorunludur (YYYY-MM-DD)' });
+    }
+
+    const params = [date];
+    const deptClause = department ? 'AND p.department = ?' : '';
+    if (department) params.push(department);
+
+    const rows = await all(pool, `
+      SELECT
+        COALESCE(id.category, '') AS kategori,
+        CONCAT(COALESCE(id.name, p.itemName), ', ', COALESCE(id.code, p.itemCode)) AS Urun,
+        COALESCE(NULLIF(TRIM(id.packageUnit), ''), id.unit, '') AS birim,
+        p.requestedQty AS miktar
+      FROM purchases p
+      LEFT JOIN item_definitions id ON id.id = p.itemId
+      WHERE COALESCE(p.requestDate, DATE(p.requestedAt)) = ?
+        AND (p.isCepDepoRequest = 0 OR p.isCepDepoRequest IS NULL)
+        ${deptClause}
+      ORDER BY COALESCE(id.category, ''), COALESCE(id.name, p.itemName)
+    `, params);
+
+    res.json({ rows });
+  } catch (error) {
+    console.error('Export talep-ebys error:', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
 // Clear all data endpoint (for "Tümünü Temizle" button)
 app.post('/api/clear-all', authRequired, adminRequired, async (req, res) => {
   try {

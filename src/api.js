@@ -227,6 +227,13 @@ export async function exportStock() {
   return apiFetch('/export/stock');
 }
 
+export async function fetchTalepEbys({ date, department } = {}) {
+  const qs = new URLSearchParams();
+  if (date) qs.set('date', date);
+  if (department) qs.set('department', department);
+  return apiFetch(`/export/talep-ebys?${qs.toString()}`);
+}
+
 // ============================================================
 // DATA LOADING API
 // ============================================================

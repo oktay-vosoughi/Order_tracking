@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -113,6 +113,9 @@ const LabEquipmentTracker = () => {
   const [purchaseStatusFilter, setPurchaseStatusFilter] = useState(null);
   const [expandedPurchaseId, setExpandedPurchaseId] = useState(null);
   const [showAllMobileLotsFor, setShowAllMobileLotsFor] = useState(null);
+  const [stockDepartmentFilter, setStockDepartmentFilter] = useState('');
+  const [showEbysModal, setShowEbysModal] = useState(false);
+  const [ebysExportForm, setEbysExportForm] = useState({ date: '', department: '' });
 
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
@@ -206,6 +209,7 @@ const LabEquipmentTracker = () => {
     if (activeTab === 'stock') return;
     setSearchTerm('');
     setFilterStatus('all');
+    setStockDepartmentFilter('');
   }, [activeTab]);
 
   const loadAllActionData = async () => {
@@ -953,19 +957,22 @@ const LabEquipmentTracker = () => {
   const expiringStockItems = displayItems.filter(isExpiringSoon);
   const expiringStockCount = expiringStockItems.length;
 
+  // Only buying requests (not CEP DEPO weekly distribution requests) appear in the Satın Alma tab and EBYS export.
+  const buyingPurchases = purchases.filter(p => !Number(p.isCepDepoRequest) && !p.requestedFor);
+
   const purchaseStatusCounts = {
-    pending: purchases.filter(p => p.status === 'TALEP_EDILDI').length,
-    approved: purchases.filter(p => p.status === 'ONAYLANDI').length,
-    ordered: purchases.filter(p => ['SIPARIS_VERILDI', 'KISMI_TESLIM', 'KISMEN_GELDI'].includes(p.status)).length,
-    completed: purchases.filter(p => ['TESLIM_ALINDI', 'GELDI'].includes(p.status)).length,
-    rejected: purchases.filter(p => p.status === 'REDDEDILDI').length
+    pending: buyingPurchases.filter(p => p.status === 'TALEP_EDILDI').length,
+    approved: buyingPurchases.filter(p => p.status === 'ONAYLANDI').length,
+    ordered: buyingPurchases.filter(p => ['SIPARIS_VERILDI', 'KISMI_TESLIM', 'KISMEN_GELDI'].includes(p.status)).length,
+    completed: buyingPurchases.filter(p => ['TESLIM_ALINDI', 'GELDI'].includes(p.status)).length,
+    rejected: buyingPurchases.filter(p => p.status === 'REDDEDILDI').length
   };
 
   const filteredPurchases = purchaseStatusFilter && PURCHASE_STATUS_FILTERS[purchaseStatusFilter]
-    ? purchases.filter(p => PURCHASE_STATUS_FILTERS[purchaseStatusFilter].statuses.includes(p.status))
-    : purchases;
-  const readyForOrderCount = getReadyForOrderCount(purchases);
-  const orderReadyPurchases = purchases.filter(p => p.status === 'ONAYLANDI');
+    ? buyingPurchases.filter(p => PURCHASE_STATUS_FILTERS[purchaseStatusFilter].statuses.includes(p.status))
+    : buyingPurchases;
+  const readyForOrderCount = getReadyForOrderCount(buyingPurchases);
+  const orderReadyPurchases = buyingPurchases.filter(p => p.status === 'ONAYLANDI');
   const displayedPurchases = activeTab === 'orders' ? orderReadyPurchases : filteredPurchases;
 
   const statusCardDisplay = ['pending', 'approved', 'ordered', 'completed', 'rejected'].map((key) => ({
@@ -1002,6 +1009,10 @@ const LabEquipmentTracker = () => {
     }
   };
 
+  const uniqueStockDepartments = [...new Set(
+    displayItems.map(i => i.department).filter(Boolean)
+  )].sort();
+
   const filteredItems = (() => {
     let filtered = displayItems.filter(item => {
       const matchesSearch = item.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1011,14 +1022,15 @@ const LabEquipmentTracker = () => {
         normalizeStatus(item.status) === filterStatus ||
         normalizeStatus(item.stockStatus) === filterStatus ||
         (filterStatus === EXPIRY_FILTER_VALUE && isExpiringSoon(item));
-      return matchesSearch && matchesFilter;
+      const matchesDepartment = !stockDepartmentFilter || item.department === stockDepartmentFilter;
+      return matchesSearch && matchesFilter && matchesDepartment;
     });
-    
+
     // Apply FEFO sorting if enabled
     if (fefoMode) {
       filtered = sortByFEFO(filtered);
     }
-    
+
     return filtered;
   })();
   
@@ -1173,6 +1185,35 @@ const LabEquipmentTracker = () => {
     } catch (error) {
       console.error('Excel export error:', error);
       alert('Excel dışa aktarma hatası: ' + (error.message || 'Bilinmeyen hata'));
+    }
+  };
+
+  const uniquePurchaseDepartments = [...new Set(
+    purchases.map(p => p.department).filter(Boolean)
+  )].sort();
+
+  const handleEbysExport = async () => {
+    const { date, department } = ebysExportForm;
+    if (!date) {
+      alert('Lütfen bir tarih seçin');
+      return;
+    }
+    try {
+      const result = await fetchTalepEbys({ date, department: department || undefined });
+      const rows = result?.rows || [];
+      if (rows.length === 0) {
+        alert(`${date} tarihine ait${department ? ` (${department})` : ''} talep bulunamadı.`);
+        return;
+      }
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Talepler');
+      const deptSuffix = department ? `_${department.replace(/\s+/g, '_')}` : '';
+      XLSX.writeFile(wb, `talepler${deptSuffix}_${date}.xlsx`);
+      setShowEbysModal(false);
+    } catch (error) {
+      console.error('EBYS export error:', error);
+      alert('EBYS dışa aktarma hatası: ' + (error?.message || 'Bilinmeyen hata'));
     }
   };
 
@@ -1511,6 +1552,19 @@ const LabEquipmentTracker = () => {
                 <option value="all">Tümü</option>
                 <option value="STOKTA">Stokta</option>
                 <option value="SATIN_AL">Satın Al</option>
+              </select>
+            )}
+            {activeTab === 'stock' && uniqueStockDepartments.length > 0 && (
+              <select
+                value={stockDepartmentFilter}
+                onChange={(e) => setStockDepartmentFilter(e.target.value)}
+                className="tbar-select"
+                aria-label="Departman filtresi"
+              >
+                <option value="">Tüm Departmanlar</option>
+                {uniqueStockDepartments.map(dept => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
               </select>
             )}
             {activeTab === 'stock' && canModifyInventory && (
@@ -1959,6 +2013,22 @@ const LabEquipmentTracker = () => {
                   <option value={EXPIRY_FILTER_VALUE}>SKT uyarısı ({expiringStockCount})</option>
                 </select>
               </div>
+              {uniqueStockDepartments.length > 0 && (
+                <div>
+                  <label className="mobile-field-label" htmlFor="mobile-dept-filter">Departman</label>
+                  <select
+                    id="mobile-dept-filter"
+                    value={stockDepartmentFilter}
+                    onChange={(e) => setStockDepartmentFilter(e.target.value)}
+                    className="mobile-select"
+                  >
+                    <option value="">Tüm Departmanlar</option>
+                    {uniqueStockDepartments.map(dept => (
+                      <option key={dept} value={dept}>{dept}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {canViewTalep && (
                 <div>
                   <label className="mobile-field-label" htmlFor="mobile-request-filter">Talep Durumu</label>
@@ -2682,12 +2752,19 @@ const LabEquipmentTracker = () => {
                     Onaylandı ({readyForOrderCount})
                   </span>
                 )}
-                <button 
+                <button
                   onClick={() => handleExcelExport(exportPurchases, 'Satin_Alma_Talepleri.xlsx')}
                   className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                 >
                   <Download size={18} />
                   Excel'e Aktar
+                </button>
+                <button
+                  onClick={() => setShowEbysModal(true)}
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                >
+                  <Download size={18} />
+                  EBYS Excel
                 </button>
               </div>
             </div>
@@ -2946,56 +3023,146 @@ const LabEquipmentTracker = () => {
         )}
 
         {activeTab === 'distributions' && (
-          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-            <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
-              <h3 className="font-bold text-gray-800">Dağıtım Kayıtları</h3>
-              <button 
-                onClick={() => handleExcelExport(exportDistributions, 'Dagitim_Kayitlari.xlsx')}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                <Download size={18} />
-                Excel'e Aktar
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Miktar</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Veren</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Alan</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Amaç</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Tarih</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Durum</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {distributions.map((dist) => (
-                    <tr key={dist.id} className="hover:bg-gray-50">
-                      <td className="px-3 py-2">{dist.itemName}</td>
-                      <td className="px-3 py-2">{dist.quantity}</td>
-                      <td className="px-3 py-2">{dist.distributedBy}</td>
-                      <td className="px-3 py-2">{dist.receivedBy}</td>
-                      <td className="px-3 py-2">{dist.purpose}</td>
-                      <td className="px-3 py-2">{new Date(dist.distributedDate).toLocaleDateString('tr-TR')}</td>
-                      <td className="px-3 py-2">
-                        {dist.completedDate ? (
-                          <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">Tamamlandı</span>
-                        ) : (
-                          <button onClick={() => markDistributionComplete(dist.id)} className="px-2 py-1 bg-orange-600 text-white rounded text-xs">Tamamla</button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {distributions.length === 0 && (
-                <div className="text-center py-12 text-gray-500">
-                  <FileCheck size={48} className="mx-auto mb-4 opacity-50" />
-                  <p>Henüz dağıtım kaydı yok</p>
+          <div className="space-y-6">
+            {/* Lab technician weekly distribution requests */}
+            {(() => {
+              const cepRequests = Object.values(pendingCepRequestsByItem).flat();
+              return (
+                <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                  <div className="p-4 border-b bg-amber-50 flex items-center gap-2">
+                    <AlertCircle size={18} className="text-amber-600" />
+                    <h3 className="font-bold text-amber-800">
+                      Lab Teknisyen Dağıtım Talepleri
+                      {cepRequests.length > 0 && (
+                        <span className="ml-2 px-2 py-0.5 bg-amber-200 text-amber-900 rounded-full text-xs">{cepRequests.length}</span>
+                      )}
+                    </h3>
+                  </div>
+                  {cepRequests.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500 text-sm">Bekleyen dağıtım talebi yok</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-xs font-semibold">Talep No</th>
+                            <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
+                            <th className="px-3 py-2 text-left text-xs font-semibold">Talep Eden</th>
+                            <th className="px-3 py-2 text-left text-xs font-semibold">Miktar</th>
+                            <th className="px-3 py-2 text-left text-xs font-semibold">Durum</th>
+                            {canDistribute && <th className="px-3 py-2 text-left text-xs font-semibold">İşlem</th>}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {cepRequests.map((p) => {
+                            const item = displayItems.find(i => i.id === p.itemId) || {
+                              id: p.itemId, name: p.itemName, packageUnit: '', consumptionUnit: ''
+                            };
+                            const target = p.requestedFor || p.requestedBy;
+                            const qtyVal = cepReqQty[p.id] ?? String(p.requestedQty);
+                            return (
+                              <tr key={p.id} className="hover:bg-gray-50">
+                                <td className="px-3 py-2 font-medium text-xs">{p.requestNumber}</td>
+                                <td className="px-3 py-2">
+                                  <div className="font-medium">{p.itemName}</div>
+                                  {p.department && <div className="text-xs text-gray-500">{p.department}</div>}
+                                </td>
+                                <td className="px-3 py-2 text-indigo-700 font-medium">{target}</td>
+                                <td className="px-3 py-2">
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="number"
+                                      min="0.01"
+                                      step="0.01"
+                                      value={qtyVal}
+                                      onChange={(e) => setCepReqQty((s) => ({ ...s, [p.id]: e.target.value }))}
+                                      className="w-20 px-2 py-1 border rounded text-sm"
+                                      title="Verilecek miktar"
+                                    />
+                                    <span className="text-xs text-gray-500">{item.packageUnit || 'koli'}</span>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <span className={`status-pill ${p.status === 'ONAYLANDI' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+                                    {p.status === 'ONAYLANDI' ? 'Onaylandı' : 'Talep Edildi'}
+                                  </span>
+                                  {p.requestedAt && (
+                                    <div className="text-xs text-gray-400 mt-0.5">{new Date(p.requestedAt).toLocaleDateString('tr-TR')}</div>
+                                  )}
+                                </td>
+                                {canDistribute && (
+                                  <td className="px-3 py-2">
+                                    <button
+                                      onClick={() => approveAndDistributeCepRequest(p, item)}
+                                      className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs whitespace-nowrap"
+                                    >
+                                      Onayla & Dağıt
+                                    </button>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-              )}
+              );
+            })()}
+
+            {/* Completed distribution records */}
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+              <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                <h3 className="font-bold text-gray-800">Dağıtım Kayıtları</h3>
+                <button
+                  onClick={() => handleExcelExport(exportDistributions, 'Dagitim_Kayitlari.xlsx')}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  <Download size={18} />
+                  Excel'e Aktar
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Miktar</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Veren</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Alan</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Amaç</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Tarih</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Durum</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {distributions.map((dist) => (
+                      <tr key={dist.id} className="hover:bg-gray-50">
+                        <td className="px-3 py-2">{dist.itemName}</td>
+                        <td className="px-3 py-2">{dist.quantity}</td>
+                        <td className="px-3 py-2">{dist.distributedBy}</td>
+                        <td className="px-3 py-2">{dist.receivedBy}</td>
+                        <td className="px-3 py-2">{dist.purpose}</td>
+                        <td className="px-3 py-2">{new Date(dist.distributedDate).toLocaleDateString('tr-TR')}</td>
+                        <td className="px-3 py-2">
+                          {dist.completedDate ? (
+                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">Tamamlandı</span>
+                          ) : (
+                            <button onClick={() => markDistributionComplete(dist.id)} className="px-2 py-1 bg-orange-600 text-white rounded text-xs">Tamamla</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {distributions.length === 0 && (
+                  <div className="text-center py-12 text-gray-500">
+                    <FileCheck size={48} className="mx-auto mb-4 opacity-50" />
+                    <p>Henüz dağıtım kaydı yok</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -3099,6 +3266,55 @@ const LabEquipmentTracker = () => {
               </button>
               <button
                 onClick={() => setUnitEditItem(null)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              >
+                İptal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EBYS Excel Export Modal */}
+      {showEbysModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="text-lg font-bold mb-4">EBYS Talep Listesi İndir</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Talep Tarihi <span className="text-red-500">*</span></label>
+                <input
+                  type="date"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={ebysExportForm.date}
+                  onChange={(e) => setEbysExportForm({ ...ebysExportForm, date: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Departman (opsiyonel)</label>
+                <select
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={ebysExportForm.department}
+                  onChange={(e) => setEbysExportForm({ ...ebysExportForm, department: e.target.value })}
+                >
+                  <option value="">Tüm Departmanlar</option>
+                  {uniquePurchaseDepartments.map(dept => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleEbysExport}
+                disabled={!ebysExportForm.date}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+              >
+                <Download size={16} />
+                İndir
+              </button>
+              <button
+                onClick={() => setShowEbysModal(false)}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
               >
                 İptal
