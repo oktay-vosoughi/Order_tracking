@@ -91,11 +91,12 @@ export async function createUser(username, password, role) {
   });
 }
 
-export async function updateUser(id, username, role, password) {
+export async function updateUser(id, username, role, password, canReceive) {
   const payload = {};
   if (username) payload.username = username;
   if (role) payload.role = role;
   if (password) payload.password = password;
+  if (canReceive !== undefined) payload.canReceive = canReceive;
 
   return apiFetch(`/users/${id}`, {
     method: 'PATCH',

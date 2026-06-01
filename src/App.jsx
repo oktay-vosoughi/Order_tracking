@@ -123,7 +123,7 @@ const LabEquipmentTracker = () => {
   const [bootstrapMode, setBootstrapMode] = useState(false);
 
   const [users, setUsers] = useState([]);
-  const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'SATINAL_LOJISTIK' });
+  const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false });
   const [editingUserId, setEditingUserId] = useState(null);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
@@ -170,7 +170,7 @@ const LabEquipmentTracker = () => {
   const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isLabTechnician;
   const canApprove = isAdmin || isSatinal;
   const canOrder = isAdmin || isSatinalLojistik;
-  const canReceive = isAdmin || isSatinalLojistik;
+  const canReceive = isAdmin || isSatinalLojistik || !!currentUser?.canReceive;
   const canDistribute = isAdmin || isSatinal || isSatinalLojistik;
 
   // Pending CEP DEPO lab-tech requests grouped by itemId.
@@ -423,7 +423,7 @@ const LabEquipmentTracker = () => {
   };
 
   const resetUserForm = () => {
-    setUserCreateForm({ username: '', password: '', role: 'SATINAL_LOJISTIK' });
+    setUserCreateForm({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false });
     setEditingUserId(null);
   };
 
@@ -447,7 +447,7 @@ const LabEquipmentTracker = () => {
     try {
       let res;
       if (editingUserId) {
-        res = await updateUser(editingUserId, trimmedUsername, userCreateForm.role, userCreateForm.password || undefined);
+        res = await updateUser(editingUserId, trimmedUsername, userCreateForm.role, userCreateForm.password || undefined, userCreateForm.canReceive);
         alert('Kullanıcı güncellendi');
       } else {
         res = await createUser(trimmedUsername, userCreateForm.password, userCreateForm.role);
@@ -1731,7 +1731,7 @@ const LabEquipmentTracker = () => {
                 />
                 <select
                   value={userCreateForm.role}
-                  onChange={(e) => setUserCreateForm({ ...userCreateForm, role: e.target.value })}
+                  onChange={(e) => setUserCreateForm({ ...userCreateForm, role: e.target.value, canReceive: false })}
                   className="px-4 py-2 border rounded-lg"
                 >
                   <option value="SATINAL_LOJISTIK">SATINAL_LOJISTIK (Sipariş + Teslim Al + Dağıt)</option>
@@ -1741,6 +1741,18 @@ const LabEquipmentTracker = () => {
                   <option value="ADMIN">ADMIN (Tüm Yetkiler)</option>
                 </select>
               </div>
+              {userCreateForm.role === 'SATINAL' && (
+                <label className="flex items-center gap-2 mb-4 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={userCreateForm.canReceive}
+                    onChange={(e) => setUserCreateForm({ ...userCreateForm, canReceive: e.target.checked })}
+                    className="w-4 h-4 accent-indigo-600"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Teslim Al Yetkisi ver</span>
+                  <span className="text-xs text-gray-500">(bu kullanıcı mal teslim alabilir)</span>
+                </label>
+              )}
 
               <div className="flex gap-2 mb-6">
                 <button
@@ -1765,6 +1777,7 @@ const LabEquipmentTracker = () => {
                     <tr>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Kullanıcı</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Rol</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Ek Yetki</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Oluşturan</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Tarih</th>
                     </tr>
@@ -1778,6 +1791,11 @@ const LabEquipmentTracker = () => {
                             {u.role}
                           </span>
                         </td>
+                        <td className="px-3 py-2">
+                          {u.canReceive && (
+                            <span className="px-2 py-1 rounded text-xs bg-green-100 text-green-700">Teslim Al</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2">{u.createdBy || '-'}</td>
                         <td className="px-3 py-2 text-sm text-gray-500">
                           {u.createdAt ? new Date(u.createdAt).toLocaleString('tr-TR') : '-'}
@@ -1785,7 +1803,7 @@ const LabEquipmentTracker = () => {
                         <td className="px-3 py-2 text-right">
                           <button
                             onClick={() => {
-                              setUserCreateForm({ username: u.username, password: '', role: u.role });
+                              setUserCreateForm({ username: u.username, password: '', role: u.role, canReceive: !!u.canReceive });
                               setEditingUserId(u.id);
                             }}
                             className="px-3 py-1 rounded bg-yellow-100 text-yellow-700 text-xs hover:bg-yellow-200"

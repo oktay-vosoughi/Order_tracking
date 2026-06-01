@@ -108,12 +108,14 @@ const ensureUsersTable = async () => {
       username VARCHAR(100) NOT NULL,
       passwordHash VARCHAR(255) NOT NULL,
       role VARCHAR(20) NOT NULL,
+      can_receive TINYINT(1) NOT NULL DEFAULT 0,
       createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       createdBy VARCHAR(100) NULL,
       PRIMARY KEY (id),
       UNIQUE KEY uniq_users_username (username)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
   );
+  await pool.execute('ALTER TABLE users ADD COLUMN can_receive TINYINT(1) NOT NULL DEFAULT 0').catch(() => {});
 };
 
 const authRequired = async (req, res, next) => {
@@ -155,6 +157,13 @@ const canApprove = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL])(req, res, next);
 const canOrder = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
+const canReceiveGoods = (req, res, next) => {
+  const u = req.user;
+  if (u?.role === ROLES.ADMIN || u?.role === ROLES.SATINAL_LOJISTIK || u?.canReceive === true) {
+    return next();
+  }
+  res.status(403).json({ error: 'FORBIDDEN' });
+};
 const canDistribute = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canRequest = (req, res, next) =>
@@ -186,6 +195,7 @@ const sanitizeUser = (u) => ({
   id: u.id,
   username: u.username,
   role: u.role,
+  canReceive: u.can_receive === 1 || u.can_receive === true || u.can_receive === '1',
   createdAt: u.createdAt,
   createdBy: u.createdBy
 });
@@ -251,7 +261,7 @@ app.post('/api/auth/bootstrap', async (req, res) => {
     await run(pool, 'INSERT INTO users (username, passwordHash, role, createdBy) VALUES (?, ?, ?, ?)', [String(username), passwordHash, 'ADMIN', String(username)]);
     const rows = await all(pool, 'SELECT * FROM users WHERE username = ?', [String(username)]);
     const user = rows?.[0];
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
     console.error('Bootstrap error', error);
@@ -260,8 +270,8 @@ app.post('/api/auth/bootstrap', async (req, res) => {
 });
 
 app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
-  const { username, role, password } = req.body || {};
-  if (!username && !role && !password) {
+  const { username, role, password, canReceive } = req.body || {};
+  if (!username && !role && !password && canReceive === undefined) {
     res.status(400).json({ error: 'INVALID_INPUT' });
     return;
   }
@@ -283,6 +293,11 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
     params.push(String(role));
   }
 
+  if (canReceive !== undefined) {
+    updates.push('can_receive = ?');
+    params.push(canReceive ? 1 : 0);
+  }
+
   if (password) {
     if (String(password).length < 8) {
       res.status(400).json({ error: 'WEAK_PASSWORD', message: 'Şifre en az 8 karakter olmalı' });
@@ -297,8 +312,8 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
 
   try {
     await run(pool, `UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
-    const users = await all(pool, 'SELECT id, username, role, createdAt, createdBy FROM users ORDER BY createdAt DESC');
-    res.json({ users });
+    const users = await all(pool, 'SELECT id, username, role, can_receive, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') {
       res.status(409).json({ error: 'USERNAME_EXISTS' });
@@ -336,7 +351,7 @@ app.post('/api/auth/login', async (req, res) => {
       return;
     }
 
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
     console.error('Login error', error);
@@ -395,8 +410,8 @@ app.get('/api/auth/me', authRequired, async (req, res) => {
 
 app.get('/api/users', authRequired, adminRequired, async (_req, res) => {
   try {
-    const users = await all(pool, 'SELECT id, username, role, createdAt, createdBy FROM users ORDER BY createdAt DESC');
-    res.json({ users });
+    const users = await all(pool, 'SELECT id, username, role, can_receive, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     console.error('List users error', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
@@ -417,8 +432,8 @@ app.post('/api/users', authRequired, adminRequired, async (req, res) => {
   try {
     const passwordHash = await bcrypt.hash(String(password), 10);
     await run(pool, 'INSERT INTO users (username, passwordHash, role, createdBy) VALUES (?, ?, ?, ?)', [String(username), passwordHash, String(role), String(req.user.username)]);
-    const users = await all(pool, 'SELECT id, username, role, createdAt, createdBy FROM users ORDER BY createdAt DESC');
-    res.json({ users });
+    const users = await all(pool, 'SELECT id, username, role, can_receive, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') {
       res.status(409).json({ error: 'USERNAME_EXISTS' });
@@ -1225,7 +1240,7 @@ app.get('/api/unified-stock/:itemId/lots', authRequired, async (req, res) => {
 // ============================================================
 
 // Receive goods (PROCUREMENT + ADMIN)
-app.post('/api/receive-goods', authRequired, canOrder, async (req, res) => {
+app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) => {
   const {
     purchaseId,
     receiptId,
