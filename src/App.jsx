@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -41,7 +41,9 @@ const RECEIVE_FORM_DEFAULT = {
   invoiceNo: '',
   receivedBy: '',
   attachmentUrl: '',
-  attachmentName: ''
+  attachmentName: '',
+  price: '',
+  supplierFirmName: ''
 };
 
 const EXPIRY_WARNING_DAYS = 90;
@@ -97,6 +99,16 @@ const LabEquipmentTracker = () => {
   const [showReceiveForm, setShowReceiveForm] = useState(null);
   const [showDistributeForm, setShowDistributeForm] = useState(null);
   const [showOrderForm, setShowOrderForm] = useState(null);
+  const [showApproveModal, setShowApproveModal] = useState(null);
+  const [approveForm, setApproveForm] = useState({ approvalNote: '' });
+  const [priceHistory, setPriceHistory] = useState([]);
+  const [priceFilter, setPriceFilter] = useState({ startDate: '', endDate: '', supplierFirmName: '', itemSearch: '' });
+  const [usageData, setUsageData] = useState({ distributions: [], summary: [] });
+  const [usageFilter, setUsageFilter] = useState({ startDate: '', endDate: '', department: '', itemSearch: '' });
+  const [pricesLoading, setPricesLoading] = useState(false);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [editPriceModal, setEditPriceModal] = useState(null); // { receiptId, itemName, price, supplierFirmName }
+  const [editPriceForm, setEditPriceForm] = useState({ price: '', supplierFirmName: '' });
   const [uploadStats, setUploadStats] = useState(null);
   const [wasteRecords, setWasteRecords] = useState([]);
   const [showWasteForm, setShowWasteForm] = useState(null);
@@ -111,6 +123,8 @@ const LabEquipmentTracker = () => {
   const [expandedMaterialLots, setExpandedMaterialLots] = useState([]);
   const [loadingLots, setLoadingLots] = useState(false);
   const [purchaseStatusFilter, setPurchaseStatusFilter] = useState(null);
+  const [purchaseDateFilter, setPurchaseDateFilter] = useState({ startDate: '', endDate: '' });
+  const [usageViewMode, setUsageViewMode] = useState('detail'); // 'detail' | 'monthly' | 'department'
   const [expandedPurchaseId, setExpandedPurchaseId] = useState(null);
   const [showAllMobileLotsFor, setShowAllMobileLotsFor] = useState(null);
   const [stockDepartmentFilter, setStockDepartmentFilter] = useState('');
@@ -153,12 +167,14 @@ const LabEquipmentTracker = () => {
   const isAdmin = userRole === 'ADMIN';
   const isSatinal = userRole === 'SATINAL';
   const isSatinalLojistik = userRole === 'SATINAL_LOJISTIK';
+  const isKurumsal = userRole === 'KURUMSAL';
   const isObserver = userRole === 'OBSERVER';
   const isLabTechnician = userRole === 'LAB_TECHNICIAN';
   const ROLE_LABELS = {
     ADMIN: 'ADMIN',
     SATINAL: 'SATINAL',
     SATINAL_LOJISTIK: 'SATINAL_LOJISTIK',
+    KURUMSAL: 'KURUMSAL',
     OBSERVER: 'OBSERVER',
     LAB_TECHNICIAN: 'LAB_TECHNICIAN'
   };
@@ -166,12 +182,13 @@ const LabEquipmentTracker = () => {
   // Capability checks based on RBAC matrix
   const canManageUsers = isAdmin;
   const canViewStock = true; // All roles can view stock
-  const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik;
-  const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isLabTechnician;
-  const canApprove = isAdmin || isSatinal;
+  const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
+  const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isLabTechnician;
+  const canApprove = isAdmin || isSatinal || isKurumsal;
   const canOrder = isAdmin || isSatinalLojistik;
   const canReceive = isAdmin || isSatinalLojistik || !!currentUser?.canReceive;
-  const canDistribute = isAdmin || isSatinal || isSatinalLojistik;
+  const canDistribute = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
+  const canViewPrices = isAdmin || isKurumsal || !!currentUser?.canViewPrices;
 
   // Pending CEP DEPO lab-tech requests grouped by itemId.
   // Distinct from regular order-purchase requests: only those flagged as CEP DEPO.
@@ -187,8 +204,9 @@ const LabEquipmentTracker = () => {
     return map;
   })();
   const canImportItems = canModifyInventory;
-  const canViewDagit = true; // All roles can view distributions
-  const canViewTalep = isAdmin || isSatinal || isSatinalLojistik;
+  const canViewAllDagit = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
+  const canViewDagit = true; // Tab visible to all; content filtered per role
+  const canViewTalep = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
   const canViewSiparis = canOrder;
   
   const username = currentUser?.username || '';
@@ -447,7 +465,7 @@ const LabEquipmentTracker = () => {
     try {
       let res;
       if (editingUserId) {
-        res = await updateUser(editingUserId, trimmedUsername, userCreateForm.role, userCreateForm.password || undefined, userCreateForm.canReceive);
+        res = await updateUser(editingUserId, trimmedUsername, userCreateForm.role, userCreateForm.password || undefined, userCreateForm.canReceive, userCreateForm.canViewPrices);
         alert('Kullanıcı güncellendi');
       } else {
         res = await createUser(trimmedUsername, userCreateForm.password, userCreateForm.role);
@@ -654,24 +672,28 @@ const LabEquipmentTracker = () => {
     }
   };
   
-  const approvePurchaseRequest = async (purchaseId) => {
+  const approvePurchaseRequest = (purchase) => {
     if (!canApprove) {
-      alert('Bu işlem için SATINAL/ADMIN yetkisi gereklidir');
+      alert('Bu işlem için SATINAL/ADMIN/SATINAL_YONETICI yetkisi gereklidir');
       return;
     }
-    const purchase = purchases.find(p => p.id === purchaseId);
-    if (!purchase) return;
-    
-    const approvalNote = prompt('Onay notu (opsiyonel):') || '';
-    
-    if (!confirm('Bu talebi onaylıyor musunuz?\n\nTalep No: ' + purchase.requestNumber + '\nMalzeme: ' + purchase.itemName)) {
-      return;
-    }
-    
+    setApproveForm({ approvalNote: '' });
+    setShowApproveModal(purchase);
+  };
+
+  const handleApproveModalSubmit = async () => {
+    if (!showApproveModal) return;
     try {
-      await approvePurchase(purchaseId, approvalNote);
+      await approvePurchase(
+        showApproveModal.id,
+        approveForm.approvalNote,
+        '', '', null, null,
+        true  // autoOrder: jump directly to SIPARIS_VERILDI
+      );
       await loadAllActionData();
-      alert('Talep onaylandı! Onaylayan: ' + username);
+      setShowApproveModal(null);
+      setApproveForm({ approvalNote: '' });
+      alert('Talep onaylandı! Sipariş bekleniyor.');
     } catch (error) {
       console.error('Approval error:', error);
       alert('Onaylama hatası: ' + (error?.message || 'Bilinmeyen hata'));
@@ -789,7 +811,9 @@ const LabEquipmentTracker = () => {
         attachmentName: receiveForm.attachmentName,
         notes: `Teslim alan: ${receiveForm.receivedBy.trim()}`,
         receivedBy: receiveForm.receivedBy.trim(),
-        receivedAt: new Date().toISOString()
+        receivedAt: new Date().toISOString(),
+        price: receiveForm.price ? parseFloat(receiveForm.price) : null,
+        supplierFirmName: receiveForm.supplierFirmName.trim() || (purchase.supplierName || '')
       });
 
       // Update stock (legacy fallback for old items array)
@@ -968,9 +992,20 @@ const LabEquipmentTracker = () => {
     rejected: buyingPurchases.filter(p => p.status === 'REDDEDILDI').length
   };
 
-  const filteredPurchases = purchaseStatusFilter && PURCHASE_STATUS_FILTERS[purchaseStatusFilter]
-    ? buyingPurchases.filter(p => PURCHASE_STATUS_FILTERS[purchaseStatusFilter].statuses.includes(p.status))
-    : buyingPurchases;
+  const filteredPurchases = (() => {
+    let list = purchaseStatusFilter && PURCHASE_STATUS_FILTERS[purchaseStatusFilter]
+      ? buyingPurchases.filter(p => PURCHASE_STATUS_FILTERS[purchaseStatusFilter].statuses.includes(p.status))
+      : buyingPurchases;
+    if (purchaseDateFilter.startDate) {
+      const start = new Date(purchaseDateFilter.startDate);
+      list = list.filter(p => new Date(p.requestedAt) >= start);
+    }
+    if (purchaseDateFilter.endDate) {
+      const end = new Date(purchaseDateFilter.endDate + 'T23:59:59');
+      list = list.filter(p => new Date(p.requestedAt) <= end);
+    }
+    return list;
+  })();
   const readyForOrderCount = getReadyForOrderCount(buyingPurchases);
   const orderReadyPurchases = buyingPurchases.filter(p => p.status === 'ONAYLANDI');
   const displayedPurchases = activeTab === 'orders' ? orderReadyPurchases : filteredPurchases;
@@ -1437,7 +1472,8 @@ const LabEquipmentTracker = () => {
   const tabTitles = {
     stock: 'Stok', requests: 'Talepler', distributions: 'Dağıtım',
     orders: 'Siparişler', waste: 'Atık', total_stock: 'Genel Stok', lot_inventory: 'LOT Stok',
-    cep_depo: 'CEP DEPO', users: 'Kullanıcılar', account: 'Hesabım'
+    cep_depo: 'CEP DEPO', users: 'Kullanıcılar', account: 'Hesabım',
+    prices: 'Fiyatlar & Kullanım'
   };
   const userInitials = username.slice(0, 2).toUpperCase() || '??';
   const pendingCount = purchases.filter(p => p.status === 'TALEP_EDILDI').length;
@@ -1498,6 +1534,11 @@ const LabEquipmentTracker = () => {
         <button className={`nv${activeTab === 'cep_depo' ? ' on' : ''}`} onClick={() => navClick('cep_depo')}>
           <Droplet size={15} /><span>CEP DEPO</span>
         </button>
+        {canViewPrices && (
+          <button className={`nv${activeTab === 'prices' ? ' on' : ''}`} onClick={() => navClick('prices')}>
+            <BarChart2 size={15} /><span>Fiyatlar</span>
+          </button>
+        )}
         {canManageUsers && (
           <button className={`nv${activeTab === 'users' ? ' on' : ''}`} onClick={() => navClick('users')}>
             <User size={15} /><span>Kullanıcılar</span>
@@ -1736,6 +1777,7 @@ const LabEquipmentTracker = () => {
                 >
                   <option value="SATINAL_LOJISTIK">SATINAL_LOJISTIK (Sipariş + Teslim Al + Dağıt)</option>
                   <option value="SATINAL">SATINAL (Talep + Onayla + Dağıt)</option>
+                  <option value="KURUMSAL">KURUMSAL (Onayla + Dağıt + Fiyatlar)</option>
                   <option value="LAB_TECHNICIAN">LAB_TECHNICIAN (CEP DEPO sahibi)</option>
                   <option value="OBSERVER">OBSERVER (Sadece Görüntüleme)</option>
                   <option value="ADMIN">ADMIN (Tüm Yetkiler)</option>
@@ -1751,6 +1793,18 @@ const LabEquipmentTracker = () => {
                   />
                   <span className="text-sm font-medium text-gray-700">Teslim Al Yetkisi ver</span>
                   <span className="text-xs text-gray-500">(bu kullanıcı mal teslim alabilir)</span>
+                </label>
+              )}
+              {!['ADMIN', 'KURUMSAL'].includes(userCreateForm.role) && (
+                <label className="flex items-center gap-2 mb-4 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!!userCreateForm.canViewPrices}
+                    onChange={(e) => setUserCreateForm({ ...userCreateForm, canViewPrices: e.target.checked })}
+                    className="w-4 h-4 accent-blue-600"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Fiyat Görüntüleme Yetkisi</span>
+                  <span className="text-xs text-gray-500">(Fiyatlar &amp; Kullanım sekmesine erişebilir)</span>
                 </label>
               )}
 
@@ -1866,6 +1920,8 @@ const LabEquipmentTracker = () => {
               <input type="text" placeholder="LOT/Parti No *" value={receiveForm.lotNo} onChange={(e) => setReceiveForm({...receiveForm, lotNo: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3 border-orange-300" required />
               <input type="date" placeholder="Son Kullanma" value={receiveForm.expiryDate} onChange={(e) => setReceiveForm({...receiveForm, expiryDate: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <input type="text" placeholder="Fatura No" value={receiveForm.invoiceNo} onChange={(e) => setReceiveForm({...receiveForm, invoiceNo: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
+              <input type="text" placeholder="Tedarikçi Firma Adı" value={receiveForm.supplierFirmName} onChange={(e) => setReceiveForm({...receiveForm, supplierFirmName: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
+              <input type="number" step="0.01" placeholder="Birim Fiyat (₺) — opsiyonel" value={receiveForm.price} onChange={(e) => setReceiveForm({...receiveForm, price: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
@@ -1918,6 +1974,59 @@ const LabEquipmentTracker = () => {
               <div className="flex gap-3">
                 <button onClick={() => markAsOrdered(showOrderForm)} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg">Sipariş Ver</button>
                 <button onClick={() => setShowOrderForm(null)} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showApproveModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl p-6 max-w-md w-full">
+              <h2 className="text-xl font-bold mb-1">Talebi Onayla</h2>
+              <p className="text-sm text-gray-500 mb-3">Onaylandığında talep otomatik olarak sipariş bekleyenler listesine alınır.</p>
+              <p className="text-sm text-gray-700 mb-4 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                <strong>{showApproveModal.itemName}</strong><br/>
+                <span className="text-xs text-gray-500">Talep No: {showApproveModal.requestNumber} · Talep Eden: {showApproveModal.requestedBy} · Miktar: {showApproveModal.requestedQty}</span>
+              </p>
+              <label className="text-xs font-semibold text-gray-600 mb-1 block">Onay Notu (opsiyonel)</label>
+              <input type="text" placeholder="Onay notu..." value={approveForm.approvalNote} onChange={(e) => setApproveForm({...approveForm, approvalNote: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
+              <p className="text-xs text-gray-400 mb-4">Tedarikçi firma adı ve fiyat bilgisi teslim alma adımında girilecektir.</p>
+              <div className="flex gap-3">
+                <button onClick={handleApproveModalSubmit} className="flex-1 bg-green-600 text-white py-2 rounded-lg font-semibold">Onayla</button>
+                <button onClick={() => setShowApproveModal(null)} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {editPriceModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl p-6 max-w-sm w-full">
+              <h2 className="text-lg font-bold mb-1">Fiyat Güncelle</h2>
+              <p className="text-sm text-gray-500 mb-3">{editPriceModal.itemName} — {editPriceModal.requestNumber}</p>
+              <label className="text-xs font-semibold text-gray-600 mb-1 block">Tedarikçi Firma Adı</label>
+              <input type="text" placeholder="Firma adı..." value={editPriceForm.supplierFirmName} onChange={(e) => setEditPriceForm({ ...editPriceForm, supplierFirmName: e.target.value })} className="w-full px-3 py-2 border rounded-lg mb-3 text-sm" />
+              <label className="text-xs font-semibold text-gray-600 mb-1 block">Birim Fiyat (₺)</label>
+              <input type="number" step="0.01" placeholder="0.00" value={editPriceForm.price} onChange={(e) => setEditPriceForm({ ...editPriceForm, price: e.target.value })} className="w-full px-3 py-2 border rounded-lg mb-4 text-sm" />
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    try {
+                      await updateReceiptPrice(editPriceModal.receiptId, {
+                        price: editPriceForm.price ? parseFloat(editPriceForm.price) : null,
+                        supplierFirmName: editPriceForm.supplierFirmName || null
+                      });
+                      setPriceHistory(prev => prev.map(r =>
+                        r.receiptId === editPriceModal.receiptId
+                          ? { ...r, price: editPriceForm.price ? parseFloat(editPriceForm.price) : null, supplierFirmName: editPriceForm.supplierFirmName || r.supplierFirmName }
+                          : r
+                      ));
+                      setEditPriceModal(null);
+                    } catch (e) { alert('Güncelleme hatası: ' + (e?.message || e)); }
+                  }}
+                  className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-semibold"
+                >Kaydet</button>
+                <button onClick={() => setEditPriceModal(null)} className="flex-1 bg-gray-200 py-2 rounded-lg text-sm">İptal</button>
               </div>
             </div>
           </div>
@@ -2000,7 +2109,17 @@ const LabEquipmentTracker = () => {
                 ))}
               </select>
 
-              <input type="text" placeholder="Alan Kişi" value={distributeForm.receivedBy} onChange={(e) => setDistributeForm({...distributeForm, receivedBy: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
+              <input
+                type="text"
+                list="labtech-usernames"
+                placeholder="Alan Kişi (kullanıcı seç veya yaz)"
+                value={distributeForm.receivedBy}
+                onChange={(e) => setDistributeForm({...distributeForm, receivedBy: e.target.value})}
+                className="w-full px-4 py-2 border rounded-lg mb-3"
+              />
+              <datalist id="labtech-usernames">
+                {labTechs.map(t => <option key={t.id} value={t.username}>{t.username}</option>)}
+              </datalist>
               <input type="text" placeholder="Kullanım Amacı" value={distributeForm.purpose} onChange={(e) => setDistributeForm({...distributeForm, purpose: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <div className="flex gap-3">
                 <button onClick={() => distributeItem(showDistributeForm)} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg">Dağıt</button>
@@ -2753,12 +2872,12 @@ const LabEquipmentTracker = () => {
               <h3 className="font-bold text-gray-800">
                 {activeTab === 'orders' ? 'Sipariş Bekleyen Talepler' : 'Satın Alma Talepleri'}
               </h3>
-              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto flex-wrap">
                 {activeTab === 'requests' ? (
                   <select
                     value={purchaseStatusFilter || ''}
                     onChange={(e) => handlePurchaseStatusFilterSelect(e.target.value)}
-                    className="mobile-select sm:min-w-[220px]"
+                    className="mobile-select sm:min-w-[180px]"
                     aria-label="Talep durumu filtresi"
                   >
                     {purchaseStatusFilterOptions.map((option) => (
@@ -2769,6 +2888,30 @@ const LabEquipmentTracker = () => {
                   <span className="status-pill bg-blue-50 text-blue-800 border-blue-200 justify-center">
                     Onaylandı ({readyForOrderCount})
                   </span>
+                )}
+                <div className="flex items-center gap-1">
+                  <label className="text-xs text-gray-500 whitespace-nowrap">Başl:</label>
+                  <input
+                    type="date"
+                    value={purchaseDateFilter.startDate}
+                    onChange={(e) => setPurchaseDateFilter(f => ({ ...f, startDate: e.target.value }))}
+                    className="px-2 py-1.5 border rounded-lg text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-1">
+                  <label className="text-xs text-gray-500 whitespace-nowrap">Bitiş:</label>
+                  <input
+                    type="date"
+                    value={purchaseDateFilter.endDate}
+                    onChange={(e) => setPurchaseDateFilter(f => ({ ...f, endDate: e.target.value }))}
+                    className="px-2 py-1.5 border rounded-lg text-sm"
+                  />
+                </div>
+                {(purchaseDateFilter.startDate || purchaseDateFilter.endDate) && (
+                  <button
+                    onClick={() => setPurchaseDateFilter({ startDate: '', endDate: '' })}
+                    className="px-2 py-1 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                  >Temizle</button>
                 )}
                 <button
                   onClick={() => handleExcelExport(exportPurchases, 'Satin_Alma_Talepleri.xlsx')}
@@ -2830,7 +2973,7 @@ const LabEquipmentTracker = () => {
                             <>
                               {canApprove && (
                                 <>
-                                  <button onClick={() => approvePurchaseRequest(purchase.id)} className="status-action status-action--approve">Onayla</button>
+                                  <button onClick={() => approvePurchaseRequest(purchase)} className="status-action status-action--approve">Onayla</button>
                                   <button onClick={() => rejectPurchaseRequest(purchase.id)} className="status-action status-action--reject">Reddet</button>
                                 </>
                               )}
@@ -2923,7 +3066,7 @@ const LabEquipmentTracker = () => {
                             <>
                               {canApprove && (
                                 <>
-                                  <button onClick={() => approvePurchaseRequest(purchase.id)} className="status-action status-action--approve">Onayla</button>
+                                  <button onClick={() => approvePurchaseRequest(purchase)} className="status-action status-action--approve">Onayla</button>
                                   <button onClick={() => rejectPurchaseRequest(purchase.id)} className="status-action status-action--reject">Reddet</button>
                                 </>
                               )}
@@ -2963,6 +3106,345 @@ const LabEquipmentTracker = () => {
                   </p>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'prices' && canViewPrices && (
+          <div className="space-y-6">
+            {/* PRICE HISTORY SECTION */}
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+              <div className="p-4 border-b bg-gray-50">
+                <h3 className="font-bold text-gray-800 mb-3">Fiyat Geçmişi (Teslim Alınan Kalemler)</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <input
+                    type="text"
+                    placeholder="Malzeme ara..."
+                    value={priceFilter.itemSearch}
+                    onChange={(e) => setPriceFilter({ ...priceFilter, itemSearch: e.target.value })}
+                    className="px-3 py-2 border rounded-lg text-sm"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Tedarikçi firma..."
+                    value={priceFilter.supplierFirmName}
+                    onChange={(e) => setPriceFilter({ ...priceFilter, supplierFirmName: e.target.value })}
+                    className="px-3 py-2 border rounded-lg text-sm"
+                  />
+                  <div className="flex gap-2 items-center">
+                    <label className="text-xs text-gray-500 whitespace-nowrap">Başl:</label>
+                    <input type="date" value={priceFilter.startDate} onChange={(e) => setPriceFilter({ ...priceFilter, startDate: e.target.value })} className="flex-1 px-3 py-2 border rounded-lg text-sm" />
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <label className="text-xs text-gray-500 whitespace-nowrap">Bitiş:</label>
+                    <input type="date" value={priceFilter.endDate} onChange={(e) => setPriceFilter({ ...priceFilter, endDate: e.target.value })} className="flex-1 px-3 py-2 border rounded-lg text-sm" />
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    setPricesLoading(true);
+                    try {
+                      const res = await fetchPriceHistory({
+                        startDate: priceFilter.startDate || undefined,
+                        endDate: priceFilter.endDate || undefined,
+                        supplierFirmName: priceFilter.supplierFirmName || undefined
+                      });
+                      setPriceHistory(res.records || []);
+                    } catch (e) { alert('Veri yüklenemedi: ' + (e?.message || e)); }
+                    finally { setPricesLoading(false); }
+                  }}
+                  className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                >
+                  {pricesLoading ? 'Yükleniyor...' : 'Filtrele'}
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Tarih</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Talep No</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Tedarikçi Firma</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold">Miktar</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold">Birim Fiyat</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold">Toplam</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">LOT No</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Teslim Alan</th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold">Düzenle</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {priceHistory
+                      .filter(r => !priceFilter.itemSearch || (r.itemName || '').toLowerCase().includes(priceFilter.itemSearch.toLowerCase()) || (r.itemCode || '').toLowerCase().includes(priceFilter.itemSearch.toLowerCase()))
+                      .map((r) => {
+                        const total = r.price && r.receivedQty ? (Number(r.price) * Number(r.receivedQty)).toFixed(2) : null;
+                        return (
+                          <tr key={r.receiptId} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 text-xs text-gray-500">{r.receivedAt ? new Date(r.receivedAt).toLocaleDateString('tr-TR') : '-'}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{r.requestNumber}</td>
+                            <td className="px-3 py-2">
+                              <div className="font-medium">{r.itemName}</div>
+                              <div className="text-xs text-gray-400">{r.itemCode}</div>
+                            </td>
+                            <td className="px-3 py-2 text-sm">{r.supplierFirmName || r.orderedSupplierName || <span className="text-gray-400 italic">—</span>}</td>
+                            <td className="px-3 py-2 text-right">{r.receivedQty}</td>
+                            <td className="px-3 py-2 text-right font-medium">{r.price ? `₺${Number(r.price).toFixed(2)}` : <span className="text-gray-400 italic">—</span>}</td>
+                            <td className="px-3 py-2 text-right font-semibold text-green-700">{total ? `₺${total}` : <span className="text-gray-400 italic">—</span>}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{r.lotNo || '-'}</td>
+                            <td className="px-3 py-2 text-xs">{r.receivedBy}</td>
+                            <td className="px-3 py-2 text-center">
+                              <button
+                                onClick={() => { setEditPriceForm({ price: r.price != null ? String(r.price) : '', supplierFirmName: r.supplierFirmName || r.orderedSupplierName || '' }); setEditPriceModal(r); }}
+                                className="px-2 py-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded hover:bg-blue-100"
+                              >Düzenle</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    {priceHistory.length === 0 && (
+                      <tr>
+                        <td colSpan="10" className="px-4 py-10 text-center text-gray-400 italic">
+                          {pricesLoading ? 'Yükleniyor...' : 'Filtrele butonuna basarak kayıtları görüntüleyin.'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  {priceHistory.length > 0 && (() => {
+                    const filtered = priceHistory.filter(r => !priceFilter.itemSearch || (r.itemName || '').toLowerCase().includes(priceFilter.itemSearch.toLowerCase()) || (r.itemCode || '').toLowerCase().includes(priceFilter.itemSearch.toLowerCase()));
+                    const grandTotal = filtered.reduce((sum, r) => sum + (r.price && r.receivedQty ? Number(r.price) * Number(r.receivedQty) : 0), 0);
+                    return grandTotal > 0 ? (
+                      <tfoot className="bg-gray-50 border-t-2">
+                        <tr>
+                          <td colSpan="6" className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Toplam Tutar:</td>
+                          <td className="px-3 py-2 text-right font-bold text-green-700">₺{grandTotal.toFixed(2)}</td>
+                          <td colSpan="2" />
+                        </tr>
+                      </tfoot>
+                    ) : null;
+                  })()}
+                </table>
+              </div>
+            </div>
+
+            {/* USAGE SUMMARY SECTION */}
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+              <div className="p-4 border-b bg-gray-50">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                  <h3 className="font-bold text-gray-800">Kullanım Raporu (Dağıtım Bazlı)</h3>
+                  <div className="flex gap-1 bg-gray-200 rounded-lg p-1">
+                    {[['detail','Detay'],['monthly','Aylık'],['department','Departman']].map(([mode, label]) => (
+                      <button key={mode} onClick={() => setUsageViewMode(mode)}
+                        className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${usageViewMode === mode ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                      >{label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <input
+                    type="text"
+                    placeholder="Malzeme ara..."
+                    value={usageFilter.itemSearch}
+                    onChange={(e) => setUsageFilter({ ...usageFilter, itemSearch: e.target.value })}
+                    className="px-3 py-2 border rounded-lg text-sm"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Departman..."
+                    value={usageFilter.department}
+                    onChange={(e) => setUsageFilter({ ...usageFilter, department: e.target.value })}
+                    className="px-3 py-2 border rounded-lg text-sm"
+                  />
+                  <div className="flex gap-2 items-center">
+                    <label className="text-xs text-gray-500 whitespace-nowrap">Başl:</label>
+                    <input type="date" value={usageFilter.startDate} onChange={(e) => setUsageFilter({ ...usageFilter, startDate: e.target.value })} className="flex-1 px-3 py-2 border rounded-lg text-sm" />
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <label className="text-xs text-gray-500 whitespace-nowrap">Bitiş:</label>
+                    <input type="date" value={usageFilter.endDate} onChange={(e) => setUsageFilter({ ...usageFilter, endDate: e.target.value })} className="flex-1 px-3 py-2 border rounded-lg text-sm" />
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    setUsageLoading(true);
+                    try {
+                      const res = await fetchUsageReport({
+                        startDate: usageFilter.startDate || undefined,
+                        endDate: usageFilter.endDate || undefined,
+                        department: usageFilter.department || undefined
+                      });
+                      setUsageData({ distributions: res.distributions || [], summary: res.summary || [] });
+                    } catch (e) { alert('Veri yüklenemedi: ' + (e?.message || e)); }
+                    finally { setUsageLoading(false); }
+                  }}
+                  className="mt-3 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700"
+                >
+                  {usageLoading ? 'Yükleniyor...' : 'Filtrele'}
+                </button>
+              </div>
+
+              {usageData.summary.length > 0 && (
+                <div className="p-4 border-b grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-purple-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-purple-700">{usageData.distributions.filter(d => !usageFilter.itemSearch || (d.itemName || '').toLowerCase().includes(usageFilter.itemSearch.toLowerCase())).length}</div>
+                    <div className="text-xs text-gray-500 mt-1">Toplam Dağıtım</div>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-blue-700">
+                      {usageData.distributions.filter(d => !usageFilter.itemSearch || (d.itemName || '').toLowerCase().includes(usageFilter.itemSearch.toLowerCase())).reduce((s, d) => s + Number(d.quantity), 0)}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">Toplam Miktar</div>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-green-700">
+                      {new Set(usageData.distributions.filter(d => !usageFilter.itemSearch || (d.itemName || '').toLowerCase().includes(usageFilter.itemSearch.toLowerCase())).map(d => d.itemId)).size}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">Farklı Malzeme</div>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-orange-700">
+                      {new Set(usageData.distributions.filter(d => !usageFilter.itemSearch || (d.itemName || '').toLowerCase().includes(usageFilter.itemSearch.toLowerCase())).map(d => d.department).filter(Boolean)).size}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">Departman</div>
+                  </div>
+                </div>
+              )}
+
+              {(() => {
+                const filtered = usageData.distributions.filter(d =>
+                  !usageFilter.itemSearch || (d.itemName || '').toLowerCase().includes(usageFilter.itemSearch.toLowerCase())
+                );
+
+                if (usageViewMode === 'monthly') {
+                  // Group by YYYY-MM
+                  const byMonth = {};
+                  filtered.forEach(d => {
+                    const key = d.distributedDate ? d.distributedDate.slice(0, 7) : 'Belirsiz';
+                    if (!byMonth[key]) byMonth[key] = { count: 0, qty: 0, items: new Set(), depts: new Set() };
+                    byMonth[key].count++;
+                    byMonth[key].qty += Number(d.quantity || 0);
+                    if (d.itemName) byMonth[key].items.add(d.itemName);
+                    if (d.department) byMonth[key].depts.add(d.department);
+                  });
+                  const months = Object.entries(byMonth).sort((a, b) => b[0].localeCompare(a[0]));
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-xs font-semibold">Ay</th>
+                            <th className="px-3 py-2 text-right text-xs font-semibold">Dağıtım Sayısı</th>
+                            <th className="px-3 py-2 text-right text-xs font-semibold">Toplam Miktar</th>
+                            <th className="px-3 py-2 text-right text-xs font-semibold">Farklı Malzeme</th>
+                            <th className="px-3 py-2 text-right text-xs font-semibold">Departman</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {months.length === 0 ? (
+                            <tr><td colSpan="5" className="px-4 py-10 text-center text-gray-400 italic">{usageLoading ? 'Yükleniyor...' : 'Filtrele butonuna basın.'}</td></tr>
+                          ) : months.map(([month, data]) => (
+                            <tr key={month} className="hover:bg-gray-50">
+                              <td className="px-3 py-2 font-semibold">{month === 'Belirsiz' ? '—' : new Date(month + '-01').toLocaleDateString('tr-TR', { year: 'numeric', month: 'long' })}</td>
+                              <td className="px-3 py-2 text-right">{data.count}</td>
+                              <td className="px-3 py-2 text-right font-bold text-purple-700">{data.qty}</td>
+                              <td className="px-3 py-2 text-right">{data.items.size}</td>
+                              <td className="px-3 py-2 text-right text-xs text-gray-500">{[...data.depts].join(', ') || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        {months.length > 0 && (
+                          <tfoot className="bg-gray-50 border-t-2">
+                            <tr>
+                              <td className="px-3 py-2 text-xs font-semibold text-gray-600">Toplam ({months.length} ay)</td>
+                              <td className="px-3 py-2 text-right font-bold">{filtered.length}</td>
+                              <td className="px-3 py-2 text-right font-bold text-purple-700">{filtered.reduce((s, d) => s + Number(d.quantity || 0), 0)}</td>
+                              <td colSpan="2" />
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
+                    </div>
+                  );
+                }
+
+                if (usageViewMode === 'department') {
+                  const byDept = {};
+                  filtered.forEach(d => {
+                    const key = d.department || 'Departman Yok';
+                    if (!byDept[key]) byDept[key] = { count: 0, qty: 0, items: new Set() };
+                    byDept[key].count++;
+                    byDept[key].qty += Number(d.quantity || 0);
+                    if (d.itemName) byDept[key].items.add(d.itemName);
+                  });
+                  const depts = Object.entries(byDept).sort((a, b) => b[1].qty - a[1].qty);
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-xs font-semibold">Departman</th>
+                            <th className="px-3 py-2 text-right text-xs font-semibold">Dağıtım</th>
+                            <th className="px-3 py-2 text-right text-xs font-semibold">Toplam Miktar</th>
+                            <th className="px-3 py-2 text-right text-xs font-semibold">Farklı Malzeme</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {depts.length === 0 ? (
+                            <tr><td colSpan="4" className="px-4 py-10 text-center text-gray-400 italic">{usageLoading ? 'Yükleniyor...' : 'Filtrele butonuna basın.'}</td></tr>
+                          ) : depts.map(([dept, data]) => (
+                            <tr key={dept} className="hover:bg-gray-50">
+                              <td className="px-3 py-2 font-medium">{dept}</td>
+                              <td className="px-3 py-2 text-right">{data.count}</td>
+                              <td className="px-3 py-2 text-right font-bold text-blue-700">{data.qty}</td>
+                              <td className="px-3 py-2 text-right text-xs text-gray-500">{data.items.size}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                }
+
+                // Detail view (default)
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-semibold">Tarih</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold">Miktar</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold">Departman</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold">Alan Kişi</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold">Amaç</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {filtered.map((d) => (
+                          <tr key={d.id} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 text-xs text-gray-500">{d.distributedDate ? new Date(d.distributedDate).toLocaleDateString('tr-TR') : '-'}</td>
+                            <td className="px-3 py-2">
+                              <div className="font-medium">{d.itemName}</div>
+                              <div className="text-xs text-gray-400">{d.itemCode}</div>
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold">{d.quantity}</td>
+                            <td className="px-3 py-2 text-xs">{d.department || '—'}</td>
+                            <td className="px-3 py-2 text-xs">{d.receivedBy || d.distributedBy || '—'}</td>
+                            <td className="px-3 py-2 text-xs text-gray-500 truncate max-w-[160px]">{d.purpose || '—'}</td>
+                          </tr>
+                        ))}
+                        {filtered.length === 0 && (
+                          <tr>
+                            <td colSpan="6" className="px-4 py-10 text-center text-gray-400 italic">
+                              {usageLoading ? 'Yükleniyor...' : 'Tarih aralığı seçip Filtrele butonuna basın.'}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -3042,8 +3524,8 @@ const LabEquipmentTracker = () => {
 
         {activeTab === 'distributions' && (
           <div className="space-y-6">
-            {/* Lab technician weekly distribution requests */}
-            {(() => {
+            {/* Lab technician weekly distribution requests — privileged only */}
+            {canViewAllDagit && (() => {
               const cepRequests = Object.values(pendingCepRequestsByItem).flat();
               return (
                 <div className="bg-white rounded-xl shadow-lg overflow-hidden">
@@ -3129,25 +3611,34 @@ const LabEquipmentTracker = () => {
               );
             })()}
 
-            {/* Completed distribution records */}
+            {/* Distribution records — all for privileged, personal-only for others */}
             <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-              <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
-                <h3 className="font-bold text-gray-800">Dağıtım Kayıtları</h3>
-                <button
-                  onClick={() => handleExcelExport(exportDistributions, 'Dagitim_Kayitlari.xlsx')}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                >
-                  <Download size={18} />
-                  Excel'e Aktar
-                </button>
+              <div className="p-4 border-b bg-gray-50 flex justify-between items-center flex-wrap gap-2">
+                <div>
+                  <h3 className="font-bold text-gray-800">
+                    {canViewAllDagit ? 'Dağıtım Kayıtları' : 'Dağıtımlarım'}
+                  </h3>
+                  {!canViewAllDagit && (
+                    <p className="text-xs text-gray-500 mt-0.5">Yalnızca size yapılan dağıtımlar görüntüleniyor</p>
+                  )}
+                </div>
+                {canViewAllDagit && (
+                  <button
+                    onClick={() => handleExcelExport(exportDistributions, 'Dagitim_Kayitlari.xlsx')}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                  >
+                    <Download size={18} />
+                    Excel'e Aktar
+                  </button>
+                )}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold">Miktar</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold">Veren</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold">Miktar</th>
+                      {canViewAllDagit && <th className="px-3 py-2 text-left text-xs font-semibold">Veren</th>}
                       <th className="px-3 py-2 text-left text-xs font-semibold">Alan</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Amaç</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Tarih</th>
@@ -3155,29 +3646,32 @@ const LabEquipmentTracker = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {distributions.map((dist) => (
-                      <tr key={dist.id} className="hover:bg-gray-50">
-                        <td className="px-3 py-2">{dist.itemName}</td>
-                        <td className="px-3 py-2">{dist.quantity}</td>
-                        <td className="px-3 py-2">{dist.distributedBy}</td>
-                        <td className="px-3 py-2">{dist.receivedBy}</td>
-                        <td className="px-3 py-2">{dist.purpose}</td>
-                        <td className="px-3 py-2">{new Date(dist.distributedDate).toLocaleDateString('tr-TR')}</td>
-                        <td className="px-3 py-2">
-                          {dist.completedDate ? (
-                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">Tamamlandı</span>
-                          ) : (
-                            <button onClick={() => markDistributionComplete(dist.id)} className="px-2 py-1 bg-orange-600 text-white rounded text-xs">Tamamla</button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {(canViewAllDagit ? distributions : distributions.filter(d => d.receivedBy === username))
+                      .map((dist) => (
+                        <tr key={dist.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2">{dist.itemName}</td>
+                          <td className="px-3 py-2 text-right">{dist.quantity}</td>
+                          {canViewAllDagit && <td className="px-3 py-2 text-xs">{dist.distributedBy}</td>}
+                          <td className="px-3 py-2">{dist.receivedBy}</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">{dist.purpose}</td>
+                          <td className="px-3 py-2 text-xs">{dist.distributedDate ? new Date(dist.distributedDate).toLocaleDateString('tr-TR') : '-'}</td>
+                          <td className="px-3 py-2">
+                            {dist.completedDate ? (
+                              <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">Tamamlandı</span>
+                            ) : canViewAllDagit ? (
+                              <button onClick={() => markDistributionComplete(dist.id)} className="px-2 py-1 bg-orange-600 text-white rounded text-xs">Tamamla</button>
+                            ) : (
+                              <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs">Bekliyor</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
-                {distributions.length === 0 && (
+                {(canViewAllDagit ? distributions : distributions.filter(d => d.receivedBy === username)).length === 0 && (
                   <div className="text-center py-12 text-gray-500">
                     <FileCheck size={48} className="mx-auto mb-4 opacity-50" />
-                    <p>Henüz dağıtım kaydı yok</p>
+                    <p>{canViewAllDagit ? 'Henüz dağıtım kaydı yok' : 'Size yapılmış dağıtım kaydı yok'}</p>
                   </div>
                 )}
               </div>

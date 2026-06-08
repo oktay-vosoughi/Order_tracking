@@ -91,12 +91,13 @@ export async function createUser(username, password, role) {
   });
 }
 
-export async function updateUser(id, username, role, password, canReceive) {
+export async function updateUser(id, username, role, password, canReceive, canViewPrices) {
   const payload = {};
   if (username) payload.username = username;
   if (role) payload.role = role;
   if (password) payload.password = password;
   if (canReceive !== undefined) payload.canReceive = canReceive;
+  if (canViewPrices !== undefined) payload.canViewPrices = canViewPrices;
 
   return apiFetch(`/users/${id}`, {
     method: 'PATCH',
@@ -259,11 +260,18 @@ export async function createPurchaseRequest(data) {
   });
 }
 
-export async function approvePurchase(purchaseId, approvalNote = '') {
+export async function approvePurchase(purchaseId, approvalNote = '', supplierName = '', poNumber = '', orderedQty = null, unitPrice = null, autoOrder = false) {
   return apiFetch(`/purchases/${purchaseId}/approve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ approvalNote })
+    body: JSON.stringify({
+      approvalNote,
+      autoOrder: autoOrder || undefined,
+      supplierName: supplierName || undefined,
+      poNumber: poNumber || undefined,
+      orderedQty: orderedQty || undefined,
+      unitPrice: unitPrice || undefined
+    })
   });
 }
 
@@ -299,6 +307,34 @@ export async function deleteItemDefinition(id) {
   return apiFetch(`/item-definitions/${id}`, {
     method: 'DELETE'
   });
+}
+
+export async function updateReceiptPrice(receiptId, { price, supplierFirmName }) {
+  return apiFetch(`/receipts/${receiptId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ price, supplierFirmName })
+  });
+}
+
+export async function fetchPriceHistory({ itemId, startDate, endDate, supplierFirmName } = {}) {
+  const qs = new URLSearchParams();
+  if (itemId) qs.set('itemId', itemId);
+  if (startDate) qs.set('startDate', startDate);
+  if (endDate) qs.set('endDate', endDate);
+  if (supplierFirmName) qs.set('supplierFirmName', supplierFirmName);
+  const s = qs.toString();
+  return apiFetch(`/price-history${s ? `?${s}` : ''}`);
+}
+
+export async function fetchUsageReport({ itemId, startDate, endDate, department } = {}) {
+  const qs = new URLSearchParams();
+  if (itemId) qs.set('itemId', itemId);
+  if (startDate) qs.set('startDate', startDate);
+  if (endDate) qs.set('endDate', endDate);
+  if (department) qs.set('department', department);
+  const s = qs.toString();
+  return apiFetch(`/usage-summary${s ? `?${s}` : ''}`);
 }
 
 // ============================================================

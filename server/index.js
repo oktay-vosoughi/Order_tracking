@@ -22,6 +22,7 @@ const ROLES = {
   ADMIN: 'ADMIN',
   SATINAL: 'SATINAL',
   SATINAL_LOJISTIK: 'SATINAL_LOJISTIK',
+  KURUMSAL: 'KURUMSAL',
   OBSERVER: 'OBSERVER',
   LAB_TECHNICIAN: 'LAB_TECHNICIAN'
 };
@@ -30,6 +31,7 @@ const ALL_ROLES = [
   ROLES.ADMIN,
   ROLES.SATINAL,
   ROLES.SATINAL_LOJISTIK,
+  ROLES.KURUMSAL,
   ROLES.OBSERVER,
   ROLES.LAB_TECHNICIAN
 ];
@@ -109,6 +111,7 @@ const ensureUsersTable = async () => {
       passwordHash VARCHAR(255) NOT NULL,
       role VARCHAR(20) NOT NULL,
       can_receive TINYINT(1) NOT NULL DEFAULT 0,
+      can_view_prices TINYINT(1) NOT NULL DEFAULT 0,
       createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       createdBy VARCHAR(100) NULL,
       PRIMARY KEY (id),
@@ -116,6 +119,7 @@ const ensureUsersTable = async () => {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
   );
   await pool.execute('ALTER TABLE users ADD COLUMN can_receive TINYINT(1) NOT NULL DEFAULT 0').catch(() => {});
+  await pool.execute('ALTER TABLE users ADD COLUMN can_view_prices TINYINT(1) NOT NULL DEFAULT 0').catch(() => {});
 };
 
 const authRequired = async (req, res, next) => {
@@ -154,7 +158,7 @@ const requireRole = (allowedRoles) => (req, res, next) => {
 
 // Capability checks (aligned with updated SATINAL roles)
 const canApprove = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.KURUMSAL])(req, res, next);
 const canOrder = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canReceiveGoods = (req, res, next) => {
@@ -165,20 +169,25 @@ const canReceiveGoods = (req, res, next) => {
   res.status(403).json({ error: 'FORBIDDEN' });
 };
 const canDistribute = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
 const canRequest = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
 const canReject = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
 
 const canManageItems = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
+const canViewPrices = (req, res, next) => {
+  const u = req.user;
+  if (u?.role === ROLES.ADMIN || u?.role === ROLES.KURUMSAL || u?.canViewPrices === true) return next();
+  res.status(403).json({ error: 'FORBIDDEN' });
+};
 
 // CEP DEPO capability helpers
 const canDistributeToCepDepo = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
 const canOverrideRequestBlock = (role) =>
-  role === ROLES.ADMIN || role === ROLES.SATINAL;
+  role === ROLES.ADMIN || role === ROLES.SATINAL || role === ROLES.KURUMSAL;
 const isLabTechnicianRole = (role) => role === ROLES.LAB_TECHNICIAN;
 
 const countUsers = async () => {
@@ -196,6 +205,7 @@ const sanitizeUser = (u) => ({
   username: u.username,
   role: u.role,
   canReceive: u.can_receive === 1 || u.can_receive === true || u.can_receive === '1',
+  canViewPrices: u.can_view_prices === 1 || u.can_view_prices === true || u.can_view_prices === '1',
   createdAt: u.createdAt,
   createdBy: u.createdBy
 });
@@ -261,7 +271,7 @@ app.post('/api/auth/bootstrap', async (req, res) => {
     await run(pool, 'INSERT INTO users (username, passwordHash, role, createdBy) VALUES (?, ?, ?, ?)', [String(username), passwordHash, 'ADMIN', String(username)]);
     const rows = await all(pool, 'SELECT * FROM users WHERE username = ?', [String(username)]);
     const user = rows?.[0];
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true, canViewPrices: user.can_view_prices === 1 || user.can_view_prices === true }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
     console.error('Bootstrap error', error);
@@ -270,8 +280,8 @@ app.post('/api/auth/bootstrap', async (req, res) => {
 });
 
 app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
-  const { username, role, password, canReceive } = req.body || {};
-  if (!username && !role && !password && canReceive === undefined) {
+  const { username, role, password, canReceive, canViewPrices } = req.body || {};
+  if (!username && !role && !password && canReceive === undefined && canViewPrices === undefined) {
     res.status(400).json({ error: 'INVALID_INPUT' });
     return;
   }
@@ -298,6 +308,11 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
     params.push(canReceive ? 1 : 0);
   }
 
+  if (canViewPrices !== undefined) {
+    updates.push('can_view_prices = ?');
+    params.push(canViewPrices ? 1 : 0);
+  }
+
   if (password) {
     if (String(password).length < 8) {
       res.status(400).json({ error: 'WEAK_PASSWORD', message: 'Şifre en az 8 karakter olmalı' });
@@ -312,7 +327,7 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
 
   try {
     await run(pool, `UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
-    const users = await all(pool, 'SELECT id, username, role, can_receive, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    const users = await all(pool, 'SELECT id, username, role, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') {
@@ -351,7 +366,7 @@ app.post('/api/auth/login', async (req, res) => {
       return;
     }
 
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true, canViewPrices: user.can_view_prices === 1 || user.can_view_prices === true }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
     console.error('Login error', error);
@@ -410,7 +425,7 @@ app.get('/api/auth/me', authRequired, async (req, res) => {
 
 app.get('/api/users', authRequired, adminRequired, async (_req, res) => {
   try {
-    const users = await all(pool, 'SELECT id, username, role, can_receive, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    const users = await all(pool, 'SELECT id, username, role, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     console.error('List users error', error);
@@ -432,7 +447,7 @@ app.post('/api/users', authRequired, adminRequired, async (req, res) => {
   try {
     const passwordHash = await bcrypt.hash(String(password), 10);
     await run(pool, 'INSERT INTO users (username, passwordHash, role, createdBy) VALUES (?, ?, ?, ?)', [String(username), passwordHash, String(role), String(req.user.username)]);
-    const users = await all(pool, 'SELECT id, username, role, can_receive, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    const users = await all(pool, 'SELECT id, username, role, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') {
@@ -1253,7 +1268,9 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
     attachmentName,
     notes,
     receivedBy,
-    receivedAt
+    receivedAt,
+    price,
+    supplierFirmName
   } = req.body || {};
   
   if (!purchaseId || !itemId || !lotNumber || !quantity || quantity <= 0) {
@@ -1305,8 +1322,8 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
 
       // Insert or update receipt record
       await run(conn, `
-        INSERT INTO receipts (receiptId, purchaseId, receivedAt, receivedBy, receivedQty, lotNo, expiryDate, invoiceNo, attachmentUrl, attachmentName)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO receipts (receiptId, purchaseId, receivedAt, receivedBy, receivedQty, lotNo, expiryDate, invoiceNo, attachmentUrl, attachmentName, price, supplierFirmName)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           receivedAt = VALUES(receivedAt),
           receivedBy = VALUES(receivedBy),
@@ -1315,7 +1332,9 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
           expiryDate = VALUES(expiryDate),
           invoiceNo = VALUES(invoiceNo),
           attachmentUrl = VALUES(attachmentUrl),
-          attachmentName = VALUES(attachmentName)
+          attachmentName = VALUES(attachmentName),
+          price = VALUES(price),
+          supplierFirmName = VALUES(supplierFirmName)
       `, [
         normalizedReceiptId,
         purchaseId,
@@ -1326,7 +1345,9 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
         expiryDate || null,
         invoiceNo || '',
         attachmentUrl || '',
-        attachmentName || ''
+        attachmentName || '',
+        price ? Number(price) : null,
+        supplierFirmName || null
       ]);
 
       await run(conn, 'UPDATE receipts SET lotId = ? WHERE receiptId = ?', [lotId, normalizedReceiptId]);
@@ -1741,20 +1762,56 @@ app.get('/api/purchases', authRequired, async (req, res) => {
   }
 });
 
-// Approve purchase request (LAB_MANAGER + ADMIN)
+// Approve purchase request (LAB_MANAGER + ADMIN + SATINAL_YONETICI)
+// When supplierName + orderedQty are provided, jumps directly to SIPARIS_VERILDI
 app.post('/api/purchases/:id/approve', authRequired, canApprove, async (req, res) => {
-  const { approvalNote } = req.body || {};
+  const { approvalNote, autoOrder, supplierName, poNumber, orderedQty, unitPrice } = req.body || {};
   
   try {
-    await run(pool, `
-      UPDATE purchases SET 
-        status = 'ONAYLANDI',
-        approvedBy = ?,
-        approvedAt = NOW(),
-        approvedDate = CURDATE(),
-        approvalNote = ?
-      WHERE id = ?
-    `, [req.user.username, approvalNote || '', req.params.id]);
+    if (autoOrder) {
+      // Approve + auto-order in one step → SIPARIS_VERILDI (no supplier info required here)
+      await run(pool, `
+        UPDATE purchases SET 
+          status = 'SIPARIS_VERILDI',
+          approvedBy = ?,
+          approvedAt = NOW(),
+          approvedDate = CURDATE(),
+          approvalNote = ?,
+          orderedBy = ?,
+          orderedAt = NOW(),
+          orderedDate = CURDATE()
+        WHERE id = ?
+      `, [req.user.username, approvalNote || '', req.user.username, req.params.id]);
+    } else if (supplierName && orderedQty && Number(orderedQty) > 0) {
+      // Legacy: approve + order with full supplier info (backward compat)
+      await run(pool, `
+        UPDATE purchases SET 
+          status = 'SIPARIS_VERILDI',
+          approvedBy = ?,
+          approvedAt = NOW(),
+          approvedDate = CURDATE(),
+          approvalNote = ?,
+          orderedBy = ?,
+          orderedAt = NOW(),
+          orderedDate = CURDATE(),
+          supplierName = ?,
+          poNumber = ?,
+          orderedQty = ?,
+          unitPrice = ?
+        WHERE id = ?
+      `, [req.user.username, approvalNote || '', req.user.username, supplierName, poNumber || '', Number(orderedQty), unitPrice ? Number(unitPrice) : null, req.params.id]);
+    } else {
+      // Standard approval only → ONAYLANDI (backward compat for CEP DEPO etc.)
+      await run(pool, `
+        UPDATE purchases SET 
+          status = 'ONAYLANDI',
+          approvedBy = ?,
+          approvedAt = NOW(),
+          approvedDate = CURDATE(),
+          approvalNote = ?
+        WHERE id = ?
+      `, [req.user.username, approvalNote || '', req.params.id]);
+    }
     
     const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]);
     if (!purchases.length) return res.status(404).json({ error: 'NOT_FOUND' });
@@ -3184,6 +3241,129 @@ app.get('/api/lab-technicians', authRequired, async (_req, res) => {
   }
 });
 
+// ============================================================
+// RECEIPT PRICE EDIT (SATINAL_YONETICI + ADMIN)
+// ============================================================
+
+app.patch('/api/receipts/:receiptId', authRequired, canViewPrices, async (req, res) => {
+  const { price, supplierFirmName } = req.body || {};
+  try {
+    await run(pool,
+      'UPDATE receipts SET price = ?, supplierFirmName = ? WHERE receiptId = ?',
+      [price != null ? Number(price) : null, supplierFirmName || null, req.params.receiptId]
+    );
+    const rows = await all(pool, 'SELECT * FROM receipts WHERE receiptId = ?', [req.params.receiptId]);
+    if (!rows.length) return res.status(404).json({ error: 'NOT_FOUND' });
+    res.json({ receipt: rows[0] });
+  } catch (error) {
+    console.error('Failed to update receipt price', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// ============================================================
+// PRICE HISTORY (SATINAL_YONETICI + ADMIN)
+// ============================================================
+
+app.get('/api/price-history', authRequired, canViewPrices, async (req, res) => {
+  const { itemId, startDate, endDate, supplierFirmName } = req.query;
+
+  let sql = `
+    SELECT
+      r.receiptId,
+      r.receivedAt,
+      r.receivedBy,
+      r.receivedQty,
+      r.lotNo,
+      r.expiryDate,
+      r.invoiceNo,
+      r.price,
+      r.supplierFirmName,
+      p.id AS purchaseId,
+      p.requestNumber,
+      p.itemId,
+      p.itemName,
+      p.itemCode,
+      p.department,
+      p.requestedBy,
+      p.supplierName AS orderedSupplierName,
+      p.poNumber,
+      p.orderedQty,
+      p.unitPrice AS orderedUnitPrice,
+      p.status AS purchaseStatus,
+      p.requestedAt
+    FROM receipts r
+    JOIN purchases p ON r.purchaseId = p.id
+    WHERE 1=1
+  `;
+  const params = [];
+
+  if (itemId) { sql += ' AND p.itemId = ?'; params.push(itemId); }
+  if (startDate) { sql += ' AND r.receivedAt >= ?'; params.push(startDate); }
+  if (endDate) { sql += ' AND r.receivedAt <= ?'; params.push(endDate + ' 23:59:59'); }
+  if (supplierFirmName) { sql += ' AND r.supplierFirmName LIKE ?'; params.push('%' + supplierFirmName + '%'); }
+
+  sql += ' ORDER BY r.receivedAt DESC';
+
+  try {
+    const records = await all(pool, sql, params);
+    res.json({ records });
+  } catch (error) {
+    console.error('Failed to fetch price history', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// ============================================================
+// USAGE SUMMARY — distribution-based, filterable by date range
+// ============================================================
+
+app.get('/api/usage-summary', authRequired, async (req, res) => {
+  const { itemId, startDate, endDate, department } = req.query;
+
+  let sql = `
+    SELECT
+      d.id,
+      d.itemId,
+      d.itemCode,
+      d.itemName,
+      d.department,
+      d.quantity,
+      d.receivedBy,
+      d.purpose,
+      d.distributedDate,
+      d.distributedBy,
+      d.status
+    FROM distributions d
+    WHERE d.status = 'COMPLETED'
+  `;
+  const params = [];
+
+  if (itemId) { sql += ' AND d.itemId = ?'; params.push(itemId); }
+  if (startDate) { sql += ' AND d.distributedDate >= ?'; params.push(startDate); }
+  if (endDate) { sql += ' AND d.distributedDate <= ?'; params.push(endDate + ' 23:59:59'); }
+  if (department) { sql += ' AND d.department = ?'; params.push(department); }
+
+  sql += ' ORDER BY d.distributedDate DESC';
+
+  try {
+    const distributions = await all(pool, sql, params);
+
+    const byItem = {};
+    for (const row of distributions) {
+      if (!byItem[row.itemId]) {
+        byItem[row.itemId] = { itemId: row.itemId, itemCode: row.itemCode, itemName: row.itemName, totalQty: 0 };
+      }
+      byItem[row.itemId].totalQty += Number(row.quantity);
+    }
+
+    res.json({ distributions, summary: Object.values(byItem) });
+  } catch (error) {
+    console.error('Failed to fetch usage summary', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
 // Serve frontend build in production
 const distPath = path.join(__dirname, '..', 'dist');
 app.use(express.static(distPath));
@@ -3201,6 +3381,10 @@ const startServer = async () => {
     try {
       await pool.query("UPDATE item_definitions SET status = 'ACTIVE' WHERE status IS NULL");
     } catch (_) { /* ignore if table doesn't exist yet */ }
+    // Price tracking columns (idempotent)
+    await pool.execute('ALTER TABLE receipts ADD COLUMN price DECIMAL(12,4) NULL').catch(() => {});
+    await pool.execute('ALTER TABLE receipts ADD COLUMN supplierFirmName VARCHAR(255) NULL').catch(() => {});
+    await pool.execute('ALTER TABLE purchases ADD COLUMN unitPrice DECIMAL(12,4) NULL').catch(() => {});
     // CEP DEPO tables / columns
     try {
       await ensureCepDepoTables();
