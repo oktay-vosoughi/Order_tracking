@@ -1007,7 +1007,7 @@ const LabEquipmentTracker = () => {
     return list;
   })();
   const readyForOrderCount = getReadyForOrderCount(buyingPurchases);
-  const orderReadyPurchases = buyingPurchases.filter(p => p.status === 'ONAYLANDI');
+  const orderReadyPurchases = buyingPurchases.filter(p => ['ONAYLANDI', 'SIPARIS_VERILDI', 'KISMI_TESLIM', 'KISMEN_GELDI'].includes(p.status));
   const displayedPurchases = activeTab === 'orders' ? orderReadyPurchases : filteredPurchases;
 
   const statusCardDisplay = ['pending', 'approved', 'ordered', 'completed', 'rejected'].map((key) => ({
@@ -1954,26 +1954,6 @@ const LabEquipmentTracker = () => {
               <div className="flex gap-3">
                 <button onClick={() => addReceipt(showReceiveForm)} className="flex-1 bg-green-600 text-white py-2 rounded-lg">Teslim Al</button>
                 <button onClick={() => setShowReceiveForm(null)} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {showOrderForm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl p-6 max-w-md w-full">
-              <h2 className="text-xl font-bold mb-4">Sipariş Ver</h2>
-              <p className="text-sm text-gray-600 mb-4">
-                <strong>{showOrderForm.itemName}</strong><br/>
-                Talep No: {showOrderForm.requestNumber}<br/>
-                Talep Miktarı: {showOrderForm.requestedQty}
-              </p>
-              <input type="text" placeholder="Tedarikçi Adı *" value={orderForm.supplierName} onChange={(e) => setOrderForm({...orderForm, supplierName: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
-              <input type="text" placeholder="PO Numarası" value={orderForm.poNumber} onChange={(e) => setOrderForm({...orderForm, poNumber: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
-              <input type="number" placeholder="Sipariş Miktarı" value={orderForm.orderedQty || showOrderForm.requestedQty} onChange={(e) => setOrderForm({...orderForm, orderedQty: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
-              <div className="flex gap-3">
-                <button onClick={() => markAsOrdered(showOrderForm)} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg">Sipariş Ver</button>
-                <button onClick={() => setShowOrderForm(null)} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
               </div>
             </div>
           </div>
@@ -2983,17 +2963,17 @@ const LabEquipmentTracker = () => {
                             </>
                           )}
                           {purchase.status === 'ONAYLANDI' && canOrder && (
-                            <>
-                              <button onClick={() => { setOrderForm({...orderForm, orderedQty: purchase.requestedQty, supplierName: purchase.supplierName || ''}); setShowOrderForm(purchase); }} className="status-action status-action--order">Sipariş Ver</button>
-                              <button onClick={() => markOrderRejected(purchase)} className="status-action status-action--muted">Sipariş Edilmedi</button>
-                            </>
+                            <button
+                              onClick={async () => { try { await approvePurchase(purchase.id, purchase.approvalNote || '', undefined, undefined, undefined, undefined, true); await loadAllActionData(); } catch(e) { alert('Hata: ' + (e?.message || e)); } }}
+                              className="status-action status-action--order"
+                            >Siparişe Al →</button>
                           )}
                           {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
                             <button onClick={() => setShowReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
                           )}
                           {purchase.status === 'REDDEDILDI' && (
                             <div className="text-xs text-red-600 font-medium">
-                              Sipariş Edilmedi
+                              Reddedildi
                               {purchase.rejectionReason && (
                                 <div className="text-gray-600 font-normal">Neden: {purchase.rejectionReason}</div>
                               )}
@@ -3076,17 +3056,17 @@ const LabEquipmentTracker = () => {
                             </>
                           )}
                           {purchase.status === 'ONAYLANDI' && canOrder && (
-                            <>
-                              <button onClick={() => { setOrderForm({...orderForm, orderedQty: purchase.requestedQty, supplierName: purchase.supplierName || ''}); setShowOrderForm(purchase); }} className="status-action status-action--order">Sipariş Ver</button>
-                              <button onClick={() => markOrderRejected(purchase)} className="status-action status-action--muted">Sipariş Edilmedi</button>
-                            </>
+                            <button
+                              onClick={async () => { try { await approvePurchase(purchase.id, purchase.approvalNote || '', undefined, undefined, undefined, undefined, true); await loadAllActionData(); } catch(e) { alert('Hata: ' + (e?.message || e)); } }}
+                              className="status-action status-action--order"
+                            >Siparişe Al →</button>
                           )}
                           {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
                             <button onClick={() => setShowReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
                           )}
                           {purchase.status === 'REDDEDILDI' && (
                             <div className="text-xs text-red-600 font-medium">
-                              Sipariş Edilmedi
+                              Reddedildi
                               {purchase.rejectionReason && (
                                 <div className="text-gray-600 font-normal">Neden: {purchase.rejectionReason}</div>
                               )}
