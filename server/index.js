@@ -3385,6 +3385,15 @@ const startServer = async () => {
     await pool.execute('ALTER TABLE receipts ADD COLUMN price DECIMAL(12,4) NULL').catch(() => {});
     await pool.execute('ALTER TABLE receipts ADD COLUMN supplierFirmName VARCHAR(255) NULL').catch(() => {});
     await pool.execute('ALTER TABLE purchases ADD COLUMN unitPrice DECIMAL(12,4) NULL').catch(() => {});
+    // One-time migration: ONAYLANDI → SIPARIS_VERILDI (order step removed)
+    try {
+      const [migResult] = await pool.query(
+        "UPDATE purchases SET status = 'SIPARIS_VERILDI', orderedBy = approvedBy, orderedAt = approvedAt, orderedDate = approvedDate WHERE status = 'ONAYLANDI'"
+      );
+      if (migResult.affectedRows > 0) {
+        console.log(`[migration] Converted ${migResult.affectedRows} ONAYLANDI → SIPARIS_VERILDI`);
+      }
+    } catch (e) { console.error('[migration] ONAYLANDI→SIPARIS_VERILDI failed:', e?.message); }
     // CEP DEPO tables / columns
     try {
       await ensureCepDepoTables();
