@@ -15,11 +15,11 @@ You have existing items in stock, and each item may have different LOT numbers. 
 ```
 | Malzeme Kodu | Malzeme Adı | Departman | Birim | Min Stok | Mevcut Stok | Lot No | Son Kullanma | Marka | Tedarikçi |
 |--------------|-------------|-----------|-------|----------|-------------|--------|--------------|-------|-----------|
-| PCR-001      | PCR Master Mix | Molecular | kutu  | 5        | 10          | LOT-2024-001 | 2025-12-31 | Thermo | Thermo Fisher |
-| PCR-001      | PCR Master Mix | Molecular | kutu  | 5        | 15          | LOT-2024-002 | 2026-03-15 | Thermo | Thermo Fisher |
-| PCR-001      | PCR Master Mix | Molecular | kutu  | 5        | 8           | LOT-2024-003 | 2025-06-30 | Thermo | Thermo Fisher |
-| DNA-001      | DNA Extraction Kit | Molecular | kit   | 3        | 20          | DNA-LOT-001 | 2025-08-20 | Qiagen | Qiagen |
-| DNA-001      | DNA Extraction Kit | Molecular | kit   | 3        | 12          | DNA-LOT-002 | 2025-11-15 | Qiagen | Qiagen |
+| PCR-001      | PCR Master Mix | Molecular Micro | kutu  | 5        | 10          | LOT-2024-001 | 2025-12-31 | Thermo | Thermo Fisher |
+| PCR-001      | PCR Master Mix | Molecular Micro | kutu  | 5        | 15          | LOT-2024-002 | 2026-03-15 | Thermo | Thermo Fisher |
+| PCR-001      | PCR Master Mix | Molecular Micro | kutu  | 5        | 8           | LOT-2024-003 | 2025-06-30 | Thermo | Thermo Fisher |
+| DNA-001      | DNA Extraction Kit | Molecular Genetic | kit   | 3        | 20          | DNA-LOT-001 | 2025-08-20 | Qiagen | Qiagen |
+| DNA-001      | DNA Extraction Kit | Molecular Genetic | kit   | 3        | 12          | DNA-LOT-002 | 2025-11-15 | Qiagen | Qiagen |
 ```
 
 **Result after import:**
@@ -46,11 +46,11 @@ You have existing items in stock, and each item may have different LOT numbers. 
 ```excel
 Malzeme Kodu | Malzeme Adı          | Departman | Birim | Min Stok | Mevcut Stok | Lot No       | Son Kullanma | Konum    | Buzdolabı/Dolap
 -------------|----------------------|-----------|-------|----------|-------------|--------------|--------------|----------|----------------
-PCR-001      | PCR Master Mix       | Molecular | kutu  | 5        | 10          | LOT-2024-001 | 2025-12-31   | Ana Depo | Raf 1
-PCR-001      | PCR Master Mix       | Molecular | kutu  | 5        | 15          | LOT-2024-002 | 2026-03-15   | Ana Depo | Raf 2
-PCR-001      | PCR Master Mix       | Molecular | kutu  | 5        | 8           | LOT-2024-003 | 2025-06-30   | Ana Depo | Freezer
-DNA-001      | DNA Extraction Kit   | Molecular | kit   | 3        | 20          | DNA-LOT-001  | 2025-08-20   | Ana Depo | Dolap A
-DNA-001      | DNA Extraction Kit   | Molecular | kit   | 3        | 12          | DNA-LOT-002  | 2025-11-15   | Ana Depo | Dolap B
+PCR-001      | PCR Master Mix       | Molecular Micro | kutu  | 5        | 10          | LOT-2024-001 | 2025-12-31   | Ana Depo | Raf 1
+PCR-001      | PCR Master Mix       | Molecular Micro | kutu  | 5        | 15          | LOT-2024-002 | 2026-03-15   | Ana Depo | Raf 2
+PCR-001      | PCR Master Mix       | Molecular Micro | kutu  | 5        | 8           | LOT-2024-003 | 2025-06-30   | Ana Depo | Freezer
+DNA-001      | DNA Extraction Kit   | Molecular Genetic | kit   | 3        | 20          | DNA-LOT-001  | 2025-08-20   | Ana Depo | Dolap A
+DNA-001      | DNA Extraction Kit   | Molecular Genetic | kit   | 3        | 12          | DNA-LOT-002  | 2025-11-15   | Ana Depo | Dolap B
 ```
 
 ---
@@ -144,7 +144,7 @@ System creates: `INITIAL-PCR-001-[timestamp]`
 Malzeme Kodu          ← REQUIRED
 Malzeme Adı           ← REQUIRED
 Kategori              ← Optional (Reagent, Kit, Lab Cam, etc.)
-Departman             ← Optional (Molecular, Genel, etc.)
+Departman             ← Optional (Molecular Micro, Molecular Genetic, Genel, etc.)
 Birim                 ← Optional (kutu, adet, ml, etc.)
 Min Stok              ← Optional (minimum stock level)
 Mevcut Stok           ← Required for LOT creation
@@ -170,11 +170,11 @@ MSDS/SDS              ← Optional (MSDS URL)
 ```excel
 Malzeme Kodu | Malzeme Adı | Kategori | Departman | Birim | Min Stok | Mevcut Stok | Lot No | Son Kullanma | Marka | Tedarikçi | Konum | Buzdolabı/Dolap
 -------------|-------------|----------|-----------|-------|----------|-------------|--------|--------------|-------|-----------|-------|----------------
-PCR-001      | PCR Master Mix | Reagent | Molecular | kutu | 5 | 10 | LOT-2024-001 | 2025-12-31 | Thermo | Thermo Fisher | Ana Depo | Dolap A-3
-PCR-001      | PCR Master Mix | Reagent | Molecular | kutu | 5 | 15 | LOT-2024-002 | 2026-03-15 | Thermo | Thermo Fisher | Ana Depo | Dolap A-3
-PCR-001      | PCR Master Mix | Reagent | Molecular | kutu | 5 | 8  | LOT-2024-003 | 2025-06-30 | Thermo | Thermo Fisher | Ana Depo | Freezer B
-DNA-001      | DNA Extraction Kit | Kit | Molecular | kit | 3 | 20 | DNA-LOT-001 | 2025-08-20 | Qiagen | Qiagen | Ana Depo | Dolap B-2
-DNA-001      | DNA Extraction Kit | Kit | Molecular | kit | 3 | 12 | DNA-LOT-002 | 2025-11-15 | Qiagen | Qiagen | Ana Depo | Dolap B-2
+PCR-001      | PCR Master Mix | Reagent | Molecular Micro | kutu | 5 | 10 | LOT-2024-001 | 2025-12-31 | Thermo | Thermo Fisher | Ana Depo | Dolap A-3
+PCR-001      | PCR Master Mix | Reagent | Molecular Micro | kutu | 5 | 15 | LOT-2024-002 | 2026-03-15 | Thermo | Thermo Fisher | Ana Depo | Dolap A-3
+PCR-001      | PCR Master Mix | Reagent | Molecular Micro | kutu | 5 | 8  | LOT-2024-003 | 2025-06-30 | Thermo | Thermo Fisher | Ana Depo | Freezer B
+DNA-001      | DNA Extraction Kit | Kit | Molecular Genetic | kit | 3 | 20 | DNA-LOT-001 | 2025-08-20 | Qiagen | Qiagen | Ana Depo | Dolap B-2
+DNA-001      | DNA Extraction Kit | Kit | Molecular Genetic | kit | 3 | 12 | DNA-LOT-002 | 2025-11-15 | Qiagen | Qiagen | Ana Depo | Dolap B-2
 PIP-001      | Pipet 10ml | Lab Cam | Genel | adet | 50 | 100 | PIP-2024-001 | 2026-12-31 | BrandX | SupplierY | Ana Depo | Raf C-1
 ```
 
@@ -193,7 +193,7 @@ Before importing:
 - [ ] Each LOT has unique LOT number
 - [ ] Expiry dates in YYYY-MM-DD format
 - [ ] Min Stok set for each item
-- [ ] Department names match system (Molecular, Genel, etc.)
+- [ ] Department names match system (Molecular Micro, Molecular Genetic, Genel, etc.)
 - [ ] File saved as .xlsx or .xls
 
 After importing:

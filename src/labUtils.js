@@ -1,3 +1,7 @@
+import { DEPARTMENTS } from './labDepartments.mjs';
+
+export { DEPARTMENTS };
+
 // Laboratory-specific utility functions
 
 // Chemical compatibility rules based on laboratory safety standards
@@ -27,14 +31,6 @@ export const WASTE_TYPES = {
   CONTAMINATED: 'Kontamine',
   DAMAGED: 'Hasarlı',
   RECALLED: 'Geri Çağrılmış'
-};
-
-// Departments
-export const DEPARTMENTS = {
-  CYTOGENETIC: 'Cytogenetic',
-  MOLECULAR: 'Molecular',
-  NUMUNE_KABUL: 'Numune Kabul',
-  OTHER: 'Diğer'
 };
 
 // Chemical compatibility matrix - incompatible pairs

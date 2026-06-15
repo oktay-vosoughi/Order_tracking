@@ -140,7 +140,7 @@ FOR UPDATE
   - OXIDIZER × REACTIVE
   - ACID × REACTIVE
 - **Expiry tiers** (`getExpiryStatus`): `EXPIRED` (`days<0`), `EXPIRES_TODAY` (0), `CRITICAL` (≤7), `WARNING` (≤30), `ATTENTION` (≤90), `GOOD` (>90).
-- **Departments** (`DEPARTMENTS`): `Cytogenetic`, `Molecular`, `Numune Kabul`, `Diğer`.
+- **Departments** (`DEPARTMENTS`): `Cytogenetic`, `Molecular Micro`, `Molecular Genetic`, `Numune Kabul`, `Diğer`.
 - **Storage temperatures** (`STORAGE_TEMPS`): RT, Fridge +2/+8, Freezer -20, Ultra -80, Dark.
 - **Low-stock rule**: `availableStock < minStock` → status `SATIN_AL`.
 - **Near-expiry rule**: nearest `expiryDate` within 30 days → status `SKT_YAKIN`.

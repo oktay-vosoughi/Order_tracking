@@ -146,7 +146,7 @@ const LotInventory = ({ currentUser }) => {
         'Malzeme Kodu': 'PCR-001',
         'Malzeme Adı': 'PCR Master Mix',
         'Kategori': 'Reagent',
-        'Departman': 'Molecular',
+        'Departman': 'Molecular Micro',
         'Birim': 'kutu',
         'Min Stok': 5,
         'Mevcut Stok': 10,
@@ -161,14 +161,13 @@ const LotInventory = ({ currentUser }) => {
         'Depolama Sıcaklığı': '-20C',
         'Kimyasal Tipi': '',
         'MSDS': '',
-        'Atık Durumu': '',
-        'Tedarikçi': 'Thermo Fisher'
+        'Atık Durumu': ''
       },
       {
         'Malzeme Kodu': 'PCR-001',
         'Malzeme Adı': 'PCR Master Mix',
         'Kategori': 'Reagent',
-        'Departman': 'Molecular',
+        'Departman': 'Molecular Micro',
         'Birim': 'kutu',
         'Min Stok': 5,
         'Mevcut Stok': 15,
@@ -183,20 +182,19 @@ const LotInventory = ({ currentUser }) => {
         'Depolama Sıcaklığı': '-20C',
         'Kimyasal Tipi': '',
         'MSDS': '',
-        'Atık Durumu': '',
-        'Tedarikçi': 'Thermo Fisher'
+        'Atık Durumu': ''
       },
       {
         'Malzeme Kodu': '360002',
         'Malzeme Adı': 'Rezervuar Tek Kullanımlık (10µl paket)',
         'Kategori': 'Sarf_Plastik',
-        'Departman': 'Moleküler Genetik',
+        'Departman': 'Molecular Genetic',
         'Birim': 'Kutu',
         'Min Stok': 5,
         'Mevcut Stok': 2,
         'Depo': '',
         'Buzdolabı/Dolap': '',
-        'Tedarikçi': 'Isolab',
+        'Tedarikçi': 'Techslab Medikal',
         'Katalog No': '',
         'Lot No': '1019246B01',
         'Marka': 'Techslab Medikal',
@@ -205,8 +203,7 @@ const LotInventory = ({ currentUser }) => {
         'Depolama Sıcaklığı': '',
         'Kimyasal Tipi': '',
         'MSDS': '',
-        'Atık Durumu': '',
-        'Tedarikçi': 'Techslab Medikal'
+        'Atık Durumu': ''
       }
     ];
     

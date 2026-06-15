@@ -2725,6 +2725,7 @@ const ensureCepDepoTables = async () => {
     packQty DECIMAL(12,2) NOT NULL DEFAULT 0,
     unitQty DECIMAL(14,2) NOT NULL DEFAULT 0,
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    consumptionUnitType VARCHAR(20) NULL,
     lastDistributedAt DATETIME NULL,
     lastDistributionId VARCHAR(64) NULL,
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -2809,6 +2810,7 @@ const ensureCepDepoTables = async () => {
   try {
     await ensureColumn('cep_depo_balances', 'lastDistributedAt', '`lastDistributedAt` DATETIME NULL');
     await ensureColumn('cep_depo_balances', 'lastDistributionId', '`lastDistributionId` VARCHAR(64) NULL');
+    await ensureColumn('cep_depo_balances', 'consumptionUnitType', '`consumptionUnitType` VARCHAR(20) NULL');
   } catch (e) { console.warn('[ensureCepDepo] cep_depo_balances upgrade skipped:', e?.code || e?.message); }
 };
 

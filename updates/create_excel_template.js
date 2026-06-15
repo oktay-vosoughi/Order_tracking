@@ -8,7 +8,7 @@ const createTemplate = () => {
       'Malzeme Kodu': 'PCR-001',
       'Malzeme Adı': 'PCR Master Mix',
       'Kategori': 'Reagent',
-      'Departman': 'Molecular',
+      'Departman': 'Molecular Micro',
       'Birim': 'kutu',
       'Min Stok': 5,
       'Marka': 'Thermo Fisher',
@@ -23,7 +23,7 @@ const createTemplate = () => {
       'Malzeme Kodu': 'DNA-001',
       'Malzeme Adı': 'DNA Extraction Kit',
       'Kategori': 'Kit',
-      'Departman': 'Molecular',
+      'Departman': 'Molecular Genetic',
       'Birim': 'kit',
       'Min Stok': 3,
       'Marka': 'Qiagen',
@@ -56,7 +56,7 @@ const createTemplate = () => {
     {
       'Malzeme Kodu': 'PCR-001',
       'Malzeme Adı': 'PCR Master Mix',
-      'Departman': 'Molecular',
+      'Departman': 'Molecular Micro',
       'Birim': 'kutu',
       'Min Stok': 5,
       'Mevcut Stok': 10,
@@ -68,7 +68,7 @@ const createTemplate = () => {
     {
       'Malzeme Kodu': 'DNA-001',
       'Malzeme Adı': 'DNA Extraction Kit',
-      'Departman': 'Molecular',
+      'Departman': 'Molecular Genetic',
       'Birim': 'kit',
       'Min Stok': 3,
       'Mevcut Stok': 5,
@@ -96,7 +96,7 @@ const createTemplate = () => {
     {
       'Malzeme Kodu': 'PCR-001',
       'Malzeme Adı': 'PCR Master Mix',
-      'Departman': 'Molecular',
+      'Departman': 'Molecular Micro',
       'Birim': 'kutu',
       'Min Stok': 5,
       'Mevcut Stok': 10,
@@ -106,7 +106,7 @@ const createTemplate = () => {
     {
       'Malzeme Kodu': 'PCR-001',
       'Malzeme Adı': 'PCR Master Mix',
-      'Departman': 'Molecular',
+      'Departman': 'Molecular Micro',
       'Birim': 'kutu',
       'Min Stok': 5,
       'Mevcut Stok': 15,
@@ -116,7 +116,7 @@ const createTemplate = () => {
     {
       'Malzeme Kodu': 'PCR-001',
       'Malzeme Adı': 'PCR Master Mix',
-      'Departman': 'Molecular',
+      'Departman': 'Molecular Micro',
       'Birim': 'kutu',
       'Min Stok': 5,
       'Mevcut Stok': 8,

@@ -12,7 +12,7 @@
 | Column Name | Turkish | Example | Notes |
 |-------------|----------|---------|-------|
 | Kategori | Kategori | Reagent | Item category |
-| Departman | Departman | Molecular | Department (from DEPARTMENTS list) |
+| Departman | Departman | Molecular Micro | Department (from DEPARTMENTS list) |
 | Birim | Birim | kutu | Unit (adet, ml, gr, etc.) |
 | Min Stok | Min Stok | 5 | Minimum stock level |
 | Mevcut Stok | Mevcut Stok | 10 | Current stock quantity |
@@ -34,8 +34,8 @@
 ```
 | Malzeme Kodu | Malzeme Adı | Kategori | Departman | Birim | Min Stok |
 |--------------|-------------|----------|-----------|-------|----------|
-| PCR-001      | PCR Master Mix | Reagent | Molecular | kutu  | 5        |
-| DNA-001      | DNA Extraction Kit | Kit | Molecular | kit   | 3        |
+| PCR-001      | PCR Master Mix | Reagent | Molecular Micro | kutu  | 5        |
+| DNA-001      | DNA Extraction Kit | Kit | Molecular Genetic | kit   | 3        |
 | PIP-001      | Pipet 10ml | Lab Cam | Genel    | adet  | 50       |
 ```
 
@@ -43,8 +43,8 @@
 ```
 | Malzeme Kodu | Malzeme Adı | Departman | Birim | Min Stok | Mevcut Stok | Lot No | Son Kullanma |
 |--------------|-------------|-----------|-------|----------|-------------|--------|--------------|
-| PCR-001      | PCR Master Mix | Molecular | kutu  | 5        | 10          | LOT123 | 2025-12-31   |
-| DNA-001      | DNA Extraction Kit | Molecular | kit   | 3        | 5           | DNA456 | 2025-06-30   |
+| PCR-001      | PCR Master Mix | Molecular Micro | kutu  | 5        | 10          | LOT123 | 2025-12-31   |
+| DNA-001      | DNA Extraction Kit | Molecular Genetic | kit   | 3        | 5           | DNA456 | 2025-06-30   |
 | PIP-001      | Pipet 10ml | Genel    | adet  | 50       | 100         | PIP789 | 2026-12-31   |
 ```
 
@@ -52,8 +52,8 @@
 ```
 | Malzeme Kodu | Malzeme Adı | Kategori | Departman | Birim | Min Stok | Mevcut Stok | Lot No | Son Kullanma | Marka | Tedarikçi | Katalog No | Konum | Buzdolabı/Dolap | Saklama Sıcaklığı |
 |--------------|-------------|----------|-----------|-------|----------|-------------|--------|--------------|-------|-----------|------------|-------|------------------|------------------|
-| PCR-001      | PCR Master Mix | Reagent | Molecular | kutu  | 5        | 10          | LOT123 | 2025-12-31   | Thermo | Thermo Fisher | AB-12345 | Ana Depo | Dolap A-3 | -20°C |
-| DNA-001      | DNA Extraction Kit | Kit | Molecular | kit   | 3        | 5           | DNA456 | 2025-06-30   | Qiagen | Qiagen | QIA-001 | Ana Depo | Dolap B-2 | 4°C |
+| PCR-001      | PCR Master Mix | Reagent | Molecular Micro | kutu  | 5        | 10          | LOT123 | 2025-12-31   | Thermo | Thermo Fisher | AB-12345 | Ana Depo | Dolap A-3 | -20°C |
+| DNA-001      | DNA Extraction Kit | Kit | Molecular Genetic | kit   | 3        | 5           | DNA456 | 2025-06-30   | Qiagen | Qiagen | QIA-001 | Ana Depo | Dolap B-2 | 4°C |
 ```
 
 ---
@@ -132,7 +132,8 @@ You can import the same item multiple times:
 
 ### Department Values
 Use exact values from the system:
-- Molecular
+- Molecular Micro
+- Molecular Genetic
 - Mikrobiyoloji
 - Histoloji
 - Genel
@@ -230,8 +231,8 @@ Download the template from the system or create one like this:
 
 ```
 Malzeme Kodu	Malzeme Adı	Kategori	Departman	Birim	Min Stok	Mevcut Stok	Lot No	Son Kullanma	Marka	Tedarikçi
-PCR-001	PCR Master Mix	Reagent	Molecular	kutu	5	10	LOT-001	2025-12-31	Thermo	Thermo Fisher
-DNA-001	DNA Extraction Kit	Kit	Molecular	kit	3	5	DNA-001	2025-06-30	Qiagen	Qiagen
+PCR-001	PCR Master Mix	Reagent	Molecular Micro	kutu	5	10	LOT-001	2025-12-31	Thermo	Thermo Fisher
+DNA-001	DNA Extraction Kit	Kit	Molecular Genetic	kit	3	5	DNA-001	2025-06-30	Qiagen	Qiagen
 PIP-001	Pipet 10ml	Lab Cam	Genel	adet	50	100		PIP-001	2026-12-31	BrandX	SupplierY
 ```
 

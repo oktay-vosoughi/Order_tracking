@@ -10,7 +10,7 @@ Aşağıdaki sütunları içermelidir:
 | code | ✅ Evet | Malzeme kodu (benzersiz) | PCR-001 |
 | name | ✅ Evet | Malzeme adı | PCR Master Mix |
 | category | ❌ Hayır | Kategori | Reagent |
-| department | ❌ Hayır | Departman | Molecular |
+| department | ❌ Hayır | Departman | Molecular Micro |
 | unit | ❌ Hayır | Birim | kutu |
 | minStock | ❌ Hayır | Minimum stok | 5 |
 | supplier | ❌ Hayır | Tedarikçi | Thermo Fisher |
@@ -34,7 +34,7 @@ Aşağıdaki sütunları içermelidir:
 | catalogNo | ❌ Hayır | Katalog no | AB-12345 |
 | expiryDate | ❌ Hayır | Son kullanma tarihi (YYYY-MM-DD) | 2025-12-31 |
 | receivedDate | ❌ Hayır | Alım tarihi (YYYY-MM-DD) | 2024-01-15 |
-| department | ❌ Hayır | Departman | Molecular |
+| department | ❌ Hayır | Departman | Molecular Micro |
 | location | ❌ Hayır | Konum | Raf B-2 |
 | storageLocation | ❌ Hayır | Depolama yeri | Dolap A-3 |
 | invoiceNo | ❌ Hayır | Fatura no | INV-2024-001 |
@@ -45,17 +45,17 @@ Aşağıdaki sütunları içermelidir:
 ### Items Sayfası:
 ```
 code        | name              | category | department | unit  | minStock | supplier       | brand
-PCR-001     | PCR Master Mix    | Reagent  | Molecular  | kutu  | 5        | Thermo Fisher  | Applied Bio
-DNA-002     | DNA Extraction Kit| Kit      | Molecular  | adet  | 3        | Qiagen         | Qiagen
+PCR-001     | PCR Master Mix    | Reagent  | Molecular Micro | kutu  | 5        | Thermo Fisher  | Applied Bio
+DNA-002     | DNA Extraction Kit| Kit      | Molecular Genetic | adet  | 3        | Qiagen         | Qiagen
 BUFFER-003  | Tris Buffer       | Chemical | Cytogenetic| litre | 10       | Sigma          | Sigma-Aldrich
 ```
 
 ### Lots Sayfası:
 ```
 itemCode   | lotNumber      | initialQuantity | manufacturer  | expiryDate  | receivedDate | department
-PCR-001    | LOT-2024-001   | 10             | Thermo Fisher | 2025-12-31  | 2024-01-15   | Molecular
-PCR-001    | LOT-2024-002   | 15             | Thermo Fisher | 2026-01-15  | 2024-02-01   | Molecular
-DNA-002    | LOT-2024-003   | 5              | Qiagen        | 2025-06-30  | 2024-01-20   | Molecular
+PCR-001    | LOT-2024-001   | 10             | Thermo Fisher | 2025-12-31  | 2024-01-15   | Molecular Micro
+PCR-001    | LOT-2024-002   | 15             | Thermo Fisher | 2026-01-15  | 2024-02-01   | Molecular Micro
+DNA-002    | LOT-2024-003   | 5              | Qiagen        | 2025-06-30  | 2024-01-20   | Molecular Genetic
 BUFFER-003 | LOT-2024-004   | 20             | Sigma         | 2026-12-31  | 2024-01-10   | Cytogenetic
 ```
 
@@ -97,7 +97,7 @@ Sistem otomatik olarak:
 2. **Malzeme Kodu Eşleşmesi**: Lots sayfasındaki `itemCode` mutlaka Items sayfasındaki `code` ile eşleşmeli
 3. **Benzersiz LOT**: Her LOT numarası benzersiz olmalı
 4. **Sayısal Değerler**: Miktar alanları sayı olmalı (metin değil)
-5. **Departman Değerleri**: Geçerli departmanlar: Cytogenetic, Molecular, Numune Kabul, Kalite Kontrol, Depo
+5. **Departman Değerleri**: Geçerli departmanlar: Cytogenetic, Molecular Micro, Molecular Genetic, Numune Kabul, Diğer
 
 ## 🎯 İpuçları
 
