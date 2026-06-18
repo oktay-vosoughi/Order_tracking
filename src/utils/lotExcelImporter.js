@@ -7,6 +7,32 @@ import * as XLSX from 'xlsx';
  * Accepts both the Turkish display names (used in the downloadable template)
  * and the English camelCase keys directly (for programmatic uploads).
  */
+const DATE_FIELDS = new Set(['expiryDate', 'receivedDate']);
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
+/**
+ * Converts an Excel cell value to a timezone-safe 'YYYY-MM-DD' string.
+ *
+ * Excel stores dates as serial numbers. Reading them with cellDates:true
+ * produces a JS Date built in the local timezone, which shifts the calendar
+ * day across the UTC boundary (e.g. Aug 1 -> Jul 31 in UTC+3). We instead
+ * parse the raw serial with XLSX.SSF.parse_date_code, which returns the exact
+ * calendar components with no timezone involved.
+ */
+function toSafeDate(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'number') {
+    const dc = XLSX.SSF.parse_date_code(value);
+    if (dc && dc.y) return `${dc.y}-${pad2(dc.m)}-${pad2(dc.d)}`;
+    return '';
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
+  }
+  return String(value).trim();
+}
+
 const COLUMN_MAP = {
   // Core item fields
   'Malzeme Kodu':      'code',
@@ -81,20 +107,20 @@ const COLUMN_MAP = {
  */
 export async function buildLotImportPayload(file) {
   const buffer = await file.arrayBuffer();
-  const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: false });
 
   const allRows = [];
 
   for (const sheetName of wb.SheetNames) {
     const ws = wb.Sheets[sheetName];
-    const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
 
     for (const rawRow of raw) {
       const row = {};
       for (const [excelKey, value] of Object.entries(rawRow)) {
         const mappedKey = COLUMN_MAP[excelKey.trim()];
         if (mappedKey) {
-          row[mappedKey] = value;
+          row[mappedKey] = DATE_FIELDS.has(mappedKey) ? toSafeDate(value) : value;
         }
       }
       // Skip completely empty rows

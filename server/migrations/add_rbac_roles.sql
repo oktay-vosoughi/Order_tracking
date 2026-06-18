@@ -13,9 +13,9 @@ UPDATE users SET role = 'PROCUREMENT' WHERE role = 'APPROVER';
 -- Step 2: Create initial users if they don't exist
 -- Note: Password hashes are bcrypt(10) of the specified passwords
 
--- Oktay (ADMIN) - password: 250022
+-- Oktay (ADMIN) - password: 20011380
 INSERT INTO users (username, passwordHash, role, createdBy)
-SELECT 'Oktay', '$2b$10$VxJ5x1k8W6MuvXrbE6LbcuWwg2BcXFHnhbXUGo4qKr11vn0MMQNvS', 'ADMIN', 'system'
+SELECT 'Oktay', '$2a$10$XTXPoT./lggDTNYlbvVFZe6aLb8MT7AdE9wc2XPBfkc9TOPSqUJx2', 'ADMIN', 'system'
 WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = 'Oktay');
 
 -- Nilgun (LAB_MANAGER) - password: 0000
