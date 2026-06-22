@@ -2255,6 +2255,7 @@ const LabEquipmentTracker = () => {
                 const pendingOrderQty = Number(item.pendingOrderQty ?? 0);
                 const minStock = item.minStock || 0;
                 const isLowStock = totalStock < minStock;
+                const cepDepoTotal = Number(item.cepDepoTotal ?? 0);
                 const showAllLots = showAllMobileLotsFor === item.id;
                 const lotPreviewLimit = showAllLots ? expandedMaterialLots.length : 3;
                 const lotPreview = getLotPreview(expandedMaterialLots, lotPreviewLimit);
@@ -2291,6 +2292,12 @@ const LabEquipmentTracker = () => {
                         <div className="mobile-metric-label">Stok</div>
                         <div className={isLowStock ? 'mobile-metric-value text-red-600' : 'mobile-metric-value text-green-600'}>
                           {totalStock} / {minStock} {item.unit}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mobile-metric-label">CEP DEPO (Tüm)</div>
+                        <div className={cepDepoTotal > 0 ? 'mobile-metric-value text-indigo-700' : 'mobile-metric-value text-gray-400'}>
+                          {cepDepoTotal.toFixed(2)} {item.unit}
                         </div>
                       </div>
                       <div>
@@ -2443,6 +2450,7 @@ const LabEquipmentTracker = () => {
                     <th className="px-3 py-2 text-left text-xs font-semibold">Kod</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">Stok</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold">CEP DEPO (Tüm Kullanıcılar)</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">SKT</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">Durum</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">İşlem</th>
@@ -2457,6 +2465,7 @@ const LabEquipmentTracker = () => {
                     const pendingOrderQty = Number(item.pendingOrderQty ?? 0);
                     const minStock = item.minStock || 0;
                     const isLowStock = totalStock < minStock;
+                    const cepDepoTotal = Number(item.cepDepoTotal ?? 0);
                     
                     return (
                       <React.Fragment key={item.id}>
@@ -2496,6 +2505,12 @@ const LabEquipmentTracker = () => {
                                 <span className="text-gray-600">Tahmini: {Math.floor(totalStock + pendingOrderQty)}</span>
                               </div>
                             )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={cepDepoTotal > 0 ? 'text-indigo-700 font-semibold' : 'text-gray-400'}>
+                              {cepDepoTotal.toFixed(2)}
+                            </span>{' '}
+                            <span className="text-xs text-gray-500">{item.unit}</span>
                           </td>
                           <td className="px-3 py-2">
                             <ExpiryBadge expiryDate={item.nearestExpiry} />
@@ -2595,7 +2610,7 @@ const LabEquipmentTracker = () => {
                       
                       {isExpanded && (
                         <tr>
-                          <td colSpan="6" className="bg-gray-50 px-4 py-3">
+                          <td colSpan="7" className="bg-gray-50 px-4 py-3">
                             <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-2">
                               <Package size={14} />
                               LOT Detayları - {item.name}

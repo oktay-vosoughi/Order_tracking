@@ -178,6 +178,46 @@ input, select, textarea { font-family: inherit; }
 .tbar-btn-primary:hover { background: var(--nl); border-color: var(--nl); }
 @keyframes tbar-pulse { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
 
+/* ── Mobile topbar: wrap into clean rows with comfortable touch targets ── */
+@media (max-width: 768px) {
+  .tbar {
+    height: auto;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    row-gap: 10px;
+  }
+  .ttl { font-size: 16px; flex: 1 1 auto; }
+  .srch {
+    order: 3;
+    flex: 1 1 100%;
+    max-width: none;
+    min-height: 42px;
+    border-radius: 10px;
+    padding: 8px 12px;
+  }
+  .srch input { font-size: 15px; }
+  .tact {
+    order: 4;
+    flex: 1 1 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  /* Status & department selects are duplicated in the filter panel below */
+  .tact .tbar-select { display: none; }
+  .tact .tbar-pill,
+  .tact .tbar-btn,
+  .tact .tbar-warn {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 42px;
+    font-size: 13px;
+    padding: 9px 12px;
+    border-radius: 10px;
+  }
+  .tact .tbar-btn-primary { flex-basis: 100%; }
+}
+
 /* ── Login ── */
 .login-bg {
   min-height: 100vh;

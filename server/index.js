@@ -1205,6 +1205,12 @@ app.get('/api/unified-stock', authRequired, async (_req, res) => {
              AND p.orderedQty > COALESCE(p.receivedQtyTotal, 0)
           ), 0
         ) AS pendingOrderQty,
+        COALESCE(
+          (SELECT SUM(b.packQty)
+           FROM cep_depo_balances b
+           WHERE b.itemId = id.id AND b.status = 'ACTIVE'
+          ), 0
+        ) AS cepDepoTotal,
         CASE 
           WHEN COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) = 0 THEN 'STOK_YOK'
           WHEN COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) < id.minStock THEN 'SATIN_AL'
