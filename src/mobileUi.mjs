@@ -1,6 +1,6 @@
 export const PURCHASE_STATUS_FILTERS = {
   pending: {
-    label: 'Bekleyen',
+    label: 'EBYS bekleme',
     statuses: ['TALEP_EDILDI'],
     accent: 'text-yellow-600'
   },
@@ -28,7 +28,7 @@ export const PURCHASE_STATUS_FILTERS = {
 
 const PURCHASE_STATUS_BADGES = {
   TALEP_EDILDI: {
-    label: 'Bekliyor',
+    label: 'EBYS bekleme',
     className: 'bg-amber-50 text-amber-800 border-amber-200'
   },
   ONAYLANDI: {
