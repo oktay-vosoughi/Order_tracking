@@ -10,6 +10,12 @@ export const getStockDisplayTarget = (item) => {
   return toNumber(item?.minStock, 0);
 };
 
+export const isBelowStockTarget = (item) => {
+  const totalStock = toNumber(item?.totalStock ?? item?.currentStock, 0);
+  const target = getStockDisplayTarget(item);
+  return target > 0 && totalStock < target;
+};
+
 export const getCepDepoDisplay = (item) => {
   const hasSubUnit = Boolean(
     item?.consumptionUnit &&

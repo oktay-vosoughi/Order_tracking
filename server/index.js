@@ -1249,6 +1249,8 @@ app.get('/api/reports/stock-summary', authRequired, async (_req, res) => {
         id.unitsPerPackage,
         id.consumptionUnitType,
         id.minStock,
+        id.ideal_stock,
+        id.max_stock,
         COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) AS totalStock,
         COUNT(DISTINCT CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 THEN l.id END) AS activeLotCount,
         MIN(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 THEN l.expiryDate END) AS nearestExpiry
@@ -1294,9 +1296,9 @@ app.get('/api/reports/low-stock', authRequired, async (_req, res) => {
         COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) AS totalStock
       FROM item_definitions id
       LEFT JOIN lots l ON id.id = l.itemId
-      GROUP BY id.id, id.minStock
-      HAVING totalStock < id.minStock
-      ORDER BY (totalStock / NULLIF(id.minStock, 0)) ASC
+      GROUP BY id.id, id.minStock, id.ideal_stock
+      HAVING totalStock < COALESCE(id.ideal_stock, id.minStock)
+      ORDER BY (totalStock / NULLIF(COALESCE(id.ideal_stock, id.minStock), 0)) ASC
     `);
     res.json({ items });
   } catch (error) {
@@ -1385,7 +1387,7 @@ app.get('/api/unified-stock', authRequired, async (_req, res) => {
         ) AS cepDepoUnitTotal,
         CASE 
           WHEN COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) = 0 THEN 'STOK_YOK'
-          WHEN COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) < id.minStock THEN 'SATIN_AL'
+          WHEN COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) < COALESCE(id.ideal_stock, id.minStock) THEN 'SATIN_AL'
           WHEN MIN(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 THEN l.expiryDate END) <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) THEN 'SKT_YAKIN'
           WHEN COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND l.expiryDate < CURDATE() THEN l.currentQuantity ELSE 0 END), 0) > 0 THEN 'SKT_GECMIS'
           ELSE 'STOKTA'
@@ -2524,12 +2526,12 @@ app.get('/api/analytics/overview', authRequired, async (_req, res) => {
       // Low stock items
       all(pool, `
         SELECT COUNT(*) AS count FROM (
-          SELECT id.id, id.minStock
+          SELECT id.id, id.minStock, id.ideal_stock
           FROM item_definitions id
           LEFT JOIN lots l ON id.id = l.itemId
           WHERE id.status = 'ACTIVE'
-          GROUP BY id.id, id.minStock
-          HAVING COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) < id.minStock
+          GROUP BY id.id, id.minStock, id.ideal_stock
+          HAVING COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) < COALESCE(id.ideal_stock, id.minStock)
         ) AS low_stock
       `),
       // Recent activity

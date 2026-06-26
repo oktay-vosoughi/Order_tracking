@@ -31,7 +31,7 @@ import {
   getPurchaseStatusFilterOptions,
   getVisibleTabOptions
 } from './mobileUi.mjs';
-import { getCepDepoDisplay, getStockDisplayTarget } from './stockDisplay.mjs';
+import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget } from './stockDisplay.mjs';
 import './theme.css';
 import logoIcon from './logos/icon.png';
 
@@ -1017,11 +1017,7 @@ const LabEquipmentTracker = () => {
   const displayItems = unifiedStock.length > 0 ? unifiedStock : items;
 
   const totalMaterialCount = analytics?.summary?.totalItems ?? displayItems.length;
-  const lowStockCountFromData = displayItems.filter(i => {
-    const total = Number(i.totalStock ?? i.currentStock ?? 0);
-    const min = Number(i.minStock ?? 0);
-    return min > 0 && total < min;
-  }).length;
+  const lowStockCountFromData = displayItems.filter(isBelowStockTarget).length;
   const normalizeStatus = (value) => {
     if (!value) return value;
     if (value === 'SATINAL') return 'SATIN_AL';
@@ -2317,7 +2313,7 @@ const LabEquipmentTracker = () => {
                 const pendingOrderQty = Number(item.pendingOrderQty ?? 0);
                 const minStock = item.minStock || 0;
                 const stockDisplayTarget = getStockDisplayTarget(item);
-                const isLowStock = totalStock < minStock;
+                const isLowStock = isBelowStockTarget(item);
                 const cepDepoDisplay = getCepDepoDisplay(item);
                 const showAllLots = showAllMobileLotsFor === item.id;
                 const lotPreviewLimit = showAllLots ? expandedMaterialLots.length : 3;
@@ -2536,7 +2532,7 @@ const LabEquipmentTracker = () => {
                     const pendingOrderQty = Number(item.pendingOrderQty ?? 0);
                     const minStock = item.minStock || 0;
                     const stockDisplayTarget = getStockDisplayTarget(item);
-                    const isLowStock = totalStock < minStock;
+                    const isLowStock = isBelowStockTarget(item);
                     const cepDepoDisplay = getCepDepoDisplay(item);
                     
                     return (
@@ -2820,7 +2816,7 @@ const LabEquipmentTracker = () => {
                   <AlertTriangle size={24} />
                   Kritik Stok
                 </div>
-                <div className="text-3xl font-bold">{analytics?.lowStockCount || items.filter(i => i.currentStock <= i.minStock).length}</div>
+                <div className="text-3xl font-bold">{analytics?.lowStockCount || displayItems.filter(isBelowStockTarget).length}</div>
                 <div className="text-sm text-gray-500 mt-1">Min. seviyenin altında</div>
               </div>
             </div>
