@@ -7,6 +7,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { buildUnitCorrectionValues } = require('./unitCorrection.cjs');
 
 const PORT = process.env.PORT || 4000;
 
@@ -786,6 +787,161 @@ app.put('/api/item-definitions/:id', authRequired, canManageItems, async (req, r
   } catch (error) {
     console.error('Failed to update item definition', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminRequired, async (req, res) => {
+  let values;
+  try {
+    values = buildUnitCorrectionValues(req.body || {});
+  } catch (error) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: error.message });
+  }
+
+  try {
+    const result = await withTransaction(async (conn) => {
+      const itemRows = await all(conn, 'SELECT * FROM item_definitions WHERE id = ? FOR UPDATE', [req.params.id]);
+      const item = itemRows?.[0];
+      if (!item) throw { status: 404, error: 'ITEM_NOT_FOUND', message: 'Malzeme bulunamadı.' };
+
+      const lotRows = await all(conn, `
+        SELECT *
+        FROM lots
+        WHERE itemId = ? AND status IN ('ACTIVE', 'DEPLETED')
+        ORDER BY
+          CASE WHEN currentQuantity > 0 THEN 0 ELSE 1 END,
+          receivedDate DESC,
+          createdAt DESC
+        FOR UPDATE
+      `, [req.params.id]);
+      const positiveLots = lotRows.filter((lot) => Number(lot.currentQuantity) > 0);
+      if (positiveLots.length > 1) {
+        throw {
+          status: 409,
+          error: 'MULTIPLE_ACTIVE_LOTS',
+          message: 'Bu malzemede birden fazla aktif LOT var. Manuel düzeltme için LOT Stok ekranını kullanın.'
+        };
+      }
+
+      const balanceRows = await all(conn, `
+        SELECT *
+        FROM cep_depo_balances
+        WHERE itemId = ? AND status = 'ACTIVE'
+        FOR UPDATE
+      `, [req.params.id]);
+      if (balanceRows.length > 1 && values.cepUnitQty !== null) {
+        throw {
+          status: 409,
+          error: 'MULTIPLE_CEP_BALANCES',
+          message: 'Bu malzemede birden fazla aktif CEP DEPO kullanıcısı var. Kullanıcı bazlı düzeltme gerekir.'
+        };
+      }
+
+      await run(conn, `
+        UPDATE item_definitions
+        SET
+          unit = ?,
+          packageUnit = ?,
+          consumptionUnit = ?,
+          unitsPerPackage = ?,
+          consumptionUnitType = ?,
+          ideal_stock = ?,
+          max_stock = ?,
+          updatedBy = ?
+        WHERE id = ?
+      `, [
+        values.unit,
+        values.packageUnit,
+        values.consumptionUnit,
+        values.unitsPerPackage,
+        values.consumptionUnitType,
+        values.idealStock,
+        values.maxStock,
+        req.user.username,
+        req.params.id
+      ]);
+
+      let correctedLotId = null;
+      if (values.mainStock !== null) {
+        const targetLot = positiveLots[0] || lotRows[0];
+        if (targetLot) {
+          correctedLotId = targetLot.id;
+          await run(conn, `
+            UPDATE lots
+            SET
+              initialQuantity = ?,
+              currentQuantity = ?,
+              packageUnit = NULL,
+              unitsPerPackage = NULL,
+              consumptionUnitType = NULL,
+              status = CASE WHEN ? > 0 THEN 'ACTIVE' ELSE 'DEPLETED' END,
+              updatedBy = ?
+            WHERE id = ?
+          `, [values.mainStock, values.mainStock, values.mainStock, req.user.username, targetLot.id]);
+        } else if (values.mainStock > 0) {
+          correctedLotId = generateId();
+          await run(conn, `
+            INSERT INTO lots
+              (id, itemId, lotNumber, receivedDate, initialQuantity, currentQuantity, status, notes, createdBy)
+            VALUES (?, ?, ?, CURDATE(), ?, ?, 'ACTIVE', ?, ?)
+          `, [
+            correctedLotId,
+            req.params.id,
+            `MANUAL-${item.code}-${Date.now().toString().slice(-6)}`,
+            values.mainStock,
+            values.mainStock,
+            'Admin birim/stok düzeltmesi',
+            req.user.username
+          ]);
+        }
+      }
+
+      let correctedBalanceId = null;
+      if (values.cepUnitQty !== null && balanceRows[0]) {
+        correctedBalanceId = balanceRows[0].id;
+        await run(conn, `
+          UPDATE cep_depo_balances
+          SET
+            packQty = ?,
+            unitQty = ?,
+            consumptionUnitType = ?,
+            status = CASE WHEN ? > 0 OR ? > 0 THEN 'ACTIVE' ELSE 'ZERO' END
+          WHERE id = ?
+        `, [
+          values.cepPackQty,
+          values.cepUnitQty,
+          values.consumptionUnitType,
+          values.cepPackQty,
+          values.cepUnitQty,
+          balanceRows[0].id
+        ]);
+      }
+
+      await run(conn, `
+        INSERT INTO stock_movements
+          (id, movementType, itemId, fromLocation, toLocation, packQty, unitQty,
+           performedByUserId, performedByUsername, refId, notes)
+        VALUES (?, 'ADMIN_CORRECTION', ?, 'MANUAL', 'MANUAL', ?, ?, ?, ?, ?, ?)
+      `, [
+        generateId(),
+        req.params.id,
+        values.mainStock || 0,
+        values.cepUnitQty || 0,
+        req.user.id,
+        req.user.username,
+        correctedLotId || correctedBalanceId || req.params.id,
+        'Admin birim/stok düzeltmesi'
+      ]);
+
+      const updatedItems = await all(conn, 'SELECT * FROM item_definitions WHERE id = ?', [req.params.id]);
+      return { item: updatedItems[0], correctedLotId, correctedBalanceId };
+    });
+
+    res.json(result);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
+    console.error('Failed to apply unit stock correction', error);
+    res.status(500).json({ error: 'SERVER_ERROR', message: error?.message });
   }
 });
 

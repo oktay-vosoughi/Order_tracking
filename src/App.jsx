@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -481,6 +481,18 @@ const LabEquipmentTracker = () => {
   
   const [unitEditItem, setUnitEditItem] = useState(null);
   const [unitEditForm, setUnitEditForm] = useState({ packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK' });
+  const [correctionItem, setCorrectionItem] = useState(null);
+  const [correctionForm, setCorrectionForm] = useState({
+    unit: 'kutu',
+    packageUnit: 'kutu',
+    consumptionUnit: '',
+    unitsPerPackage: '',
+    consumptionUnitType: 'UNIT',
+    mainStock: '',
+    idealStock: '',
+    maxStock: '',
+    cepUnitQty: ''
+  });
 
   const handleSaveUnitFields = async () => {
     if (!unitEditItem) return;
@@ -496,6 +508,55 @@ const LabEquipmentTracker = () => {
       alert('Birim bilgileri güncellendi. CEP DEPO bakiyeleri otomatik yeniden hesaplandı.');
     } catch (err) {
       alert('Güncelleme başarısız: ' + (err?.message || 'HATA'));
+    }
+  };
+
+  const openUnitStockCorrection = (item) => {
+    const cepDisplay = getCepDepoDisplay(item);
+    setCorrectionItem(item);
+    setCorrectionForm({
+      unit: item.unit || 'kutu',
+      packageUnit: item.packageUnit || item.unit || 'kutu',
+      consumptionUnit: item.consumptionUnit || '',
+      unitsPerPackage: item.unitsPerPackage ?? '',
+      consumptionUnitType: item.consumptionUnitType || (item.consumptionUnit ? 'UNIT' : 'PACK'),
+      mainStock: item.totalStock ?? item.currentStock ?? 0,
+      idealStock: item.ideal_stock ?? item.minStock ?? '',
+      maxStock: item.max_stock ?? '',
+      cepUnitQty: cepDisplay.quantity || 0
+    });
+  };
+
+  const handleSaveUnitStockCorrection = async () => {
+    if (!correctionItem) return;
+
+    const usesSubUnit = correctionForm.consumptionUnitType !== 'PACK';
+    if (usesSubUnit && !correctionForm.consumptionUnit.trim()) {
+      alert('Alt birim zorunludur.');
+      return;
+    }
+    if (usesSubUnit && !(Number(correctionForm.unitsPerPackage) > 0)) {
+      alert('1 ana birim kaç alt birim değeri pozitif olmalıdır.');
+      return;
+    }
+
+    try {
+      await applyUnitStockCorrection(correctionItem.id, {
+        unit: correctionForm.unit,
+        packageUnit: correctionForm.packageUnit,
+        consumptionUnit: correctionForm.consumptionUnit || null,
+        unitsPerPackage: correctionForm.unitsPerPackage === '' ? null : Number(correctionForm.unitsPerPackage),
+        consumptionUnitType: correctionForm.consumptionUnitType,
+        mainStock: correctionForm.mainStock === '' ? null : Number(correctionForm.mainStock),
+        idealStock: correctionForm.idealStock === '' ? null : Number(correctionForm.idealStock),
+        maxStock: correctionForm.maxStock === '' ? null : Number(correctionForm.maxStock),
+        cepUnitQty: correctionForm.cepUnitQty === '' ? null : Number(correctionForm.cepUnitQty)
+      });
+      await loadUnifiedData();
+      setCorrectionItem(null);
+      alert('Birim ve stok düzeltmesi kaydedildi.');
+    } catch (err) {
+      alert('Düzeltme başarısız: ' + (err?.message || 'HATA'));
     }
   };
 
@@ -2410,6 +2471,14 @@ const LabEquipmentTracker = () => {
                               Birim
                             </button>
                           )}
+                          {isAdmin && (
+                            <button
+                              onClick={() => openUnitStockCorrection(item)}
+                              className="status-action status-action--order"
+                            >
+                              Düzelt
+                            </button>
+                          )}
                           {canModifyInventory && (
                             <button onClick={() => deleteItem(item.id)} className="status-action status-action--reject">Sil</button>
                           )}
@@ -2596,6 +2665,18 @@ const LabEquipmentTracker = () => {
                                 title="CEP DEPO Birim Ayarları"
                               >
                                 Birim
+                              </button>
+                            )}
+                            {isAdmin && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openUnitStockCorrection(item);
+                                }}
+                                className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs"
+                                title="Birim ve Stok Düzelt"
+                              >
+                                Düzelt
                               </button>
                             )}
                             {canModifyInventory && (
@@ -3694,9 +3775,156 @@ const LabEquipmentTracker = () => {
               Tümünü Temizle
             </button>
           )}
-        </div>
-        </div>
       </div>
+      </div>
+      </div>
+
+      {/* Admin Birim/Stok Düzeltme Modal */}
+      {correctionItem && isAdmin && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold mb-1">Birim ve Stok Düzelt</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              <strong>{correctionItem.name}</strong> ({correctionItem.code})
+            </p>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ana depo birimi</label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={correctionForm.unit}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, unit: e.target.value, packageUnit: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Paket birimi</label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={correctionForm.packageUnit}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, packageUnit: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Alt birim / harcanan birim</label>
+                <input
+                  type="text"
+                  placeholder="reax, tüp, adet"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={correctionForm.consumptionUnit}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, consumptionUnit: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">1 ana birim kaç alt birim?</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={correctionForm.unitsPerPackage}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, unitsPerPackage: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tüketim tipi</label>
+                <select
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={correctionForm.consumptionUnitType}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, consumptionUnitType: e.target.value })}
+                >
+                  <option value="UNIT">UNIT - alt birim harcanır</option>
+                  <option value="TEST">TEST - test sayısı harcanır</option>
+                  <option value="PACK">PACK - ana birim harcanır</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ana depo mevcut stok</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={correctionForm.mainStock}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, mainStock: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">İdeal stok</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={correctionForm.idealStock}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, idealStock: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Maks stok</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={correctionForm.maxStock}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, maxStock: e.target.value })}
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  CEP DEPO'da görünen / harcanan miktar
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="flex-1 px-3 py-2 border rounded-lg"
+                    value={correctionForm.cepUnitQty}
+                    onChange={(e) => setCorrectionForm({ ...correctionForm, cepUnitQty: e.target.value })}
+                  />
+                  <span className="px-3 py-2 bg-gray-100 border rounded-lg text-sm text-gray-700 min-w-20 text-center">
+                    {correctionForm.consumptionUnitType === 'PACK'
+                      ? (correctionForm.packageUnit || correctionForm.unit || 'birim')
+                      : (correctionForm.consumptionUnit || 'alt birim')}
+                  </span>
+                </div>
+                {Number(correctionForm.unitsPerPackage) > 0 && correctionForm.consumptionUnitType !== 'PACK' && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Sistem paket karşılığı: {(Number(correctionForm.cepUnitQty || 0) / Number(correctionForm.unitsPerPackage)).toFixed(4)} {correctionForm.packageUnit || correctionForm.unit || 'kutu'}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={handleSaveUnitStockCorrection}
+                className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+              >
+                Düzeltmeyi Kaydet
+              </button>
+              <button
+                onClick={() => setCorrectionItem(null)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              >
+                İptal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CEP DEPO Birim Düzenle Modal */}
       {unitEditItem && (

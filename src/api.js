@@ -200,6 +200,14 @@ export async function updateItemDefinition(id, data) {
   });
 }
 
+export async function applyUnitStockCorrection(id, data) {
+  return apiFetch(`/item-definitions/${id}/unit-stock-correction`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
 // ============================================================
 // EXCEL EXPORT API
 // ============================================================
