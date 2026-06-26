@@ -1088,6 +1088,10 @@ app.get('/api/reports/stock-summary', authRequired, async (_req, res) => {
         id.category,
         id.department,
         id.unit,
+        id.packageUnit,
+        id.consumptionUnit,
+        id.unitsPerPackage,
+        id.consumptionUnitType,
         id.minStock,
         COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) AS totalStock,
         COUNT(DISTINCT CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 THEN l.id END) AS activeLotCount,
@@ -1181,7 +1185,13 @@ app.get('/api/unified-stock', authRequired, async (_req, res) => {
         id.category,
         id.department,
         id.unit,
+        id.packageUnit,
+        id.consumptionUnit,
+        id.unitsPerPackage,
+        id.consumptionUnitType,
         id.minStock,
+        id.ideal_stock,
+        id.max_stock,
         id.supplier,
         id.catalogNo,
         id.brand,
@@ -1211,6 +1221,12 @@ app.get('/api/unified-stock', authRequired, async (_req, res) => {
            WHERE b.itemId = id.id AND b.status = 'ACTIVE'
           ), 0
         ) AS cepDepoTotal,
+        COALESCE(
+          (SELECT SUM(b.unitQty)
+           FROM cep_depo_balances b
+           WHERE b.itemId = id.id AND b.status = 'ACTIVE'
+          ), 0
+        ) AS cepDepoUnitTotal,
         CASE 
           WHEN COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) = 0 THEN 'STOK_YOK'
           WHEN COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) < id.minStock THEN 'SATIN_AL'

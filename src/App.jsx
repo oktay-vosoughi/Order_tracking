@@ -31,6 +31,7 @@ import {
   getPurchaseStatusFilterOptions,
   getVisibleTabOptions
 } from './mobileUi.mjs';
+import { getCepDepoDisplay, getStockDisplayTarget } from './stockDisplay.mjs';
 import './theme.css';
 import logoIcon from './logos/icon.png';
 
@@ -2254,8 +2255,9 @@ const LabEquipmentTracker = () => {
                 const totalStock = Number(item.totalStock ?? item.currentStock ?? 0);
                 const pendingOrderQty = Number(item.pendingOrderQty ?? 0);
                 const minStock = item.minStock || 0;
+                const stockDisplayTarget = getStockDisplayTarget(item);
                 const isLowStock = totalStock < minStock;
-                const cepDepoTotal = Number(item.cepDepoTotal ?? 0);
+                const cepDepoDisplay = getCepDepoDisplay(item);
                 const showAllLots = showAllMobileLotsFor === item.id;
                 const lotPreviewLimit = showAllLots ? expandedMaterialLots.length : 3;
                 const lotPreview = getLotPreview(expandedMaterialLots, lotPreviewLimit);
@@ -2291,13 +2293,13 @@ const LabEquipmentTracker = () => {
                       <div>
                         <div className="mobile-metric-label">Stok</div>
                         <div className={isLowStock ? 'mobile-metric-value text-red-600' : 'mobile-metric-value text-green-600'}>
-                          {totalStock} / {minStock} {item.unit}
+                          {totalStock} / {stockDisplayTarget} {item.unit}
                         </div>
                       </div>
                       <div>
                         <div className="mobile-metric-label">CEP DEPO (Tüm)</div>
-                        <div className={cepDepoTotal > 0 ? 'mobile-metric-value text-indigo-700' : 'mobile-metric-value text-gray-400'}>
-                          {cepDepoTotal.toFixed(2)} {item.unit}
+                        <div className={cepDepoDisplay.quantity > 0 ? 'mobile-metric-value text-indigo-700' : 'mobile-metric-value text-gray-400'}>
+                          {cepDepoDisplay.quantity.toFixed(cepDepoDisplay.hasSubUnit ? 0 : 2)} {cepDepoDisplay.unit}
                         </div>
                       </div>
                       <div>
@@ -2464,8 +2466,9 @@ const LabEquipmentTracker = () => {
                     const totalStock = Number(item.totalStock ?? item.currentStock ?? 0);
                     const pendingOrderQty = Number(item.pendingOrderQty ?? 0);
                     const minStock = item.minStock || 0;
+                    const stockDisplayTarget = getStockDisplayTarget(item);
                     const isLowStock = totalStock < minStock;
-                    const cepDepoTotal = Number(item.cepDepoTotal ?? 0);
+                    const cepDepoDisplay = getCepDepoDisplay(item);
                     
                     return (
                       <React.Fragment key={item.id}>
@@ -2496,7 +2499,7 @@ const LabEquipmentTracker = () => {
                             <div>
                               <span className={isLowStock ? 'text-red-600 font-bold' : 'text-green-600'}>
                                 {totalStock}
-                              </span> / {minStock} {item.unit}
+                              </span> / {stockDisplayTarget} {item.unit}
                             </div>
                             {pendingOrderQty > 0 && (
                               <div className="text-xs text-blue-600 mt-1">
@@ -2507,10 +2510,10 @@ const LabEquipmentTracker = () => {
                             )}
                           </td>
                           <td className="px-3 py-2">
-                            <span className={cepDepoTotal > 0 ? 'text-indigo-700 font-semibold' : 'text-gray-400'}>
-                              {cepDepoTotal.toFixed(2)}
+                            <span className={cepDepoDisplay.quantity > 0 ? 'text-indigo-700 font-semibold' : 'text-gray-400'}>
+                              {cepDepoDisplay.quantity.toFixed(cepDepoDisplay.hasSubUnit ? 0 : 2)}
                             </span>{' '}
-                            <span className="text-xs text-gray-500">{item.unit}</span>
+                            <span className="text-xs text-gray-500">{cepDepoDisplay.unit}</span>
                           </td>
                           <td className="px-3 py-2">
                             <ExpiryBadge expiryDate={item.nearestExpiry} />

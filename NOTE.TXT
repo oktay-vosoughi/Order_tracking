@@ -1,1 +1,51 @@
 NPM VITE 
+
+========================================================================
+ UPDATE TOTAL STOCK FOR AN ITEM (by item code)
+========================================================================
+ NOTE: Stock is NOT a single column. It is computed live as
+       totalStock = SUM(lots.currentQuantity) for ACTIVE, non-expired lots.
+       So to change stock you edit the LOTS, not the item.
+       Just replace  <CODE>  and  <QTY>  below.
+
+-- STEP 1: Inspect current lots ----------------------------------------
+SELECT l.id, l.lotNumber, l.currentQuantity, l.status, l.expiryDate
+FROM lots l
+JOIN item_definitions i ON i.id = l.itemId
+WHERE i.code = '<CODE>'
+ORDER BY l.status, l.expiryDate;
+
+-- STEP 2a: IF EXACTLY ONE ACTIVE LOT -> set it directly ---------------
+UPDATE lots l
+JOIN item_definitions i ON i.id = l.itemId
+SET l.currentQuantity = <QTY>,
+    l.status = 'ACTIVE',
+    l.updatedBy = 'manual-sql'
+WHERE i.code = '<CODE>'
+  AND l.status = 'ACTIVE';
+
+-- STEP 2b: IF MULTIPLE ACTIVE LOTS -> put all QTY on earliest-expiring,
+--          deplete the rest (avoids QTY x lotCount mistake) -----------
+SET @keep := (
+  SELECT l.id FROM lots l
+  JOIN item_definitions i ON i.id = l.itemId
+  WHERE i.code = '<CODE>' AND l.status = 'ACTIVE'
+  ORDER BY (l.expiryDate IS NULL), l.expiryDate ASC
+  LIMIT 1
+);
+UPDATE lots l
+JOIN item_definitions i ON i.id = l.itemId
+SET l.currentQuantity = CASE WHEN l.id = @keep THEN <QTY> ELSE 0 END,
+    l.status         = CASE WHEN l.id = @keep THEN 'ACTIVE' ELSE 'DEPLETED' END,
+    l.updatedBy = 'manual-sql'
+WHERE i.code = '<CODE>' AND l.status = 'ACTIVE';
+
+-- STEP 2c: IF NO ACTIVE LOT EXISTS -> create one ----------------------
+INSERT INTO lots (id, itemId, lotNumber, currentQuantity, initialQuantity, status, receivedDate, createdBy)
+SELECT UUID(), i.id, 'MANUAL-ADJUST', <QTY>, <QTY>, 'ACTIVE', CURDATE(), 'manual-sql'
+FROM item_definitions i
+WHERE i.code = '<CODE>';
+
+-- After any change: refresh the app, /api/unified-stock recalculates live.
+-- CAUTION: direct SQL bypasses the lot_adjustments audit log.
+========================================================================
