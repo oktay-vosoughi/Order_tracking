@@ -2986,12 +2986,35 @@ const ensureCepDepoTables = async () => {
     INDEX idx_sm_created (createdAt)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
+  await pool.query(`CREATE TABLE IF NOT EXISTS departments (
+    id VARCHAR(64) NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uniq_department_name (name)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
   // Upgrade path: ensure tracking columns exist on pre-existing cep_depo_balances tables.
   try {
     await ensureColumn('cep_depo_balances', 'lastDistributedAt', '`lastDistributedAt` DATETIME NULL');
     await ensureColumn('cep_depo_balances', 'lastDistributionId', '`lastDistributionId` VARCHAR(64) NULL');
     await ensureColumn('cep_depo_balances', 'consumptionUnitType', '`consumptionUnitType` VARCHAR(20) NULL');
   } catch (e) { console.warn('[ensureCepDepo] cep_depo_balances upgrade skipped:', e?.code || e?.message); }
+
+  // Department-shared CEP DEPO: additive columns (unique-key swap happens in the
+  // one-time migration server/migrations/2026-07-01-shared-cep-depo.sql).
+  try {
+    await ensureColumn('users', 'departmentId', '`departmentId` VARCHAR(64) NULL');
+    await ensureColumn('item_definitions', 'minReactionThreshold', '`minReactionThreshold` INT NOT NULL DEFAULT 3');
+    await ensureColumn('cep_depo_balances', 'departmentId', '`departmentId` VARCHAR(64) NULL');
+    await ensureColumn('cep_depo_balances', 'departmentName', '`departmentName` VARCHAR(150) NULL');
+    await ensureColumn('cep_depo_distributions', 'departmentId', '`departmentId` VARCHAR(64) NULL');
+    await ensureColumn('cep_depo_distributions', 'recipientTechnicianId', '`recipientTechnicianId` BIGINT UNSIGNED NULL');
+    await ensureColumn('cep_depo_consumptions', 'departmentId', '`departmentId` VARCHAR(64) NULL');
+    await ensureColumn('stock_movements', 'departmentId', '`departmentId` VARCHAR(64) NULL');
+  } catch (e) { console.warn('[ensureCepDepo] department columns upgrade skipped:', e?.code || e?.message); }
 };
 
 // Helper: resolve effective pack/unit factor (lot override > item default > 1)
