@@ -101,6 +101,31 @@ const LabEquipmentTracker = () => {
   const [showDistributeForm, setShowDistributeForm] = useState(null);
   // Distributable lots per item (Parti/SKT picker at Dağıt). Keyed by itemId.
   const [itemLotsCache, setItemLotsCache] = useState({});
+  // Distribution-request alarm (badge is Task 6; this is the toast + sound).
+  const [cepAlarm, setCepAlarm] = useState({ show: false, count: 0 });
+  const prevPendingCepRef = React.useRef(null);
+  const audioCtxRef = React.useRef(null);
+
+  const playAlarmBeep = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!audioCtxRef.current) audioCtxRef.current = new Ctx();
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.value = 0.08;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.25);
+    } catch (e) {
+      // Autoplay blocked or no audio device — silent no-op.
+    }
+  };
   const [showOrderForm, setShowOrderForm] = useState(null);
   const [showApproveModal, setShowApproveModal] = useState(null);
   const [approveForm, setApproveForm] = useState({ approvalNote: '' });
@@ -241,6 +266,20 @@ const LabEquipmentTracker = () => {
     ids.forEach((id) => loadItemLots2(id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showDistributeForm, purchases]);
+
+  // Alarm when distribution requests are waiting: beep + toast for
+  // SATINAL_LOJISTIK / ADMIN, on first load with pending and on any increase.
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!(isSatinalLojistik || isAdmin)) return;
+    const prev = prevPendingCepRef.current;
+    if (pendingCepTotal > 0 && (prev === null || pendingCepTotal > prev)) {
+      setCepAlarm({ show: true, count: pendingCepTotal });
+      playAlarmBeep();
+    }
+    prevPendingCepRef.current = pendingCepTotal;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCepTotal, currentUser]);
 
   const canImportItems = canModifyInventory;
   const canViewAllDagit = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
@@ -1648,6 +1687,19 @@ const LabEquipmentTracker = () => {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
+      {cepAlarm.show && (
+        <div className="fixed top-4 right-4 z-[60] bg-amber-500 text-white rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
+          <AlertCircle size={18} />
+          <span className="text-sm font-semibold">{cepAlarm.count} dağıtım talebi bekliyor</span>
+          <button
+            onClick={() => { setCepAlarm({ show: false, count: 0 }); navClick('distributions'); }}
+            className="text-xs bg-white/20 hover:bg-white/30 rounded px-2 py-1"
+          >
+            Görüntüle
+          </button>
+          <button onClick={() => setCepAlarm({ show: false, count: 0 })} className="text-xs opacity-80 hover:opacity-100">✕</button>
+        </div>
+      )}
       {/* Mobile backdrop */}
       <div className={`sbar-overlay${sidebarOpen ? ' open' : ''}`} onClick={() => setSidebarOpen(false)} />
       <aside className={`sbar${sidebarOpen ? ' sbar--open' : ''}`}>
