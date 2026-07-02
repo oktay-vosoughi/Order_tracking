@@ -3133,7 +3133,7 @@ app.get('/api/cep-depo/my-balances', authRequired, async (req, res) => {
 //   Body: { labTechnicianId, itemId, packQty, purchaseId?, notes? }
 //   Uses FEFO across active lots of itemId; deducts lots; upserts cep_depo_balances.
 app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async (req, res) => {
-  const { labTechnicianId, itemId, packQty, purchaseId, notes } = req.body || {};
+  const { labTechnicianId, itemId, packQty, purchaseId, notes, lotId } = req.body || {};
   const packQtyNum = Number(packQty);
   if (!labTechnicianId || !itemId || !(packQtyNum > 0)) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'labTechnicianId, itemId ve packQty (>0) zorunludur.' });
@@ -3166,44 +3166,70 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
       const item = itemRows?.[0];
       if (!item) throw { status: 404, error: 'ITEM_NOT_FOUND' };
 
-      // FEFO lot picking
-      const lots = await all(conn, `
-        SELECT * FROM lots
-        WHERE itemId = ? AND status = 'ACTIVE' AND currentQuantity > 0
-        ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC
-        FOR UPDATE
-      `, [itemId]);
-
-      const totalAvailable = lots.reduce((s, l) => s + Number(l.currentQuantity), 0);
-      if (totalAvailable < packQtyNum) {
-        throw { status: 409, error: 'INSUFFICIENT_MAIN_STOCK', message: `Ana depoda yeterli stok yok. Mevcut: ${totalAvailable}, talep: ${packQtyNum}` };
-      }
-
       const cepDistributionId = generateId();
-      let remaining = packQtyNum;
       let totalUnitQty = 0;
       const splits = [];
 
-      for (const lot of lots) {
-        if (remaining <= 0) break;
-        const take = Math.min(Number(lot.currentQuantity), remaining);
+      if (lotId) {
+        // Manual single-lot selection — decrement ONLY the chosen lot. One
+        // distribution = one lot; over-quantity is rejected (no spill).
+        const lotRows = await all(conn,
+          "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' FOR UPDATE",
+          [lotId, itemId]);
+        const lot = lotRows?.[0];
+        if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Seçilen parti bulunamadı veya aktif değil.' };
+        if (Number(lot.currentQuantity) < packQtyNum) {
+          throw { status: 409, error: 'INSUFFICIENT_LOT_STOCK', message: `Seçilen partide yeterli stok yok. Parti ${lot.lotNumber}: ${lot.currentQuantity}, talep: ${packQtyNum}. Lütfen ayrı dağıtımlara bölün.` };
+        }
         const factor = resolveUnitFactor(item, lot);
-        const takeUnits = take * factor;
-
-        const newQty = Number(lot.currentQuantity) - take;
+        const takeUnits = packQtyNum * factor;
+        const newQty = Number(lot.currentQuantity) - packQtyNum;
         const newStatus = newQty <= 0 ? 'DEPLETED' : lot.status;
         await run(conn,
           'UPDATE lots SET currentQuantity = ?, status = ?, updatedBy = ? WHERE id = ?',
           [newQty, newStatus, req.user.username, lot.id]);
-
-        splits.push({ lot, take, takeUnits });
         await run(conn, `
           INSERT INTO cep_depo_distribution_lots (id, cepDistributionId, lotId, lotNumber, packQty, unitQty)
           VALUES (?, ?, ?, ?, ?, ?)
-        `, [generateId(), cepDistributionId, lot.id, lot.lotNumber, take, takeUnits]);
+        `, [generateId(), cepDistributionId, lot.id, lot.lotNumber, packQtyNum, takeUnits]);
+        splits.push({ lot, take: packQtyNum, takeUnits });
+        totalUnitQty = takeUnits;
+      } else {
+        // FEFO fallback (no lotId supplied) — original behavior.
+        const lots = await all(conn, `
+          SELECT * FROM lots
+          WHERE itemId = ? AND status = 'ACTIVE' AND currentQuantity > 0
+          ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC
+          FOR UPDATE
+        `, [itemId]);
 
-        remaining -= take;
-        totalUnitQty += takeUnits;
+        const totalAvailable = lots.reduce((s, l) => s + Number(l.currentQuantity), 0);
+        if (totalAvailable < packQtyNum) {
+          throw { status: 409, error: 'INSUFFICIENT_MAIN_STOCK', message: `Ana depoda yeterli stok yok. Mevcut: ${totalAvailable}, talep: ${packQtyNum}` };
+        }
+
+        let remaining = packQtyNum;
+        for (const lot of lots) {
+          if (remaining <= 0) break;
+          const take = Math.min(Number(lot.currentQuantity), remaining);
+          const factor = resolveUnitFactor(item, lot);
+          const takeUnits = take * factor;
+
+          const newQty = Number(lot.currentQuantity) - take;
+          const newStatus = newQty <= 0 ? 'DEPLETED' : lot.status;
+          await run(conn,
+            'UPDATE lots SET currentQuantity = ?, status = ?, updatedBy = ? WHERE id = ?',
+            [newQty, newStatus, req.user.username, lot.id]);
+
+          splits.push({ lot, take, takeUnits });
+          await run(conn, `
+            INSERT INTO cep_depo_distribution_lots (id, cepDistributionId, lotId, lotNumber, packQty, unitQty)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `, [generateId(), cepDistributionId, lot.id, lot.lotNumber, take, takeUnits]);
+
+          remaining -= take;
+          totalUnitQty += takeUnits;
+        }
       }
 
       // Header — records the recipient technician and the target department pool.
