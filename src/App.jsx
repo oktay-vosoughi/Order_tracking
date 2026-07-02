@@ -1031,7 +1031,8 @@ const LabEquipmentTracker = () => {
     quantity: 0,
     receivedBy: '',
     purpose: '',
-    department: ''
+    department: '',
+    lotId: ''
   });
   
   const distributeItem = async (item) => {
@@ -1044,16 +1045,32 @@ const LabEquipmentTracker = () => {
       alert('Lütfen alan kişiyi girin');
       return;
     }
-    
+
+    if (!distributeForm.lotId) {
+      alert('Lütfen dağıtılacak Parti / SKT seçin');
+      return;
+    }
+    const lotsForItem = itemLotsCache[item.id] || [];
+    const chosenLot = lotsForItem.find((l) => l.id === distributeForm.lotId);
+    if (!chosenLot) {
+      alert('Seçilen parti artık mevcut değil. Listeyi yenileyin.');
+      return;
+    }
+    if (parseInt(distributeForm.quantity) > Number(chosenLot.currentQuantity)) {
+      alert(`Seçilen partide yeterli miktar yok (Parti ${chosenLot.lotNumber}: ${chosenLot.currentQuantity}). Fazlası için ayrı bir dağıtım yapın.`);
+      return;
+    }
+
     try {
-      // Call API to distribute with FEFO logic
+      // Distribute from the explicitly chosen lot (no auto-FEFO).
       await distribute({
         itemId: item.id,
         quantity: parseInt(distributeForm.quantity),
         receivedBy: distributeForm.receivedBy,
         department: distributeForm.department || item.department || '',
         purpose: distributeForm.purpose,
-        useFefo: true
+        useFefo: false,
+        lotId: distributeForm.lotId
       });
       
       // Refresh stock and distribution data
@@ -1061,7 +1078,7 @@ const LabEquipmentTracker = () => {
       await loadAllActionData();
       
       setShowDistributeForm(null);
-      setDistributeForm({ quantity: 0, receivedBy: '', purpose: '', department: '' });
+      setDistributeForm({ quantity: 0, receivedBy: '', purpose: '', department: '', lotId: '' });
       alert('Malzeme başarıyla dağıtıldı! Stok güncellendi.');
     } catch (error) {
       console.error('Distribution error:', error);
@@ -2243,6 +2260,31 @@ const LabEquipmentTracker = () => {
               })()}
 
               <h4 className="text-sm font-semibold text-gray-700 mb-2 border-t pt-3">Departman / Genel Dağıtım</h4>
+              {(() => {
+                const lots = itemLotsCache[showDistributeForm.id] || [];
+                const unit = showDistributeForm.packageUnit || showDistributeForm.unit || 'koli';
+                return (
+                  <>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Parti / SKT Seçimi *</label>
+                    {lots.length === 0 ? (
+                      <div className="w-full px-4 py-2 border rounded-lg mb-3 bg-amber-50 text-amber-700 text-sm">
+                        Dağıtılabilir aktif parti yok.
+                      </div>
+                    ) : (
+                      <select
+                        value={distributeForm.lotId}
+                        onChange={(e) => setDistributeForm({ ...distributeForm, lotId: e.target.value })}
+                        className="w-full px-4 py-2 border rounded-lg mb-3 focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="">Parti / SKT seçiniz *</option>
+                        {lots.map((l) => (
+                          <option key={l.id} value={l.id}>{distributableLotLabel(l, unit)}</option>
+                        ))}
+                      </select>
+                    )}
+                  </>
+                );
+              })()}
               <input type="number" placeholder="Miktar" value={distributeForm.quantity} onChange={(e) => setDistributeForm({...distributeForm, quantity: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               
               <select
@@ -2269,7 +2311,7 @@ const LabEquipmentTracker = () => {
               </datalist>
               <input type="text" placeholder="Kullanım Amacı" value={distributeForm.purpose} onChange={(e) => setDistributeForm({...distributeForm, purpose: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <div className="flex gap-3">
-                <button onClick={() => distributeItem(showDistributeForm)} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg">Dağıt</button>
+                <button onClick={() => distributeItem(showDistributeForm)} disabled={!distributeForm.lotId} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Dağıt</button>
                 <button onClick={() => setShowDistributeForm(null)} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
               </div>
             </div>
