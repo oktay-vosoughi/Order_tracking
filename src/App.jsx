@@ -980,6 +980,8 @@ const LabEquipmentTracker = () => {
   
   // For Dağıt modal: per-request editable quantity (key = purchase.id → packQty string).
   const [cepReqQty, setCepReqQty] = useState({});
+  // Per-request chosen lot (key = purchase.id → lotId).
+  const [cepReqLot, setCepReqLot] = useState({});
 
   // Approve (if needed) + distribute a CEP DEPO request directly to its lab tech.
   const approveAndDistributeCepRequest = async (purchase, item) => {
@@ -993,6 +995,21 @@ const LabEquipmentTracker = () => {
     const packQty = Number(qtyStr);
     if (!packQty || packQty <= 0) {
       alert('Geçerli bir miktar girin.');
+      return;
+    }
+    const lotId = cepReqLot[purchase.id];
+    if (!lotId) {
+      alert('Lütfen dağıtılacak Parti / SKT seçin.');
+      return;
+    }
+    const lotsForItem = itemLotsCache[item.id] || [];
+    const chosenLot = lotsForItem.find((l) => l.id === lotId);
+    if (!chosenLot) {
+      alert('Seçilen parti artık mevcut değil. Listeyi yenileyin.');
+      return;
+    }
+    if (packQty > Number(chosenLot.currentQuantity)) {
+      alert(`Seçilen partide yeterli miktar yok (Parti ${chosenLot.lotNumber}: ${chosenLot.currentQuantity}). Fazlası için ayrı bir dağıtım yapın.`);
       return;
     }
     if (!window.confirm(
@@ -1013,11 +1030,13 @@ const LabEquipmentTracker = () => {
         labTechnicianId: tech.id,
         itemId: item.id,
         packQty,
+        lotId,
         notes: `Talep #${purchase.requestNumber || purchase.id.slice(0,8)}`
       });
       await loadUnifiedData();
       await loadAllActionData();
       setCepReqQty((s) => { const n = { ...s }; delete n[purchase.id]; return n; });
+      setCepReqLot((s) => { const n = { ...s }; delete n[purchase.id]; return n; });
       alert(`Dağıtım başarılı.\n${result.packQty} ${item.packageUnit || 'koli'} / ${result.unitQty} ${item.consumptionUnit || 'birim'} → ${tech.username}`);
     } catch (err) {
       const code = err?.payload?.error;
@@ -2245,9 +2264,21 @@ const LabEquipmentTracker = () => {
                               className="w-20 px-2 py-1 border rounded text-sm"
                               title="Verilecek miktar (varsayılan = istenen)"
                             />
+                            <select
+                              value={cepReqLot[p.id] || ''}
+                              onChange={(e) => setCepReqLot((s) => ({ ...s, [p.id]: e.target.value }))}
+                              className="px-2 py-1 border rounded text-xs max-w-[16rem]"
+                              title="Dağıtılacak Parti / SKT"
+                            >
+                              <option value="">Parti / SKT seç *</option>
+                              {(itemLotsCache[showDistributeForm.id] || []).map((l) => (
+                                <option key={l.id} value={l.id}>{distributableLotLabel(l, showDistributeForm.packageUnit || 'koli')}</option>
+                              ))}
+                            </select>
                             <button
                               onClick={() => approveAndDistributeCepRequest(p, showDistributeForm)}
-                              className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs whitespace-nowrap"
+                              disabled={!cepReqLot[p.id]}
+                              className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               Onayla & Dağıt
                             </button>
@@ -3818,12 +3849,26 @@ const LabEquipmentTracker = () => {
                                 </td>
                                 {canDistribute && (
                                   <td className="px-3 py-2">
-                                    <button
-                                      onClick={() => approveAndDistributeCepRequest(p, item)}
-                                      className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs whitespace-nowrap"
-                                    >
-                                      Onayla & Dağıt
-                                    </button>
+                                    <div className="flex items-center gap-1">
+                                      <select
+                                        value={cepReqLot[p.id] || ''}
+                                        onChange={(e) => setCepReqLot((s) => ({ ...s, [p.id]: e.target.value }))}
+                                        className="px-2 py-1 border rounded text-xs max-w-[14rem]"
+                                        title="Dağıtılacak Parti / SKT"
+                                      >
+                                        <option value="">Parti / SKT seç *</option>
+                                        {(itemLotsCache[p.itemId] || []).map((l) => (
+                                          <option key={l.id} value={l.id}>{distributableLotLabel(l, item.packageUnit || 'koli')}</option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        onClick={() => approveAndDistributeCepRequest(p, item)}
+                                        disabled={!cepReqLot[p.id]}
+                                        className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        Onayla & Dağıt
+                                      </button>
+                                    </div>
                                   </td>
                                 )}
                               </tr>
