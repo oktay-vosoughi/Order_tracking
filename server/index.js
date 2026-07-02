@@ -3003,18 +3003,30 @@ const ensureCepDepoTables = async () => {
     await ensureColumn('cep_depo_balances', 'consumptionUnitType', '`consumptionUnitType` VARCHAR(20) NULL');
   } catch (e) { console.warn('[ensureCepDepo] cep_depo_balances upgrade skipped:', e?.code || e?.message); }
 
-  // Department-shared CEP DEPO: additive columns (unique-key swap happens in the
-  // one-time migration server/migrations/2026-07-01-shared-cep-depo.sql).
+  // Department-shared CEP DEPO: additive columns. `department` stores the
+  // department NAME string (same vocabulary as item_definitions.department /
+  // src/labDepartments.mjs). The unique-key swap happens in the one-time
+  // migration server/migrations/2026-07-01-shared-cep-depo.sql.
   try {
-    await ensureColumn('users', 'departmentId', '`departmentId` VARCHAR(64) NULL');
+    await ensureColumn('users', 'department', '`department` VARCHAR(150) NULL');
     await ensureColumn('item_definitions', 'minReactionThreshold', '`minReactionThreshold` INT NOT NULL DEFAULT 3');
-    await ensureColumn('cep_depo_balances', 'departmentId', '`departmentId` VARCHAR(64) NULL');
-    await ensureColumn('cep_depo_balances', 'departmentName', '`departmentName` VARCHAR(150) NULL');
-    await ensureColumn('cep_depo_distributions', 'departmentId', '`departmentId` VARCHAR(64) NULL');
+    await ensureColumn('cep_depo_balances', 'department', '`department` VARCHAR(150) NULL');
+    await ensureColumn('cep_depo_distributions', 'department', '`department` VARCHAR(150) NULL');
     await ensureColumn('cep_depo_distributions', 'recipientTechnicianId', '`recipientTechnicianId` BIGINT UNSIGNED NULL');
-    await ensureColumn('cep_depo_consumptions', 'departmentId', '`departmentId` VARCHAR(64) NULL');
-    await ensureColumn('stock_movements', 'departmentId', '`departmentId` VARCHAR(64) NULL');
+    await ensureColumn('cep_depo_consumptions', 'department', '`department` VARCHAR(150) NULL');
+    await ensureColumn('stock_movements', 'department', '`department` VARCHAR(150) NULL');
   } catch (e) { console.warn('[ensureCepDepo] department columns upgrade skipped:', e?.code || e?.message); }
+
+  // Seed the department registry from the canonical list if empty (ADMIN can add more at runtime).
+  try {
+    const [seedRows] = await pool.query('SELECT COUNT(*) AS n FROM departments');
+    if (!seedRows?.[0]?.n) {
+      const seed = ['Cytogenetic', 'Molecular Micro', 'Molecular Genetic', 'Numune Kabul', 'Diğer'];
+      for (const name of seed) {
+        await pool.query('INSERT IGNORE INTO departments (id, name, active) VALUES (?, ?, 1)', [generateId(), name]);
+      }
+    }
+  } catch (e) { console.warn('[ensureCepDepo] department seed skipped:', e?.code || e?.message); }
 };
 
 // Helper: resolve effective pack/unit factor (lot override > item default > 1)

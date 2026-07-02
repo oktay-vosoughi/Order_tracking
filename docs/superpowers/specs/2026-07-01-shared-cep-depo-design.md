@@ -5,6 +5,15 @@
 **Status:** Approved for planning
 **Change log target:** `updates/UPDATE_2026-07-01_shared_cep_depo.md`
 
+> **Revision (2026-07-02):** During implementation we discovered the app already uses `department`
+> as a free-text **string** (canonical list in `src/labDepartments.mjs`: Cytogenetic, Molecular Micro,
+> Molecular Genetic, Numune Kabul, Diğer) on `item_definitions`, `lots`, `purchases`, `distributions`.
+> To avoid a parallel vocabulary, the design is revised: the CEP pool and `users.department` are keyed by
+> the department **name string** (not a UUID). A `departments` registry table is still kept — seeded from
+> `labDepartments.mjs` — so ADMIN can add new department **names** at runtime; but the value stored on
+> users/balances/history is the string, consistent with `item_definitions.department`. Decisions #2, #3
+> and the data model below are superseded by this note where they mention `departmentId`.
+
 ---
 
 ## 1. Problem & Goal
