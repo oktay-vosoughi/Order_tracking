@@ -387,11 +387,11 @@ export async function fetchMyCepDepoBalances() {
   return apiFetch('/cep-depo/my-balances');
 }
 
-export async function distributeToCepDepo({ labTechnicianId, itemId, packQty, purchaseId, notes }) {
+export async function distributeToCepDepo({ labTechnicianId, itemId, packQty, purchaseId, notes, lotId }) {
   return apiFetch('/cep-depo/distribute', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ labTechnicianId, itemId, packQty, purchaseId, notes })
+    body: JSON.stringify({ labTechnicianId, itemId, packQty, purchaseId, notes, lotId })
   });
 }
 
@@ -435,11 +435,11 @@ export async function fetchPurchasesFiltered({ forMe = false, status, scope } = 
 
 // Distribute an approved lab-tech request into its target CEP DEPO in one shot.
 // Relies on purchase.requestedFor OR a passed labTechnicianId.
-export async function distributeApprovedRequest({ purchaseId, labTechnicianId, itemId, packQty, notes }) {
+export async function distributeApprovedRequest({ purchaseId, labTechnicianId, itemId, packQty, notes, lotId }) {
   return apiFetch('/cep-depo/distribute', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ purchaseId, labTechnicianId, itemId, packQty, notes })
+    body: JSON.stringify({ purchaseId, labTechnicianId, itemId, packQty, notes, lotId })
   });
 }
 
