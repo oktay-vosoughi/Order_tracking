@@ -45,6 +45,17 @@ const SQL_FILE = path.join(__dirname, '2026-07-01-shared-cep-depo.sql');
   }
   console.log('Pre-flight OK: every lab technician has a department.');
 
+  // --- Detect an already-migrated table (labTechnicianId dropped) and stop cleanly. ---
+  const [balCols] = await conn.query('SHOW COLUMNS FROM cep_depo_balances');
+  const balColNames = balCols.map(c => c.Field);
+  if (!balColNames.includes('labTechnicianId')) {
+    const [pools] = await conn.query('SELECT department, COUNT(*) AS items FROM cep_depo_balances GROUP BY department');
+    console.log('\nAlready migrated — cep_depo_balances is keyed by department (no labTechnicianId column).');
+    console.log('Nothing to do. Current department pools:', JSON.stringify(pools));
+    await conn.end();
+    return;
+  }
+
   // --- Show what will be merged ---
   const [preview] = await conn.query(`
     SELECT u.department, COUNT(*) AS balanceRows, SUM(b.packQty) AS totalPack, SUM(b.unitQty) AS totalUnit
