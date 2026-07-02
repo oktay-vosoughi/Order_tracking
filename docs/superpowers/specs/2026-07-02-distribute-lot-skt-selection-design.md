@@ -1,10 +1,20 @@
-# Design — Explicit Lot / SKT selection at Distribute (Dağıt)
+# Design — Distribute lot/SKT selection + SATINAL_LOJISTIK request alarm & auto-reload
 
 **Date:** 2026-07-02
 **Author:** oktai.vosoughi (with Claude)
 **Status:** Approved for planning
 
+This spec covers three related changes to the SATINAL_LOJISTIK distribution workflow:
+
+- **Part 1** — Explicit lot/SKT selection at Dağıt (no auto-FEFO).
+- **Part 2** — Alarm (badge + login toast + sound) and filters so SATINAL_LOJISTIK
+  easily sees waiting CEP DEPO distribution requests.
+- **Part 3** — Auto-reload on click (no page refresh) so a technician's new request
+  appears for both the technician and SATINAL_LOJISTIK.
+
 ---
+
+# PART 1 — Explicit Lot / SKT selection at Distribute (Dağıt)
 
 ## 1. Problem
 
@@ -154,3 +164,98 @@ Add optional `lotId` to the request bodies of `distributeToCepDepo(...)` and
 - **Backward compatibility:** other callers of `/api/cep-depo/distribute` without
   `lotId` must keep working (FEFO fallback preserved).
 - No DB schema change; no migration required.
+
+---
+
+# PART 2 — SATINAL_LOJISTIK request alarm & filters
+
+## P2.1 Problem
+Pending CEP DEPO distribution requests (lab-technician requests waiting to be
+distributed) are only visible inside the amber "Lab Teknisyen Dağıtım Talepleri" table
+on the Dağıtım tab. The Dağıtım **nav tab has no badge**, there is no notification on
+login, and no way to filter the list. SATINAL_LOJISTIK can miss waiting requests.
+
+**Scope decision (locked):** alarm covers **CEP DEPO distribution requests only** —
+not general purchase requests.
+
+## P2.2 Badge on the "Dağıtım" nav tab
+Add a red count bubble (reuse the existing `nbdg` style used by Talepler) to the
+**Dağıtım** nav button = `Object.values(pendingCepRequestsByItem).flat().length`.
+The badge always reflects the **unfiltered** pending total.
+
+## P2.3 Login notification + sound
+Immediately after login + first data load, **if** the user role is `SATINAL_LOJISTIK`
+or `ADMIN` **and** pending distribution requests > 0:
+- Show a dismissible toast/banner: **"{N} dağıtım talebi bekliyor"** with a button that
+  navigates to the Dağıtım tab.
+- Play a short beep generated via the **Web Audio API** (no binary asset committed to
+  the repo). The login click provides the user gesture that satisfies browser autoplay
+  policy and unlocks the audio context for later programmatic plays.
+
+## P2.4 Live refresh (real alarm, not login-only)
+Add a single `setInterval` (~60s, decided) while logged in that re-runs
+`loadAllActionData()`. Track the previous pending count; if it **increases** on a tick,
+replay the beep and re-show the toast. Clear the interval on logout/unmount. (No
+polling exists today — this is new but small.) This also serves Part 3's cross-user
+propagation.
+
+## P2.5 Filters on the request list
+On the "Lab Teknisyen Dağıtım Talepleri" table (Dağıtım tab), add two client-side
+dropdown filters over the already-loaded requests:
+- **Departman** — options derived from the requests present (+ `DEPARTMENTS`).
+- **Teknisyen / Talep eden** — options derived from `labTechs` / requesters present.
+
+Filtering affects only the displayed rows; the nav badge count stays unfiltered so the
+alarm is never hidden.
+
+## P2.6 Files touched
+- `src/App.jsx` — nav badge; login toast + Web Audio beep helper; polling interval with
+  previous-count tracking; filter state + two dropdowns on the request table.
+- No backend / API / DB changes for Part 2.
+
+---
+
+# PART 3 — Auto-reload on click (no page refresh)
+
+## P3.1 Problem
+`navClick` only calls `setActiveTab` — switching to Talepler/Dağıtım does **not**
+re-fetch data. A technician's newly created request does not appear for SATINAL_LOJISTIK
+(or reliably refresh the technician's own view) without a full browser page reload.
+
+## P3.2 Change
+- **Refresh on navigation:** `navClick(tab)` triggers a reload of the data backing that
+  tab — `loadAllActionData()` for `requests` / `orders` / `distributions`,
+  `loadUnifiedData()` for `stock`. Fire-and-forget (non-blocking) so tab switching stays
+  instant; the list updates when data arrives. This makes "everything handled by
+  clicking — no page refresh."
+- **After mutations:** confirm every create/approve/distribute handler already calls
+  `loadAllActionData()` / `loadUnifiedData()`. Audit list (most already do, e.g. request
+  creation at App.jsx:748); add reloads to any handler that mutates but does not reload.
+- **Cross-user propagation:** the ~60s polling from P2.4 ensures a request created by a
+  technician appears for SATINAL_LOJISTIK even with no click, and vice-versa.
+
+## P3.3 Files touched
+- `src/App.jsx` — `navClick` reload wiring; audit/patch mutation handlers missing a
+  reload. No backend changes.
+
+---
+
+# Consolidated Definition of Done
+
+- **Part 1:** distributing requires picking a Parti/SKT; exactly that lot decrements;
+  over-quantity blocked in UI and re-validated server-side; both flows covered; FEFO
+  fallback still works when `lotId` omitted.
+- **Part 2:** Dağıtım nav badge shows pending count; login toast + beep fire for
+  SATINAL_LOJISTIK/ADMIN when requests wait; count refreshes live (~60s) and re-alarms
+  on increase; department + technician filters work on the request table.
+- **Part 3:** switching tabs re-fetches that tab's data; a technician's new request is
+  visible to both the technician and SATINAL_LOJISTIK by clicking (and within ~60s
+  automatically) — never requiring a browser page refresh.
+
+# Consolidated files touched
+
+- `src/App.jsx` — Parts 1, 2, 3 (UI, handlers, badge, toast/sound, polling, filters,
+  nav reload).
+- `src/api.js` — Part 1: `lotId` on `distributeToCepDepo` / `distributeApprovedRequest`.
+- `server/index.js` — Part 1: manual-lot branch in `POST /api/cep-depo/distribute`.
+- `updates/UPDATE_2026-07-02_distribute-lot-skt-selection.md` — change log (CLAUDE.md §5).
