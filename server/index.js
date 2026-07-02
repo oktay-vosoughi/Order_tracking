@@ -3130,7 +3130,7 @@ app.get('/api/cep-depo/my-balances', authRequired, async (req, res) => {
 });
 
 // POST /api/cep-depo/distribute — Main Depot → Lab Technician's CEP DEPO
-//   Body: { labTechnicianId, itemId, packQty, purchaseId?, notes? }
+//   Body: { labTechnicianId, itemId, packQty, purchaseId?, notes?, lotId? }
 //   Uses FEFO across active lots of itemId; deducts lots; upserts cep_depo_balances.
 app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async (req, res) => {
   const { labTechnicianId, itemId, packQty, purchaseId, notes, lotId } = req.body || {};
@@ -3179,7 +3179,7 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
         const lot = lotRows?.[0];
         if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Seçilen parti bulunamadı veya aktif değil.' };
         if (Number(lot.currentQuantity) < packQtyNum) {
-          throw { status: 409, error: 'INSUFFICIENT_LOT_STOCK', message: `Seçilen partide yeterli stok yok. Parti ${lot.lotNumber}: ${lot.currentQuantity}, talep: ${packQtyNum}. Lütfen ayrı dağıtımlara bölün.` };
+          throw { status: 409, error: 'INSUFFICIENT_LOT_STOCK', message: `Seçilen partide yeterli stok yok. Parti ${lot.lotNumber}: ${Number(lot.currentQuantity)}, talep: ${packQtyNum}. Lütfen ayrı dağıtımlara bölün.` };
         }
         const factor = resolveUnitFactor(item, lot);
         const takeUnits = packQtyNum * factor;
