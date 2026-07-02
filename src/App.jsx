@@ -156,6 +156,8 @@ const LabEquipmentTracker = () => {
   const [expandedPurchaseId, setExpandedPurchaseId] = useState(null);
   const [showAllMobileLotsFor, setShowAllMobileLotsFor] = useState(null);
   const [stockDepartmentFilter, setStockDepartmentFilter] = useState('');
+  const [cepFilterDept, setCepFilterDept] = useState('');
+  const [cepFilterTech, setCepFilterTech] = useState('');
   const [showEbysModal, setShowEbysModal] = useState(false);
   const [ebysExportForm, setEbysExportForm] = useState({ date: '', department: '' });
 
@@ -3846,17 +3848,34 @@ const LabEquipmentTracker = () => {
           <div className="space-y-6">
             {/* Lab technician weekly distribution requests — privileged only */}
             {canViewAllDagit && (() => {
-              const cepRequests = Object.values(pendingCepRequestsByItem).flat();
+              const allCepRequests = Object.values(pendingCepRequestsByItem).flat();
+              const deptOptions = Array.from(new Set(allCepRequests.map((p) => p.department).filter(Boolean)));
+              const techOptions = Array.from(new Set(allCepRequests.map((p) => p.requestedFor || p.requestedBy).filter(Boolean)));
+              const cepRequests = allCepRequests.filter((p) => {
+                if (cepFilterDept && p.department !== cepFilterDept) return false;
+                if (cepFilterTech && (p.requestedFor || p.requestedBy) !== cepFilterTech) return false;
+                return true;
+              });
               return (
                 <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-                  <div className="p-4 border-b bg-amber-50 flex items-center gap-2">
+                  <div className="p-4 border-b bg-amber-50 flex flex-wrap items-center gap-2">
                     <AlertCircle size={18} className="text-amber-600" />
                     <h3 className="font-bold text-amber-800">
                       Lab Teknisyen Dağıtım Talepleri
-                      {cepRequests.length > 0 && (
-                        <span className="ml-2 px-2 py-0.5 bg-amber-200 text-amber-900 rounded-full text-xs">{cepRequests.length}</span>
+                      {allCepRequests.length > 0 && (
+                        <span className="ml-2 px-2 py-0.5 bg-amber-200 text-amber-900 rounded-full text-xs">{allCepRequests.length}</span>
                       )}
                     </h3>
+                    <div className="flex flex-wrap gap-2 ml-auto">
+                      <select value={cepFilterDept} onChange={(e) => setCepFilterDept(e.target.value)} className="px-2 py-1 border rounded text-xs">
+                        <option value="">Tüm Departmanlar</option>
+                        {deptOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                      <select value={cepFilterTech} onChange={(e) => setCepFilterTech(e.target.value)} className="px-2 py-1 border rounded text-xs">
+                        <option value="">Tüm Teknisyenler</option>
+                        {techOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
                   </div>
                   {cepRequests.length === 0 ? (
                     <div className="text-center py-8 text-gray-500 text-sm">Bekleyen dağıtım talebi yok</div>
