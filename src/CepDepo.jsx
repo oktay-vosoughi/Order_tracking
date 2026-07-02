@@ -50,6 +50,7 @@ export default function CepDepo({ currentUser }) {
   const [distForm, setDistForm] = useState({ labTechnicianId: '', itemId: '', packQty: '', notes: '' });
   const [unitEditBal, setUnitEditBal] = useState(null);
   const [unitEditForm, setUnitEditForm] = useState({ packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK' });
+  const [balanceSearch, setBalanceSearch] = useState('');
 
   const handleSaveUnitFields = async () => {
     if (!unitEditBal) return;
@@ -279,71 +280,84 @@ export default function CepDepo({ currentUser }) {
     });
   };
 
-  const balanceTable = (rows) => (
-    <div className="overflow-x-auto -mx-4 sm:mx-0">
-    <table className="min-w-full text-sm">
-      <thead className="bg-gray-100">
-        <tr>
-          {!isLabTech && <th className="px-3 py-2 text-left">Lab Teknisyeni</th>}
-          <th className="px-3 py-2 text-left">Ürün</th>
-          <th className="px-3 py-2 text-right">Ana Birim (Koli)</th>
-          <th className="px-3 py-2 text-right">Alt Birim (Adet)</th>
-          <th className="px-3 py-2 text-left">Son Dağıtım</th>
-          <th className="px-3 py-2 text-left">Durum</th>
-          {isPrivileged && <th className="px-3 py-2"></th>}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.length === 0 && (
-          <tr><td colSpan={isLabTech ? 5 : 6} className="px-3 py-4 text-center text-gray-500">Kayıt yok.</td></tr>
-        )}
-        {rows.map((b) => {
-          const pkgLabel = b.packageUnit || 'koli';
-          const hasSubUnit = b.consumptionUnitType !== 'PACK' && b.consumptionUnit;
-          const conLabel = hasSubUnit ? b.consumptionUnit : pkgLabel;
-          return (
-            <tr key={b.id} className="border-t">
-              {!isLabTech && <td className="px-3 py-2">{b.labTechnicianUsername}</td>}
-              <td className="px-3 py-2">
-                {b.itemName || b.itemId}{' '}
-                {b.itemCode ? <span className="text-gray-500 text-xs">({b.itemCode})</span> : null}
-              </td>
-              <td className="px-3 py-2 text-right font-medium">
-                {(isFinite(Number(b.packQty)) ? Number(b.packQty) : 0).toFixed(2)}{' '}
-                <span className="text-xs text-gray-500">{pkgLabel}</span>
-              </td>
-              <td className="px-3 py-2 text-right font-medium">
-                {hasSubUnit ? (
-                  <span className="text-indigo-700">
-                    {(isFinite(Number(b.unitQty)) ? Number(b.unitQty) : 0).toFixed(0)}{' '}
-                    <span className="text-xs text-indigo-400">{conLabel}</span>
-                  </span>
-                ) : (
-                  <span className="text-gray-400 text-xs">—</span>
-                )}
-              </td>
-              <td className="px-3 py-2 text-xs text-gray-600">{b.lastDistributedAt ? new Date(b.lastDistributedAt).toLocaleString('tr-TR') : '-'}</td>
-              <td className="px-3 py-2">
-                <span className={`px-2 py-1 rounded text-xs ${b.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>{b.status}</span>
-              </td>
-              {isPrivileged && (
-                <td className="px-3 py-2">
-                  <button
-                    onClick={() => openUnitEdit(b)}
-                    className="px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
-                    title="Birim ayarlarını düzenle"
-                  >
-                    Birim
-                  </button>
-                </td>
-              )}
+  const balanceTable = (rows) => {
+    const q = balanceSearch.trim().toLowerCase();
+    const filtered = q
+      ? rows.filter((b) =>
+          String(b.itemName || '').toLowerCase().includes(q) ||
+          String(b.itemCode || '').toLowerCase().includes(q))
+      : rows;
+    // Columns: [Bölüm if !isLabTech] + Ürün + Miktar + Son Dağıtım + Durum + [action if privileged]
+    const colSpan = 4 + (!isLabTech ? 1 : 0) + (isPrivileged ? 1 : 0);
+    return (
+      <div>
+        <input
+          type="text"
+          value={balanceSearch}
+          onChange={(e) => setBalanceSearch(e.target.value)}
+          placeholder="Ürün ara (ad veya kod)..."
+          className="mb-3 w-full sm:w-72 px-3 py-2 border rounded text-sm"
+        />
+        <div className="overflow-x-auto -mx-4 sm:mx-0">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-100">
+            <tr>
+              {!isLabTech && <th className="px-3 py-2 text-left">Bölüm</th>}
+              <th className="px-3 py-2 text-left">Ürün</th>
+              <th className="px-3 py-2 text-right">Miktar</th>
+              <th className="px-3 py-2 text-left">Son Dağıtım</th>
+              <th className="px-3 py-2 text-left">Durum</th>
+              {isPrivileged && <th className="px-3 py-2"></th>}
             </tr>
-          );
-        })}
-      </tbody>
-    </table>
-    </div>
-  );
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr><td colSpan={colSpan} className="px-3 py-4 text-center text-gray-500">Kayıt yok.</td></tr>
+            )}
+            {filtered.map((b) => {
+              const pkgLabel = b.packageUnit || 'koli';
+              const hasSubUnit = b.consumptionUnitType !== 'PACK' && b.consumptionUnit;
+              const conLabel = hasSubUnit ? b.consumptionUnit : pkgLabel;
+              const qty = hasSubUnit
+                ? (isFinite(Number(b.unitQty)) ? Number(b.unitQty) : 0).toFixed(0)
+                : (isFinite(Number(b.packQty)) ? Number(b.packQty) : 0).toFixed(2);
+              return (
+                <tr key={b.id} className="border-t">
+                  {!isLabTech && <td className="px-3 py-2">{b.department || '-'}</td>}
+                  <td className="px-3 py-2">
+                    {b.itemName || b.itemId}{' '}
+                    {b.itemCode ? <span className="text-gray-500 text-xs">({b.itemCode})</span> : null}
+                  </td>
+                  <td className="px-3 py-2 text-right font-medium">
+                    <span className="text-indigo-700">
+                      {qty}{' '}
+                      <span className="text-xs text-indigo-400">{conLabel}</span>
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{b.lastDistributedAt ? new Date(b.lastDistributedAt).toLocaleString('tr-TR') : '-'}</td>
+                  <td className="px-3 py-2">
+                    <span className={`px-2 py-1 rounded text-xs ${b.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>{b.status}</span>
+                  </td>
+                  {isPrivileged && (
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={() => openUnitEdit(b)}
+                        className="px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+                        title="Birim ayarlarını düzenle"
+                      >
+                        Birim
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    );
+  };
 
   const requestsTable = (rows, { showActions } = {}) => (
     <div className="overflow-x-auto -mx-4 sm:mx-0">
@@ -498,7 +512,8 @@ export default function CepDepo({ currentUser }) {
   const myView = (
     <div className="space-y-6">
       <section className="bg-white rounded-xl shadow p-4">
-        <h3 className="text-lg font-bold mb-3">CEP DEPO Bakiyem</h3>
+        <h3 className="text-lg font-bold mb-3">Bölüm CEP DEPO Bakiyesi</h3>
+        <p className="text-xs text-gray-500 mb-3">Bu bakiye bölümünüzle paylaşılır; aynı bölümdeki tüm teknisyenler aynı stoktan tüketir.</p>
         {balanceTable(balances)}
       </section>
 
@@ -634,11 +649,18 @@ export default function CepDepo({ currentUser }) {
 
       {isPrivileged && (
         <section className="bg-white rounded-xl shadow p-4">
-          <h3 className="text-lg font-bold mb-3">Ana Depodan CEP DEPOya Dağıt</h3>
+          <h3 className="text-lg font-bold mb-1">Ana Depodan CEP DEPOya Dağıt</h3>
+          <p className="text-xs text-gray-500 mb-3">Stok, seçilen teknisyenin <strong>bölümünün</strong> paylaşılan CEP DEPO havuzuna eklenir.</p>
+          {(() => {
+            const selTech = techs.find((t) => String(t.id) === String(distForm.labTechnicianId));
+            return selTech ? (
+              <p className="text-xs mb-2 text-blue-700">Hedef bölüm havuzu: <strong>{selTech.department || 'BÖLÜM ATANMAMIŞ'}</strong></p>
+            ) : null;
+          })()}
           <form onSubmit={handleDistribute} className="grid grid-cols-1 md:grid-cols-5 gap-3">
             <select required className="px-3 py-2 border rounded" value={distForm.labTechnicianId} onChange={(e) => setDistForm({ ...distForm, labTechnicianId: e.target.value })}>
               <option value="">Lab teknisyeni seç…</option>
-              {techs.map((t) => <option key={t.id} value={t.id}>{t.username}</option>)}
+              {techs.map((t) => <option key={t.id} value={t.id}>{t.username}{t.department ? ` — ${t.department}` : ''}</option>)}
             </select>
             <select required className="px-3 py-2 border rounded" value={distForm.itemId} onChange={(e) => setDistForm({ ...distForm, itemId: e.target.value })}>
               <option value="">Ürün seç…</option>

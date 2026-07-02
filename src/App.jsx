@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -138,7 +138,9 @@ const LabEquipmentTracker = () => {
   const [bootstrapMode, setBootstrapMode] = useState(false);
 
   const [users, setUsers] = useState([]);
-  const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false });
+  const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false, department: '' });
+  const [departments, setDepartments] = useState([]);
+  const [newDeptName, setNewDeptName] = useState('');
   const [editingUserId, setEditingUserId] = useState(null);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
@@ -272,6 +274,7 @@ const LabEquipmentTracker = () => {
     }
     if (currentUser && activeTab === 'users' && canManageUsers) {
       loadUsers();
+      loadDepartments();
     }
   }, [activeTab, currentUser]);
 
@@ -442,8 +445,36 @@ const LabEquipmentTracker = () => {
   };
 
   const resetUserForm = () => {
-    setUserCreateForm({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false });
+    setUserCreateForm({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false, department: '' });
     setEditingUserId(null);
+  };
+
+  const loadDepartments = async () => {
+    try {
+      const res = await fetchDepartments();
+      setDepartments(res?.departments || []);
+    } catch (_) { /* non-fatal */ }
+  };
+
+  const handleAddDepartment = async () => {
+    const name = newDeptName.trim();
+    if (!name) return;
+    try {
+      await createDepartment(name);
+      setNewDeptName('');
+      await loadDepartments();
+    } catch (error) {
+      alert('Bölüm eklenemedi: ' + (error?.message || 'HATA'));
+    }
+  };
+
+  const handleToggleDepartment = async (dep) => {
+    try {
+      await updateDepartment(dep.id, { active: dep.active ? 0 : 1 });
+      await loadDepartments();
+    } catch (error) {
+      alert('Bölüm güncellenemedi: ' + (error?.message || 'HATA'));
+    }
   };
 
   const handleSaveUser = async () => {
@@ -466,10 +497,10 @@ const LabEquipmentTracker = () => {
     try {
       let res;
       if (editingUserId) {
-        res = await updateUser(editingUserId, trimmedUsername, userCreateForm.role, userCreateForm.password || undefined, userCreateForm.canReceive, userCreateForm.canViewPrices);
+        res = await updateUser(editingUserId, trimmedUsername, userCreateForm.role, userCreateForm.password || undefined, userCreateForm.canReceive, userCreateForm.canViewPrices, userCreateForm.department || '');
         alert('Kullanıcı güncellendi');
       } else {
-        res = await createUser(trimmedUsername, userCreateForm.password, userCreateForm.role);
+        res = await createUser(trimmedUsername, userCreateForm.password, userCreateForm.role, userCreateForm.department || null);
         alert('Kullanıcı oluşturuldu');
       }
       setUsers(res.users || []);
@@ -563,7 +594,7 @@ const LabEquipmentTracker = () => {
   const [newItem, setNewItem] = useState({
     code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: '',
     // CEP DEPO main/sub-unit fields
-    packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK'
+    packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK', minReactionThreshold: 3
   });
   
   const addItem = async () => {
@@ -610,14 +641,15 @@ const LabEquipmentTracker = () => {
         packageUnit: newItem.packageUnit || null,
         consumptionUnit: newItem.consumptionUnit || null,
         unitsPerPackage: newItem.unitsPerPackage === '' ? null : Number(newItem.unitsPerPackage) || null,
-        consumptionUnitType: newItem.consumptionUnitType || 'PACK'
+        consumptionUnitType: newItem.consumptionUnitType || 'PACK',
+        minReactionThreshold: newItem.minReactionThreshold === '' ? 3 : Number(newItem.minReactionThreshold)
       });
-      
+
       await loadUnifiedData();
-      
+
       setNewItem({
         code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: '',
-        packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK'
+        packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK', minReactionThreshold: 3
       });
       setShowAddForm(false);
       alert('Malzeme başarıyla eklendi!');
@@ -1840,7 +1872,21 @@ const LabEquipmentTracker = () => {
                   <option value="OBSERVER">OBSERVER (Sadece Görüntüleme)</option>
                   <option value="ADMIN">ADMIN (Tüm Yetkiler)</option>
                 </select>
+                <select
+                  value={userCreateForm.department}
+                  onChange={(e) => setUserCreateForm({ ...userCreateForm, department: e.target.value })}
+                  className="px-4 py-2 border rounded-lg"
+                  title="Bölüm (CEP DEPO havuzu bu bölüme göre paylaşılır)"
+                >
+                  <option value="">Bölüm seç… (opsiyonel)</option>
+                  {departments.filter((d) => d.active).map((d) => (
+                    <option key={d.id} value={d.name}>{d.name}</option>
+                  ))}
+                </select>
               </div>
+              {userCreateForm.role === 'LAB_TECHNICIAN' && !userCreateForm.department && (
+                <p className="text-xs text-amber-600 mb-4">Lab teknisyenleri CEP DEPO kullanabilmek için bir bölüme atanmalıdır.</p>
+              )}
               {userCreateForm.role === 'SATINAL' && (
                 <label className="flex items-center gap-2 mb-4 cursor-pointer select-none">
                   <input
@@ -1883,12 +1929,38 @@ const LabEquipmentTracker = () => {
                 </button>
               </div>
 
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Bölümler</h3>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {departments.map((d) => (
+                    <span key={d.id} className={`inline-flex items-center gap-2 px-2 py-1 rounded text-xs ${d.active ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-200 text-gray-500 line-through'}`}>
+                      {d.name}
+                      <button onClick={() => handleToggleDepartment(d)} className="text-xs underline" title={d.active ? 'Pasifleştir' : 'Aktifleştir'}>
+                        {d.active ? 'kapat' : 'aç'}
+                      </button>
+                    </span>
+                  ))}
+                  {departments.length === 0 && <span className="text-xs text-gray-500">Bölüm yok.</span>}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newDeptName}
+                    onChange={(e) => setNewDeptName(e.target.value)}
+                    placeholder="Yeni bölüm adı"
+                    className="px-3 py-2 border rounded text-sm"
+                  />
+                  <button onClick={handleAddDepartment} className="bg-indigo-600 text-white px-3 py-2 rounded text-sm hover:bg-indigo-700">Bölüm Ekle</button>
+                </div>
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Kullanıcı</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Rol</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Bölüm</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Ek Yetki</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Oluşturan</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Tarih</th>
@@ -1903,6 +1975,7 @@ const LabEquipmentTracker = () => {
                             {u.role}
                           </span>
                         </td>
+                        <td className="px-3 py-2 text-xs text-gray-600">{u.department || '-'}</td>
                         <td className="px-3 py-2">
                           {u.canReceive && (
                             <span className="px-2 py-1 rounded text-xs bg-green-100 text-green-700">Teslim Al</span>
@@ -1915,7 +1988,7 @@ const LabEquipmentTracker = () => {
                         <td className="px-3 py-2 text-right">
                           <button
                             onClick={() => {
-                              setUserCreateForm({ username: u.username, password: '', role: u.role, canReceive: !!u.canReceive });
+                              setUserCreateForm({ username: u.username, password: '', role: u.role, canReceive: !!u.canReceive, canViewPrices: !!u.canViewPrices, department: u.department || '' });
                               setEditingUserId(u.id);
                             }}
                             className="px-3 py-1 rounded bg-yellow-100 text-yellow-700 text-xs hover:bg-yellow-200"

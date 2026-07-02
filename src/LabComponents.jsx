@@ -160,6 +160,23 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Min Reaksiyon Eşiği
+            </label>
+            <input
+              type="number"
+              min="0"
+              placeholder="3"
+              value={newItem.minReactionThreshold ?? ''}
+              onChange={(e) => setNewItem({ ...newItem, minReactionThreshold: e.target.value })}
+              className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Reaksiyon (alt birim) bazlı ürünlerde: bölüm CEP DEPO stoğu bu eşiğin altına inince yeni talep açılabilir. Varsayılan 3.
+            </p>
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Min Stok</label>
             <input
               type="number"

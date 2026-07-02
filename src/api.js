@@ -83,26 +83,51 @@ export async function listUsers() {
   return apiFetch('/users');
 }
 
-export async function createUser(username, password, role) {
+export async function createUser(username, password, role, department) {
   return apiFetch('/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, role })
+    body: JSON.stringify({ username, password, role, department: department || null })
   });
 }
 
-export async function updateUser(id, username, role, password, canReceive, canViewPrices) {
+export async function updateUser(id, username, role, password, canReceive, canViewPrices, department) {
   const payload = {};
   if (username) payload.username = username;
   if (role) payload.role = role;
   if (password) payload.password = password;
   if (canReceive !== undefined) payload.canReceive = canReceive;
   if (canViewPrices !== undefined) payload.canViewPrices = canViewPrices;
+  if (department !== undefined) payload.department = department || null;
 
   return apiFetch(`/users/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
+  });
+}
+
+// ============================================================
+// DEPARTMENTS registry (runtime-editable name list)
+// ============================================================
+
+export async function fetchDepartments() {
+  return apiFetch('/departments');
+}
+
+export async function createDepartment(name) {
+  return apiFetch('/departments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+}
+
+export async function updateDepartment(id, data) {
+  return apiFetch(`/departments/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
   });
 }
 
