@@ -814,6 +814,7 @@ const LabEquipmentTracker = () => {
           notes: requestForm.notes,
           urgency: requestForm.urgency
         });
+        await loadAllActionData();
         setShowRequestForm(null);
         setRequestForm({ quantity: 0, notes: '', urgency: 'normal', department: '' });
         alert('Talebiniz alındı! CEP DEPO üzerinden dağıtılacak.');
@@ -1694,6 +1695,12 @@ const LabEquipmentTracker = () => {
   function navClick(tab) {
     setActiveTab(tab);
     setSidebarOpen(false);
+    // Refresh the data behind the tab so clicking (not F5) shows fresh state.
+    if (tab === 'stock') {
+      loadUnifiedData();
+    } else if (tab === 'requests' || tab === 'orders' || tab === 'distributions') {
+      loadAllActionData();
+    }
   }
 
   return (
