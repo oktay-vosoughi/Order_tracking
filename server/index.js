@@ -1860,7 +1860,8 @@ app.post('/api/purchases', authRequired, async (req, res) => {
       if (bal) {
         const itemRows = await all(pool, 'SELECT consumptionUnit, minReactionThreshold FROM item_definitions WHERE id = ?', [itemId]);
         const itemDef = itemRows?.[0] || {};
-        const isReaction = String(itemDef.consumptionUnit || '').toLowerCase().includes('reak');
+        // Reaction sub-units are written as "reax", "reaksyon" or "reaksiyon" (excludes "reaktif").
+        const isReaction = /reax|reaks|reaction/.test(String(itemDef.consumptionUnit || '').toLowerCase());
         if (isReaction) {
           // Reaction items: may request only when remaining reactions are below the item's threshold.
           const threshold = Number(itemDef.minReactionThreshold) > 0 ? Number(itemDef.minReactionThreshold) : 3;
