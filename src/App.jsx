@@ -99,6 +99,8 @@ const LabEquipmentTracker = () => {
   const [showRequestForm, setShowRequestForm] = useState(null);
   const [showReceiveForm, setShowReceiveForm] = useState(null);
   const [showDistributeForm, setShowDistributeForm] = useState(null);
+  // Distributable lots per item (Parti/SKT picker at Dağıt). Keyed by itemId.
+  const [itemLotsCache, setItemLotsCache] = useState({});
   const [showOrderForm, setShowOrderForm] = useState(null);
   const [showApproveModal, setShowApproveModal] = useState(null);
   const [approveForm, setApproveForm] = useState({ approvalNote: '' });
@@ -193,6 +195,27 @@ const LabEquipmentTracker = () => {
   const canDistribute = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
   const canViewPrices = isAdmin || isKurumsal || !!currentUser?.canViewPrices;
 
+  // Fetch + cache ONLY distributable lots for an item (ACTIVE, qty > 0, not expired).
+  const loadItemLots2 = async (itemId) => {
+    if (!itemId) return;
+    try {
+      const res = await fetchItemLots(itemId);
+      const distributable = (res?.lots || []).filter(
+        (l) => l.status === 'ACTIVE' && Number(l.currentQuantity) > 0 && l.expiryStatus !== 'EXPIRED'
+      );
+      setItemLotsCache((prev) => ({ ...prev, [itemId]: distributable }));
+    } catch (error) {
+      console.error('Failed to load distributable lots:', error);
+      setItemLotsCache((prev) => ({ ...prev, [itemId]: [] }));
+    }
+  };
+
+  // Human-readable option label: "Parti X · SKT 01.01.2027 · 5 koli mevcut"
+  const distributableLotLabel = (lot, unit) => {
+    const skt = lot.expiryDate ? new Date(lot.expiryDate).toLocaleDateString('tr-TR') : 'SKT yok';
+    return `Parti ${lot.lotNumber} · SKT ${skt} · ${lot.currentQuantity} ${unit || 'koli'} mevcut`;
+  };
+
   // Pending CEP DEPO lab-tech requests grouped by itemId.
   // Distinct from regular order-purchase requests: only those flagged as CEP DEPO.
   const pendingCepRequestsByItem = (() => {
@@ -206,6 +229,19 @@ const LabEquipmentTracker = () => {
     }
     return map;
   })();
+
+  // Prefetch distributable lots for the open distribute modal + every pending
+  // CEP DEPO request item, so the Parti/SKT pickers have data.
+  useEffect(() => {
+    const ids = new Set();
+    if (showDistributeForm?.id) ids.add(showDistributeForm.id);
+    for (const list of Object.values(pendingCepRequestsByItem)) {
+      for (const p of list) if (p.itemId) ids.add(p.itemId);
+    }
+    ids.forEach((id) => loadItemLots2(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDistributeForm, purchases]);
+
   const canImportItems = canModifyInventory;
   const canViewAllDagit = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
   const canViewDagit = true; // Tab visible to all; content filtered per role
@@ -418,7 +454,7 @@ const LabEquipmentTracker = () => {
       alert('LOT bilgileri yüklenemedi');
     }
   };
-  
+
   const saveData = async (newItems, newPurchases, newDist, newWaste) => {
     // Legacy function - kept for backward compatibility but non-blocking
     // Unified LOT system uses database via API, not localStorage
