@@ -207,6 +207,7 @@ const sanitizeUser = (u) => ({
   role: u.role,
   canReceive: u.can_receive === 1 || u.can_receive === true || u.can_receive === '1',
   canViewPrices: u.can_view_prices === 1 || u.can_view_prices === true || u.can_view_prices === '1',
+  department: u.department || null,
   createdAt: u.createdAt,
   createdBy: u.createdBy
 });
@@ -281,14 +282,19 @@ app.post('/api/auth/bootstrap', async (req, res) => {
 });
 
 app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
-  const { username, role, password, canReceive, canViewPrices } = req.body || {};
-  if (!username && !role && !password && canReceive === undefined && canViewPrices === undefined) {
+  const { username, role, password, canReceive, canViewPrices, department } = req.body || {};
+  if (!username && !role && !password && canReceive === undefined && canViewPrices === undefined && department === undefined) {
     res.status(400).json({ error: 'INVALID_INPUT' });
     return;
   }
 
   const updates = [];
   const params = [];
+
+  if (department !== undefined) {
+    updates.push('department = ?');
+    params.push(department ? String(department) : null);
+  }
 
   if (username) {
     updates.push('username = ?');
@@ -328,7 +334,7 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
 
   try {
     await run(pool, `UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
-    const users = await all(pool, 'SELECT id, username, role, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    const users = await all(pool, 'SELECT id, username, role, department, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') {
@@ -426,7 +432,7 @@ app.get('/api/auth/me', authRequired, async (req, res) => {
 
 app.get('/api/users', authRequired, adminRequired, async (_req, res) => {
   try {
-    const users = await all(pool, 'SELECT id, username, role, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    const users = await all(pool, 'SELECT id, username, role, department, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     console.error('List users error', error);
@@ -435,7 +441,7 @@ app.get('/api/users', authRequired, adminRequired, async (_req, res) => {
 });
 
 app.post('/api/users', authRequired, adminRequired, async (req, res) => {
-  const { username, password, role } = req.body || {};
+  const { username, password, role, department } = req.body || {};
   if (!username || !password || !role) {
     res.status(400).json({ error: 'INVALID_INPUT' });
     return;
@@ -447,8 +453,8 @@ app.post('/api/users', authRequired, adminRequired, async (req, res) => {
 
   try {
     const passwordHash = await bcrypt.hash(String(password), 10);
-    await run(pool, 'INSERT INTO users (username, passwordHash, role, createdBy) VALUES (?, ?, ?, ?)', [String(username), passwordHash, String(role), String(req.user.username)]);
-    const users = await all(pool, 'SELECT id, username, role, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    await run(pool, 'INSERT INTO users (username, passwordHash, role, department, createdBy) VALUES (?, ?, ?, ?, ?)', [String(username), passwordHash, String(role), department ? String(department) : null, String(req.user.username)]);
+    const users = await all(pool, 'SELECT id, username, role, department, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') {
@@ -660,11 +666,13 @@ app.post('/api/item-definitions', authRequired, canManageItems, async (req, res)
     code, name, category, department, unit, minStock, ideal_stock, max_stock,
     supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType,
     msdsUrl, notes,
-    packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType
+    packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType, minReactionThreshold
   } = req.body || {};
   if (!code || !name) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Code and name are required' });
   }
+  const mrt = (minReactionThreshold != null && minReactionThreshold !== '' && Number(minReactionThreshold) >= 0)
+    ? Math.floor(Number(minReactionThreshold)) : 3;
 
   // Normalize CEP DEPO unit fields.
   const pkgUnit = packageUnit ? String(packageUnit).trim() || null : null;
@@ -686,9 +694,9 @@ app.post('/api/item-definitions', authRequired, canManageItems, async (req, res)
   try {
     const id = generateId();
     await run(pool, `
-      INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType, status, createdBy)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
-    `, [id, code, name, category || '', department || '', unit || '', minStock || 0, ideal_stock || null, max_stock || null, supplier || '', catalogNo || '', brand || '', storageLocation || '', storageTemp || '', chemicalType || '', msdsUrl || '', notes || '', pkgUnit, conUnit, upp, cut, req.user.username]);
+      INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType, minReactionThreshold, status, createdBy)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+    `, [id, code, name, category || '', department || '', unit || '', minStock || 0, ideal_stock || null, max_stock || null, supplier || '', catalogNo || '', brand || '', storageLocation || '', storageTemp || '', chemicalType || '', msdsUrl || '', notes || '', pkgUnit, conUnit, upp, cut, mrt, req.user.username]);
     
     const items = await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [id]);
     res.json({ item: items[0] });
@@ -707,8 +715,11 @@ app.put('/api/item-definitions/:id', authRequired, canManageItems, async (req, r
     code, name, category, department, unit, minStock, ideal_stock, max_stock,
     supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType,
     msdsUrl, notes, status,
-    packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType
+    packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType, minReactionThreshold
   } = req.body || {};
+
+  const mrt = (minReactionThreshold !== undefined && minReactionThreshold !== null && minReactionThreshold !== '' && Number(minReactionThreshold) >= 0)
+    ? Math.floor(Number(minReactionThreshold)) : null;
 
   // Normalize CEP DEPO unit fields. `undefined` means "do not change" (COALESCE keeps old value).
   const pkgUnit = packageUnit === undefined ? null
@@ -766,9 +777,10 @@ app.put('/api/item-definitions/:id', authRequired, canManageItems, async (req, r
         consumptionUnit = COALESCE(?, consumptionUnit),
         unitsPerPackage = COALESCE(?, unitsPerPackage),
         consumptionUnitType = COALESCE(?, consumptionUnitType),
+        minReactionThreshold = COALESCE(?, minReactionThreshold),
         updatedBy = ?
       WHERE id = ?
-    `, [code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status, pkgUnit, conUnit, upp, cut, req.user.username, req.params.id]);
+    `, [code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status, pkgUnit, conUnit, upp, cut, mrt, req.user.username, req.params.id]);
     
     const items = await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [req.params.id]);
     const updated = items[0];
@@ -1666,16 +1678,18 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
       // -----------------------------------------------------------
       let targetTech = null;
       if (labTechnicianId) {
-        const rows = await all(conn, 'SELECT id, username, role FROM users WHERE id = ?', [labTechnicianId]);
+        const rows = await all(conn, 'SELECT id, username, role, department FROM users WHERE id = ?', [labTechnicianId]);
         if (rows?.[0] && isLabTechnicianRole(rows[0].role)) targetTech = rows[0];
       }
       if (!targetTech && receivedBy) {
-        const rows = await all(conn, 'SELECT id, username, role FROM users WHERE username = ?', [String(receivedBy)]);
+        const rows = await all(conn, 'SELECT id, username, role, department FROM users WHERE username = ?', [String(receivedBy)]);
         if (rows?.[0] && isLabTechnicianRole(rows[0].role)) targetTech = rows[0];
       }
 
       let cepResult = null;
       if (targetTech) {
+        const targetDept = targetTech.department;
+        if (!targetDept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Teknisyenin bağlı olduğu bölüm yok. Önce kullanıcıya bir bölüm atayın.' };
         // Idempotency guard (same rule as /api/cep-depo/distribute).
         if (purchaseId) {
           const prows = await all(conn, 'SELECT id, status FROM purchases WHERE id = ? FOR UPDATE', [purchaseId]);
@@ -1706,29 +1720,28 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
 
         await run(conn, `
           INSERT INTO cep_depo_distributions
-            (id, labTechnicianId, labTechnicianUsername, itemId, packQty, unitQty, purchaseId, distributedBy, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [cepDistributionId, targetTech.id, targetTech.username, itemId, quantity, totalUnitQty, purchaseId || null, req.user.username, purpose || null]);
+            (id, labTechnicianId, labTechnicianUsername, recipientTechnicianId, department, itemId, packQty, unitQty, purchaseId, distributedBy, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [cepDistributionId, targetTech.id, targetTech.username, targetTech.id, targetDept, itemId, quantity, totalUnitQty, purchaseId || null, req.user.username, purpose || null]);
 
         await run(conn, `
           INSERT INTO cep_depo_balances
-            (id, labTechnicianId, labTechnicianUsername, itemId, packQty, unitQty, status, lastDistributedAt, lastDistributionId)
-          VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', NOW(), ?)
+            (id, department, itemId, packQty, unitQty, status, lastDistributedAt, lastDistributionId)
+          VALUES (?, ?, ?, ?, ?, 'ACTIVE', NOW(), ?)
           ON DUPLICATE KEY UPDATE
             packQty = packQty + VALUES(packQty),
             unitQty = unitQty + VALUES(unitQty),
             status = 'ACTIVE',
-            labTechnicianUsername = VALUES(labTechnicianUsername),
             lastDistributedAt = VALUES(lastDistributedAt),
             lastDistributionId = VALUES(lastDistributionId)
-        `, [generateId(), targetTech.id, targetTech.username, itemId, quantity, totalUnitQty, cepDistributionId]);
+        `, [generateId(), targetDept, itemId, quantity, totalUnitQty, cepDistributionId]);
 
         await run(conn, `
           INSERT INTO stock_movements
             (id, movementType, itemId, fromLocation, toLocation, packQty, unitQty,
-             performedByUserId, performedByUsername, labTechnicianId, requestId, refId, notes)
-          VALUES (?, 'DISTRIBUTE_CEP', ?, 'MAIN_DEPOT', 'CEP_DEPO', ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [generateId(), itemId, quantity, totalUnitQty, req.user.id, req.user.username, targetTech.id, purchaseId || null, cepDistributionId, purpose || null]);
+             performedByUserId, performedByUsername, labTechnicianId, department, requestId, refId, notes)
+          VALUES (?, 'DISTRIBUTE_CEP', ?, 'MAIN_DEPOT', 'CEP_DEPO', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [generateId(), itemId, quantity, totalUnitQty, req.user.id, req.user.username, targetTech.id, targetDept, purchaseId || null, cepDistributionId, purpose || null]);
 
         if (purchaseId) {
           await run(conn,
@@ -1834,18 +1847,41 @@ app.post('/api/purchases', authRequired, async (req, res) => {
     } else if (isLabTech) {
       effectiveLabTechUsername = requesterUsername;
       effectiveLabTechId = req.user.id;
-      // Block if remaining CEP DEPO balance > 0
+      // Block based on the DEPARTMENT'S shared CEP DEPO pool.
+      const deptRows = await all(pool, 'SELECT department FROM users WHERE id = ?', [req.user.id]);
+      const deptName = deptRows?.[0]?.department;
+      if (!deptName) {
+        return res.status(409).json({ error: 'NO_DEPARTMENT', message: 'Talep oluşturmadan önce bir bölüme atanmalısınız.' });
+      }
       const balRows = await all(pool,
-        'SELECT packQty, unitQty FROM cep_depo_balances WHERE labTechnicianId = ? AND itemId = ?',
-        [req.user.id, itemId]);
+        'SELECT packQty, unitQty FROM cep_depo_balances WHERE department = ? AND itemId = ?',
+        [deptName, itemId]);
       const bal = balRows?.[0];
-      if (bal && (Number(bal.packQty) > 0 || Number(bal.unitQty) > 0)) {
-        return res.status(409).json({
-          error: 'CEP_DEPO_HAS_STOCK',
-          message: 'Bu ürün için CEP DEPO stoğunuz mevcut. Yeni talep oluşturmadan önce mevcut stoğu tüketmeli veya iade etmelisiniz.',
-          remainingPackQty: Number(bal.packQty),
-          remainingUnitQty: Number(bal.unitQty)
-        });
+      if (bal) {
+        const itemRows = await all(pool, 'SELECT consumptionUnit, minReactionThreshold FROM item_definitions WHERE id = ?', [itemId]);
+        const itemDef = itemRows?.[0] || {};
+        const isReaction = String(itemDef.consumptionUnit || '').toLowerCase().includes('reak');
+        if (isReaction) {
+          // Reaction items: may request only when remaining reactions are below the item's threshold.
+          const threshold = Number(itemDef.minReactionThreshold) > 0 ? Number(itemDef.minReactionThreshold) : 3;
+          const remainingReactions = Number(bal.unitQty) || 0;
+          if (remainingReactions >= threshold) {
+            return res.status(409).json({
+              error: 'CEP_DEPO_HAS_STOCK',
+              message: `Bölüm CEP DEPO stoğu yeterli (kalan ${remainingReactions} reaksiyon, eşik ${threshold}). Stok eşiğin altına inince yeni talep oluşturabilirsiniz.`,
+              remainingReactions,
+              threshold
+            });
+          }
+        } else if (Number(bal.packQty) > 0 || Number(bal.unitQty) > 0) {
+          // Non-reaction items: any remaining stock blocks a new request.
+          return res.status(409).json({
+            error: 'CEP_DEPO_HAS_STOCK',
+            message: 'Bu ürün için bölüm CEP DEPO stoğu mevcut. Yeni talep oluşturmadan önce mevcut stoğu tüketmeli veya iade etmelisiniz.',
+            remainingPackQty: Number(bal.packQty),
+            remainingUnitQty: Number(bal.unitQty)
+          });
+        }
       }
     }
 
@@ -3007,15 +3043,20 @@ const ensureCepDepoTables = async () => {
   // department NAME string (same vocabulary as item_definitions.department /
   // src/labDepartments.mjs). The unique-key swap happens in the one-time
   // migration server/migrations/2026-07-01-shared-cep-depo.sql.
+  // Each table has its own try so a not-yet-created table doesn't cascade-skip the others.
   try {
     await ensureColumn('users', 'department', '`department` VARCHAR(150) NULL');
+  } catch (e) { console.warn('[ensureCepDepo] users.department skipped:', e?.code || e?.message); }
+  try {
     await ensureColumn('item_definitions', 'minReactionThreshold', '`minReactionThreshold` INT NOT NULL DEFAULT 3');
+  } catch (e) { console.warn('[ensureCepDepo] item_definitions.minReactionThreshold skipped:', e?.code || e?.message); }
+  try {
     await ensureColumn('cep_depo_balances', 'department', '`department` VARCHAR(150) NULL');
     await ensureColumn('cep_depo_distributions', 'department', '`department` VARCHAR(150) NULL');
     await ensureColumn('cep_depo_distributions', 'recipientTechnicianId', '`recipientTechnicianId` BIGINT UNSIGNED NULL');
     await ensureColumn('cep_depo_consumptions', 'department', '`department` VARCHAR(150) NULL');
     await ensureColumn('stock_movements', 'department', '`department` VARCHAR(150) NULL');
-  } catch (e) { console.warn('[ensureCepDepo] department columns upgrade skipped:', e?.code || e?.message); }
+  } catch (e) { console.warn('[ensureCepDepo] cep department columns skipped:', e?.code || e?.message); }
 
   // Seed the department registry from the canonical list if empty (ADMIN can add more at runtime).
   try {
@@ -3039,18 +3080,27 @@ const resolveUnitFactor = (item, lot) => {
 const resolveConsumptionUnitType = (item, lot) =>
   (lot && lot.consumptionUnitType) || (item && item.consumptionUnitType) || 'PACK';
 
-// GET /api/cep-depo/balances — all balances (admin/satinal/lojistik/observer see all)
+// Resolve a user's department (name string) from the DB — never trust the JWT.
+async function getUserDeptId(userId) {
+  const r = await all(pool, 'SELECT department FROM users WHERE id = ?', [userId]);
+  return r?.[0]?.department || null;
+}
+
+// GET /api/cep-depo/balances — shared department pools. Lab techs see only their
+// department; privileged roles see all (optional ?department= filter).
 app.get('/api/cep-depo/balances', authRequired, async (req, res) => {
   try {
     const role = req.user.role;
+    const dept = isLabTechnicianRole(role) ? await getUserDeptId(req.user.id) : (req.query.department || null);
+    if (isLabTechnicianRole(role) && !dept) return res.json({ balances: [] });
     const sql = `
       SELECT b.*, i.code AS itemCode, i.name AS itemName, i.packageUnit, i.consumptionUnit, i.unitsPerPackage, i.consumptionUnitType
       FROM cep_depo_balances b
       LEFT JOIN item_definitions i ON i.id = b.itemId
-      ${isLabTechnicianRole(role) ? 'WHERE b.labTechnicianId = ?' : ''}
-      ORDER BY b.labTechnicianUsername, i.name
+      ${dept ? 'WHERE b.department = ?' : ''}
+      ORDER BY b.department, i.name
     `;
-    const params = isLabTechnicianRole(role) ? [req.user.id] : [];
+    const params = dept ? [dept] : [];
     const balances = await all(pool, sql, params);
     res.json({ balances });
   } catch (error) {
@@ -3059,16 +3109,18 @@ app.get('/api/cep-depo/balances', authRequired, async (req, res) => {
   }
 });
 
-// GET /api/cep-depo/my-balances — own balances (any authenticated user)
+// GET /api/cep-depo/my-balances — the caller's own department pool.
 app.get('/api/cep-depo/my-balances', authRequired, async (req, res) => {
   try {
+    const dept = await getUserDeptId(req.user.id);
+    if (!dept) return res.json({ balances: [] });
     const balances = await all(pool, `
       SELECT b.*, i.code AS itemCode, i.name AS itemName, i.packageUnit, i.consumptionUnit, i.unitsPerPackage, i.consumptionUnitType
       FROM cep_depo_balances b
       LEFT JOIN item_definitions i ON i.id = b.itemId
-      WHERE b.labTechnicianId = ?
+      WHERE b.department = ?
       ORDER BY i.name
-    `, [req.user.id]);
+    `, [dept]);
     res.json({ balances });
   } catch (error) {
     console.error('Failed to list my cep-depo balances', error);
@@ -3088,10 +3140,12 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
 
   try {
     const result = await withTransaction(async (conn) => {
-      const techRows = await all(conn, 'SELECT id, username, role FROM users WHERE id = ?', [labTechnicianId]);
+      const techRows = await all(conn, 'SELECT id, username, role, department FROM users WHERE id = ?', [labTechnicianId]);
       const tech = techRows?.[0];
       if (!tech) throw { status: 404, error: 'TECHNICIAN_NOT_FOUND' };
       if (!isLabTechnicianRole(tech.role)) throw { status: 400, error: 'LAB_TECHNICIAN_REQUIRED' };
+      const dept = tech.department;
+      if (!dept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Teknisyenin bağlı olduğu bölüm yok. Önce kullanıcıya bir bölüm atayın.' };
 
       // Idempotency guard: if a purchaseId is supplied and that purchase is already
       // in a terminal "delivered" state, reject to prevent duplicate CEP DEPO distribution.
@@ -3151,34 +3205,33 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
         totalUnitQty += takeUnits;
       }
 
-      // Header
+      // Header — records the recipient technician and the target department pool.
       await run(conn, `
         INSERT INTO cep_depo_distributions
-          (id, labTechnicianId, labTechnicianUsername, itemId, packQty, unitQty, purchaseId, distributedBy, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [cepDistributionId, tech.id, tech.username, itemId, packQtyNum, totalUnitQty, purchaseId || null, req.user.username, notes || null]);
+          (id, labTechnicianId, labTechnicianUsername, recipientTechnicianId, department, itemId, packQty, unitQty, purchaseId, distributedBy, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [cepDistributionId, tech.id, tech.username, tech.id, dept, itemId, packQtyNum, totalUnitQty, purchaseId || null, req.user.username, notes || null]);
 
-      // Upsert balance
+      // Upsert the shared department pool balance (keyed by department + item).
       await run(conn, `
         INSERT INTO cep_depo_balances
-          (id, labTechnicianId, labTechnicianUsername, itemId, packQty, unitQty, status, lastDistributedAt, lastDistributionId)
-        VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', NOW(), ?)
+          (id, department, itemId, packQty, unitQty, status, lastDistributedAt, lastDistributionId)
+        VALUES (?, ?, ?, ?, ?, 'ACTIVE', NOW(), ?)
         ON DUPLICATE KEY UPDATE
           packQty = packQty + VALUES(packQty),
           unitQty = unitQty + VALUES(unitQty),
           status = 'ACTIVE',
-          labTechnicianUsername = VALUES(labTechnicianUsername),
           lastDistributedAt = VALUES(lastDistributedAt),
           lastDistributionId = VALUES(lastDistributionId)
-      `, [generateId(), tech.id, tech.username, itemId, packQtyNum, totalUnitQty, cepDistributionId]);
+      `, [generateId(), dept, itemId, packQtyNum, totalUnitQty, cepDistributionId]);
 
       // Movement
       await run(conn, `
         INSERT INTO stock_movements
           (id, movementType, itemId, fromLocation, toLocation, packQty, unitQty,
-           performedByUserId, performedByUsername, labTechnicianId, requestId, refId, notes)
-        VALUES (?, 'DISTRIBUTE_CEP', ?, 'MAIN_DEPOT', 'CEP_DEPO', ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [generateId(), itemId, packQtyNum, totalUnitQty, req.user.id, req.user.username, tech.id, purchaseId || null, cepDistributionId, notes || null]);
+           performedByUserId, performedByUsername, labTechnicianId, department, requestId, refId, notes)
+        VALUES (?, 'DISTRIBUTE_CEP', ?, 'MAIN_DEPOT', 'CEP_DEPO', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [generateId(), itemId, packQtyNum, totalUnitQty, req.user.id, req.user.username, tech.id, dept, purchaseId || null, cepDistributionId, notes || null]);
 
       // If linked to a purchase request, mark it as distributed (best-effort)
       if (purchaseId) {
@@ -3219,16 +3272,19 @@ app.post('/api/cep-depo/consume', authRequired, async (req, res) => {
 
   try {
     const result = await withTransaction(async (conn) => {
-      const techRows = await all(conn, 'SELECT id, username, role FROM users WHERE id = ?', [targetTechId]);
+      const techRows = await all(conn, 'SELECT id, username, role, department FROM users WHERE id = ?', [targetTechId]);
       const tech = techRows?.[0];
       if (!tech) throw { status: 404, error: 'TECHNICIAN_NOT_FOUND' };
       if (!isLabTechnicianRole(tech.role)) throw { status: 400, error: 'LAB_TECHNICIAN_REQUIRED' };
+      // ADMIN may target a specific department pool directly; otherwise use the tech's department.
+      const dept = (isAdmin && req.body?.department) ? String(req.body.department) : tech.department;
+      if (!dept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Bir bölüme atanmış olmalısınız.' };
 
       const balRows = await all(conn,
-        'SELECT * FROM cep_depo_balances WHERE labTechnicianId = ? AND itemId = ? FOR UPDATE',
-        [tech.id, itemId]);
+        'SELECT * FROM cep_depo_balances WHERE department = ? AND itemId = ? FOR UPDATE',
+        [dept, itemId]);
       const bal = balRows?.[0];
-      if (!bal) throw { status: 409, error: 'INSUFFICIENT_CEP_BALANCE', message: 'Bu üründe CEP DEPO bakiyeniz yok.' };
+      if (!bal) throw { status: 409, error: 'INSUFFICIENT_CEP_BALANCE', message: 'Bu üründe bölüm CEP DEPO bakiyesi yok.' };
 
       const itemRows = await all(conn, 'SELECT * FROM item_definitions WHERE id = ?', [itemId]);
       const item = itemRows?.[0];
@@ -3283,16 +3339,16 @@ app.post('/api/cep-depo/consume', authRequired, async (req, res) => {
       const consumptionId = generateId();
       await run(conn, `
         INSERT INTO cep_depo_consumptions
-          (id, labTechnicianId, labTechnicianUsername, itemId, consumptionUnitType, quantity, packDelta, unitDelta, testCount, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [consumptionId, tech.id, tech.username, itemId, consumptionUnitType, qtyNum, packDelta, unitDelta, testCount || null, notes || null]);
+          (id, labTechnicianId, labTechnicianUsername, department, itemId, consumptionUnitType, quantity, packDelta, unitDelta, testCount, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [consumptionId, tech.id, tech.username, dept, itemId, consumptionUnitType, qtyNum, packDelta, unitDelta, testCount || null, notes || null]);
 
       await run(conn, `
         INSERT INTO stock_movements
           (id, movementType, itemId, fromLocation, toLocation, packQty, unitQty,
-           performedByUserId, performedByUsername, labTechnicianId, refId, notes)
-        VALUES (?, 'CONSUME', ?, 'CEP_DEPO', 'CONSUMED', ?, ?, ?, ?, ?, ?, ?)
-      `, [generateId(), itemId, packDelta, unitDelta, req.user.id, req.user.username, tech.id, consumptionId, notes || null]);
+           performedByUserId, performedByUsername, labTechnicianId, department, refId, notes)
+        VALUES (?, 'CONSUME', ?, 'CEP_DEPO', 'CONSUMED', ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [generateId(), itemId, packDelta, unitDelta, req.user.id, req.user.username, tech.id, dept, consumptionId, notes || null]);
 
       return { consumptionId, balance: { packQty: newPack, unitQty: newUnit, status: newStatus } };
     });
@@ -3321,13 +3377,15 @@ app.post('/api/cep-depo/return', authRequired, async (req, res) => {
 
   try {
     const result = await withTransaction(async (conn) => {
-      const techRows = await all(conn, 'SELECT id, username, role FROM users WHERE id = ?', [targetTechId]);
+      const techRows = await all(conn, 'SELECT id, username, role, department FROM users WHERE id = ?', [targetTechId]);
       const tech = techRows?.[0];
       if (!tech || !isLabTechnicianRole(tech.role)) throw { status: 400, error: 'LAB_TECHNICIAN_REQUIRED' };
+      const dept = (role === ROLES.ADMIN && req.body?.department) ? String(req.body.department) : tech.department;
+      if (!dept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Bir bölüme atanmış olmalısınız.' };
 
       const balRows = await all(conn,
-        'SELECT * FROM cep_depo_balances WHERE labTechnicianId = ? AND itemId = ? FOR UPDATE',
-        [tech.id, itemId]);
+        'SELECT * FROM cep_depo_balances WHERE department = ? AND itemId = ? FOR UPDATE',
+        [dept, itemId]);
       const bal = balRows?.[0];
       if (!bal || Number(bal.packQty) < packQtyNum) {
         throw { status: 409, error: 'INSUFFICIENT_CEP_BALANCE' };
@@ -3368,9 +3426,9 @@ app.post('/api/cep-depo/return', authRequired, async (req, res) => {
       await run(conn, `
         INSERT INTO stock_movements
           (id, movementType, itemId, fromLocation, toLocation, packQty, unitQty,
-           performedByUserId, performedByUsername, labTechnicianId, refId, notes)
-        VALUES (?, 'RETURN_CEP', ?, 'CEP_DEPO', 'MAIN_DEPOT', ?, ?, ?, ?, ?, ?, ?)
-      `, [generateId(), itemId, packQtyNum, unitQtyNum, req.user.id, req.user.username, tech.id, creditLotId, notes || null]);
+           performedByUserId, performedByUsername, labTechnicianId, department, refId, notes)
+        VALUES (?, 'RETURN_CEP', ?, 'CEP_DEPO', 'MAIN_DEPOT', ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [generateId(), itemId, packQtyNum, unitQtyNum, req.user.id, req.user.username, tech.id, dept, creditLotId, notes || null]);
 
       return { creditedLotId: creditLotId, balance: { packQty: newPack, unitQty: newUnit } };
     });
@@ -3388,16 +3446,17 @@ app.get('/api/cep-depo/movements', authRequired, async (req, res) => {
   try {
     const role = req.user.role;
     const limit = Math.min(Number(req.query.limit) || 500, 5000);
-    const filterTech = isLabTechnicianRole(role) ? req.user.id : (req.query.labTechnicianId || null);
+    const dept = isLabTechnicianRole(role) ? await getUserDeptId(req.user.id) : (req.query.department || null);
+    if (isLabTechnicianRole(role) && !dept) return res.json({ movements: [] });
     const sql = `
       SELECT m.*, i.code AS itemCode, i.name AS itemName
       FROM stock_movements m
       LEFT JOIN item_definitions i ON i.id = m.itemId
-      ${filterTech ? 'WHERE m.labTechnicianId = ?' : ''}
+      ${dept ? 'WHERE m.department = ?' : ''}
       ORDER BY m.createdAt DESC
       LIMIT ${limit}
     `;
-    const params = filterTech ? [filterTech] : [];
+    const params = dept ? [dept] : [];
     const movements = await all(pool, sql, params);
     res.json({ movements });
   } catch (error) {
@@ -3410,14 +3469,16 @@ app.get('/api/cep-depo/movements', authRequired, async (req, res) => {
 app.get('/api/cep-depo/distributions', authRequired, async (req, res) => {
   try {
     const role = req.user.role;
+    const dept = isLabTechnicianRole(role) ? await getUserDeptId(req.user.id) : (req.query.department || null);
+    if (isLabTechnicianRole(role) && !dept) return res.json({ distributions: [] });
     const sql = `
       SELECT d.*, i.code AS itemCode, i.name AS itemName
       FROM cep_depo_distributions d
       LEFT JOIN item_definitions i ON i.id = d.itemId
-      ${isLabTechnicianRole(role) ? 'WHERE d.labTechnicianId = ?' : ''}
+      ${dept ? 'WHERE d.department = ?' : ''}
       ORDER BY d.distributedAt DESC
     `;
-    const params = isLabTechnicianRole(role) ? [req.user.id] : [];
+    const params = dept ? [dept] : [];
     const distributions = await all(pool, sql, params);
     res.json({ distributions });
   } catch (error) {
@@ -3430,14 +3491,16 @@ app.get('/api/cep-depo/distributions', authRequired, async (req, res) => {
 app.get('/api/cep-depo/consumptions', authRequired, async (req, res) => {
   try {
     const role = req.user.role;
+    const dept = isLabTechnicianRole(role) ? await getUserDeptId(req.user.id) : (req.query.department || null);
+    if (isLabTechnicianRole(role) && !dept) return res.json({ consumptions: [] });
     const sql = `
       SELECT c.*, i.code AS itemCode, i.name AS itemName
       FROM cep_depo_consumptions c
       LEFT JOIN item_definitions i ON i.id = c.itemId
-      ${isLabTechnicianRole(role) ? 'WHERE c.labTechnicianId = ?' : ''}
+      ${dept ? 'WHERE c.department = ?' : ''}
       ORDER BY c.performedAt DESC
     `;
-    const params = isLabTechnicianRole(role) ? [req.user.id] : [];
+    const params = dept ? [dept] : [];
     const consumptions = await all(pool, sql, params);
     res.json({ consumptions });
   } catch (error) {
@@ -3450,10 +3513,60 @@ app.get('/api/cep-depo/consumptions', authRequired, async (req, res) => {
 app.get('/api/lab-technicians', authRequired, async (_req, res) => {
   try {
     const users = await all(pool,
-      "SELECT id, username FROM users WHERE role = 'LAB_TECHNICIAN' ORDER BY username");
+      "SELECT id, username, department FROM users WHERE role = 'LAB_TECHNICIAN' ORDER BY username");
     res.json({ users });
   } catch (error) {
     console.error('Failed to list lab technicians', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// ============================================================
+// DEPARTMENTS registry (runtime-editable name list; ADMIN manages)
+// The stored value everywhere is the department NAME string.
+// ============================================================
+
+// GET /api/departments — list (all authed users; needed for dropdowns/labels)
+app.get('/api/departments', authRequired, async (_req, res) => {
+  try {
+    const departments = await all(pool, 'SELECT id, name, active FROM departments ORDER BY name');
+    res.json({ departments });
+  } catch (error) {
+    console.error('Failed to list departments', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// POST /api/departments — create a new department name (ADMIN)
+app.post('/api/departments', authRequired, adminRequired, async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'INVALID_INPUT', message: 'Bölüm adı zorunludur.' });
+  try {
+    const id = generateId();
+    await run(pool, 'INSERT INTO departments (id, name, active) VALUES (?, ?, 1)', [id, name]);
+    res.json({ department: { id, name, active: 1 } });
+  } catch (error) {
+    if (String(error?.code) === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'DEPARTMENT_EXISTS', message: 'Bu bölüm zaten var.' });
+    console.error('Failed to create department', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// PUT /api/departments/:id — rename or activate/deactivate (ADMIN)
+app.put('/api/departments/:id', authRequired, adminRequired, async (req, res) => {
+  const { name, active } = req.body || {};
+  const updates = [];
+  const params = [];
+  if (name !== undefined) { updates.push('name = ?'); params.push(String(name).trim()); }
+  if (active !== undefined) { updates.push('active = ?'); params.push(active ? 1 : 0); }
+  if (!updates.length) return res.status(400).json({ error: 'INVALID_INPUT' });
+  params.push(req.params.id);
+  try {
+    await run(pool, `UPDATE departments SET ${updates.join(', ')} WHERE id = ?`, params);
+    res.json({ ok: true });
+  } catch (error) {
+    if (String(error?.code) === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'DEPARTMENT_EXISTS', message: 'Bu bölüm zaten var.' });
+    console.error('Failed to update department', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
   }
 });
