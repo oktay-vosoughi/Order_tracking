@@ -281,6 +281,15 @@ const LabEquipmentTracker = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingCepTotal, currentUser]);
 
+  // Live refresh so waiting requests surface without a page reload. The
+  // alarm effect (keyed on pendingCepTotal) re-fires when the count rises.
+  useEffect(() => {
+    if (!currentUser) return;
+    const id = setInterval(() => { loadAllActionData(); }, 60000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser]);
+
   const canImportItems = canModifyInventory;
   const canViewAllDagit = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
   const canViewDagit = true; // Tab visible to all; content filtered per role
