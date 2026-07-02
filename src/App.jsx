@@ -1639,6 +1639,7 @@ const LabEquipmentTracker = () => {
   };
   const userInitials = username.slice(0, 2).toUpperCase() || '??';
   const pendingCount = purchases.filter(p => p.status === 'TALEP_EDILDI').length;
+  const pendingCepTotal = Object.values(pendingCepRequestsByItem).reduce((n, list) => n + list.length, 0);
 
   function navClick(tab) {
     setActiveTab(tab);
@@ -1675,6 +1676,7 @@ const LabEquipmentTracker = () => {
         {canViewDagit && (
           <button className={`nv${activeTab === 'distributions' ? ' on' : ''}`} onClick={() => navClick('distributions')}>
             <FileCheck size={15} /><span>Dağıtım</span>
+            {canViewAllDagit && pendingCepTotal > 0 && <span className="nbdg">{pendingCepTotal}</span>}
           </button>
         )}
         {!isObserver && (
