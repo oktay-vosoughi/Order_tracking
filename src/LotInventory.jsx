@@ -141,6 +141,7 @@ const LotInventory = ({ currentUser }) => {
       const res = await apiCall(`/lots/${showSplitLotForm.id}/split`, { method: 'POST', body: JSON.stringify(payload) });
       const meta = { itemName: showSplitLotForm.itemName, itemCode: showSplitLotForm.itemCode, itemUnit: showSplitLotForm.itemUnit };
       setLots(lots.map((l) => l.id === res.originalLot.id ? { ...res.originalLot, ...meta } : l).concat(res.newLots.map((l) => ({ ...l, ...meta }))));
+      setItemDefinitions(itemDefinitions.map(item => item.id === res.originalLot.itemId ? { ...item, activeLotCount: (parseInt(item.activeLotCount) || 0) + (res.newLots.length - 1) } : item));
       setShowSplitLotForm(null);
     } catch (err) { alert('Hata: ' + err.message); }
   };

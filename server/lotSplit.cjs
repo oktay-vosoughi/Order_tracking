@@ -39,6 +39,14 @@ const validateLotSplit = (lot, splits) => {
     return { lotNumber, expiryDate, quantity };
   });
 
+  const seenLotNumbers = new Set();
+  for (const { lotNumber } of normalized) {
+    if (seenLotNumbers.has(lotNumber)) {
+      fail('INVALID_INPUT', `LOT numarası tekrar ediyor: ${lotNumber}`);
+    }
+    seenLotNumbers.add(lotNumber);
+  }
+
   const total = normalized.reduce((sum, s) => sum + s.quantity, 0);
   if (total !== Number(lot.currentQuantity)) {
     fail(

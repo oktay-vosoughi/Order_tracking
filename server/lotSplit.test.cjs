@@ -92,3 +92,13 @@ test('rejects quantities that sum to more than currentQuantity', () => {
     /SPLIT_QUANTITY_MISMATCH/
   );
 });
+
+test('rejects duplicate lot numbers within the same request', () => {
+  assert.throws(
+    () => validateLotSplit(activeLot, [
+      { lotNumber: 'LOT-DUP', quantity: 5 },
+      { lotNumber: 'LOT-DUP', quantity: 5 }
+    ]),
+    /INVALID_INPUT/
+  );
+});
