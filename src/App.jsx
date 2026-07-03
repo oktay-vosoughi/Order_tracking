@@ -257,6 +257,8 @@ const LabEquipmentTracker = () => {
     return map;
   })();
 
+  const pendingCepTotal = Object.values(pendingCepRequestsByItem).reduce((n, list) => n + list.length, 0);
+
   // Prefetch distributable lots for the open distribute modal + every pending
   // CEP DEPO request item, so the Parti/SKT pickers have data.
   useEffect(() => {
@@ -1690,7 +1692,6 @@ const LabEquipmentTracker = () => {
   };
   const userInitials = username.slice(0, 2).toUpperCase() || '??';
   const pendingCount = purchases.filter(p => p.status === 'TALEP_EDILDI').length;
-  const pendingCepTotal = Object.values(pendingCepRequestsByItem).reduce((n, list) => n + list.length, 0);
 
   function navClick(tab) {
     setActiveTab(tab);

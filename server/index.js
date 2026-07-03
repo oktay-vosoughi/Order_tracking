@@ -3174,10 +3174,10 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
         // Manual single-lot selection — decrement ONLY the chosen lot. One
         // distribution = one lot; over-quantity is rejected (no spill).
         const lotRows = await all(conn,
-          "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' FOR UPDATE",
+          "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' AND (expiryDate IS NULL OR expiryDate >= CURDATE()) FOR UPDATE",
           [lotId, itemId]);
         const lot = lotRows?.[0];
-        if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Seçilen parti bulunamadı veya aktif değil.' };
+        if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Seçilen parti bulunamadı, aktif değil veya süresi geçmiş.' };
         if (Number(lot.currentQuantity) < packQtyNum) {
           throw { status: 409, error: 'INSUFFICIENT_LOT_STOCK', message: `Seçilen partide yeterli stok yok. Parti ${lot.lotNumber}: ${Number(lot.currentQuantity)}, talep: ${packQtyNum}. Lütfen ayrı dağıtımlara bölün.` };
         }
