@@ -5,6 +5,8 @@ const { validateLotSplit } = require('./lotSplit.cjs');
 
 const activeLot = { status: 'ACTIVE', currentQuantity: 10 };
 
+const hasCode = (code) => (err) => err instanceof Error && err.code === code;
+
 test('splits an active lot into normalized rows when quantities sum exactly', () => {
   const result = validateLotSplit(activeLot, [
     { lotNumber: ' LOT-X1 ', expiryDate: '2026-08-01', quantity: '4' },
@@ -25,7 +27,7 @@ test('rejects a lot that is not ACTIVE', () => {
       { lotNumber: 'A', quantity: 5 },
       { lotNumber: 'B', quantity: 5 }
     ]),
-    /LOT_NOT_ACTIVE/
+    hasCode('LOT_NOT_ACTIVE')
   );
 });
 
@@ -35,14 +37,14 @@ test('rejects a lot with zero current quantity', () => {
       { lotNumber: 'A', quantity: 5 },
       { lotNumber: 'B', quantity: 5 }
     ]),
-    /LOT_NOT_ACTIVE/
+    hasCode('LOT_NOT_ACTIVE')
   );
 });
 
 test('rejects fewer than 2 splits', () => {
   assert.throws(
     () => validateLotSplit(activeLot, [{ lotNumber: 'A', quantity: 10 }]),
-    /INVALID_INPUT/
+    hasCode('INVALID_INPUT')
   );
 });
 
@@ -52,7 +54,7 @@ test('rejects a split with an empty lot number', () => {
       { lotNumber: '  ', quantity: 5 },
       { lotNumber: 'B', quantity: 5 }
     ]),
-    /INVALID_INPUT/
+    hasCode('INVALID_INPUT')
   );
 });
 
@@ -62,14 +64,14 @@ test('rejects a non-integer or non-positive quantity', () => {
       { lotNumber: 'A', quantity: 4.5 },
       { lotNumber: 'B', quantity: 5.5 }
     ]),
-    /INVALID_INPUT/
+    hasCode('INVALID_INPUT')
   );
   assert.throws(
     () => validateLotSplit(activeLot, [
       { lotNumber: 'A', quantity: 0 },
       { lotNumber: 'B', quantity: 10 }
     ]),
-    /INVALID_INPUT/
+    hasCode('INVALID_INPUT')
   );
 });
 
@@ -79,7 +81,7 @@ test('rejects quantities that sum to less than currentQuantity', () => {
       { lotNumber: 'A', quantity: 4 },
       { lotNumber: 'B', quantity: 3 }
     ]),
-    /SPLIT_QUANTITY_MISMATCH/
+    hasCode('SPLIT_QUANTITY_MISMATCH')
   );
 });
 
@@ -89,7 +91,7 @@ test('rejects quantities that sum to more than currentQuantity', () => {
       { lotNumber: 'A', quantity: 4 },
       { lotNumber: 'B', quantity: 7 }
     ]),
-    /SPLIT_QUANTITY_MISMATCH/
+    hasCode('SPLIT_QUANTITY_MISMATCH')
   );
 });
 
@@ -99,6 +101,6 @@ test('rejects duplicate lot numbers within the same request', () => {
       { lotNumber: 'LOT-DUP', quantity: 5 },
       { lotNumber: 'LOT-DUP', quantity: 5 }
     ]),
-    /INVALID_INPUT/
+    hasCode('INVALID_INPUT')
   );
 });
