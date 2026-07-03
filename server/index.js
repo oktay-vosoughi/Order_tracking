@@ -17,7 +17,19 @@ const MYSQL_USER = process.env.MYSQL_USER || 'root';
 const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || '';
 const MYSQL_DATABASE = process.env.MYSQL_DATABASE || 'order_Tracking';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-this-in-production';
+const DEFAULT_JWT_SECRET = 'change-this-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// Fail fast in production if the JWT signing key was never configured.
+// A known/default secret lets anyone forge admin tokens.
+if (IS_PRODUCTION && (!process.env.JWT_SECRET || JWT_SECRET === DEFAULT_JWT_SECRET)) {
+  console.error('FATAL: JWT_SECRET must be set to a strong unique value in production. Refusing to start.');
+  process.exit(1);
+}
+if (!IS_PRODUCTION && JWT_SECRET === DEFAULT_JWT_SECRET) {
+  console.warn('[security] JWT_SECRET is unset — using the insecure development default. Set JWT_SECRET before deploying.');
+}
 
 const ROLES = {
   ADMIN: 'ADMIN',
@@ -248,8 +260,63 @@ const buildStateResponse = async () => {
 };
 
 const app = express();
-app.use(cors());
+
+// Restrict CORS to an explicit allowlist in production (CORS_ORIGIN=comma,separated).
+// In development, reflect any origin so the Vite dev server / LAN testing keeps working.
+const CORS_ORIGINS = String(process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+if (IS_PRODUCTION && CORS_ORIGINS.length) {
+  app.use(cors({
+    origin: (origin, cb) => {
+      // Allow same-origin / non-browser callers (no Origin header) and allowlisted origins.
+      if (!origin || CORS_ORIGINS.includes(origin)) return cb(null, true);
+      return cb(new Error('CORS_NOT_ALLOWED'));
+    }
+  }));
+} else {
+  if (IS_PRODUCTION) {
+    console.warn('[security] CORS_ORIGIN not set in production — allowing all origins. Set CORS_ORIGIN to lock this down.');
+  }
+  app.use(cors());
+}
+
 app.use(express.json({ limit: '5mb' }));
+
+// Lightweight in-memory brute-force throttle for auth endpoints.
+// Not a substitute for a real rate limiter (resets on restart, per-process),
+// but stops trivial password-guessing without adding a dependency.
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+const loginAttempts = new Map();
+
+const authThrottle = (req, res, next) => {
+  const key = `${req.ip}`;
+  const now = Date.now();
+  const entry = loginAttempts.get(key);
+  if (entry && now - entry.first < LOGIN_WINDOW_MS && entry.count >= LOGIN_MAX_ATTEMPTS) {
+    res.status(429).json({ error: 'TOO_MANY_ATTEMPTS', message: 'Çok fazla deneme. Lütfen birkaç dakika sonra tekrar deneyin.' });
+    return;
+  }
+  next();
+};
+
+const recordFailedAuth = (req) => {
+  const key = `${req.ip}`;
+  const now = Date.now();
+  const entry = loginAttempts.get(key);
+  if (!entry || now - entry.first >= LOGIN_WINDOW_MS) {
+    loginAttempts.set(key, { first: now, count: 1 });
+  } else {
+    entry.count += 1;
+  }
+};
+
+const clearAuthAttempts = (req) => {
+  loginAttempts.delete(`${req.ip}`);
+};
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
@@ -259,6 +326,10 @@ app.post('/api/auth/bootstrap', async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     res.status(400).json({ error: 'INVALID_INPUT' });
+    return;
+  }
+  if (String(password).length < 8) {
+    res.status(400).json({ error: 'WEAK_PASSWORD', message: 'Şifre en az 8 karakter olmalı' });
     return;
   }
 
@@ -346,7 +417,7 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authThrottle, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     res.status(400).json({ error: 'INVALID_INPUT' });
@@ -363,16 +434,19 @@ app.post('/api/auth/login', async (req, res) => {
     const rows = await all(pool, 'SELECT * FROM users WHERE username = ?', [String(username)]);
     const user = rows?.[0];
     if (!user) {
+      recordFailedAuth(req);
       res.status(401).json({ error: 'INVALID_CREDENTIALS' });
       return;
     }
 
     const ok = await bcrypt.compare(String(password), String(user.passwordHash));
     if (!ok) {
+      recordFailedAuth(req);
       res.status(401).json({ error: 'INVALID_CREDENTIALS' });
       return;
     }
 
+    clearAuthAttempts(req);
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true, canViewPrices: user.can_view_prices === 1 || user.can_view_prices === true }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
@@ -444,6 +518,10 @@ app.post('/api/users', authRequired, adminRequired, async (req, res) => {
   const { username, password, role, department } = req.body || {};
   if (!username || !password || !role) {
     res.status(400).json({ error: 'INVALID_INPUT' });
+    return;
+  }
+  if (String(password).length < 8) {
+    res.status(400).json({ error: 'WEAK_PASSWORD', message: 'Şifre en az 8 karakter olmalı' });
     return;
   }
   if (!ALL_ROLES.includes(role)) {
@@ -1008,7 +1086,7 @@ app.get('/api/lots', authRequired, async (req, res) => {
 });
 
 // Create lot (receive stock)
-app.post('/api/lots', authRequired, async (req, res) => {
+app.post('/api/lots', authRequired, canReceiveGoods, async (req, res) => {
   const { itemId, lotNumber, manufacturer, catalogNo, expiryDate, receivedDate, initialQuantity, department, location, storageLocation, invoiceNo, attachmentUrl, attachmentName, notes } = req.body || {};
   
   if (!itemId || !lotNumber || !initialQuantity || initialQuantity <= 0) {
@@ -1040,7 +1118,7 @@ app.post('/api/lots', authRequired, async (req, res) => {
 });
 
 // Update lot
-app.put('/api/lots/:id', authRequired, async (req, res) => {
+app.put('/api/lots/:id', authRequired, canReceiveGoods, async (req, res) => {
   const { lotNumber, manufacturer, catalogNo, expiryDate, department, location, storageLocation, invoiceNo, attachmentUrl, attachmentName, notes, status } = req.body || {};
   
   try {
@@ -1073,7 +1151,7 @@ app.put('/api/lots/:id', authRequired, async (req, res) => {
 // --- Consumption (Usage) with FEFO Logic ---
 
 // Consume from item (FEFO auto-selection or manual lot selection)
-app.post('/api/consume', authRequired, async (req, res) => {
+app.post('/api/consume', authRequired, canDistribute, async (req, res) => {
   const { itemId, lotId, quantity, department, purpose, notes, receivedBy } = req.body || {};
   
   if (!itemId || !quantity || quantity <= 0) {
@@ -1203,7 +1281,7 @@ app.get('/api/usage-records', authRequired, async (req, res) => {
 
 // --- Lot Adjustments (for corrections, waste, etc.) ---
 
-app.post('/api/lot-adjustments', authRequired, async (req, res) => {
+app.post('/api/lot-adjustments', authRequired, canDistribute, async (req, res) => {
   const { lotId, adjustmentType, quantityChange, reason, notes } = req.body || {};
   
   if (!lotId || !adjustmentType || quantityChange === undefined) {
@@ -1605,18 +1683,39 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
       const item = items[0];
 
       if (lotId && !useFefo) {
-        // Manual lot selection
+        // Manual primary-lot selection with spillover to other lots if needed.
         const lots = await all(conn, 'SELECT * FROM lots WHERE id = ? AND itemId = ? FOR UPDATE', [lotId, itemId]);
-        if (!lots.length) {
-          throw { status: 404, error: 'LOT_NOT_FOUND' };
-        }
+        if (!lots.length) throw { status: 404, error: 'LOT_NOT_FOUND' };
         const lot = lots[0];
-        if (lot.currentQuantity < quantity) {
-          throw { status: 400, error: 'INSUFFICIENT_STOCK', message: `LOT ${lot.lotNumber} has only ${lot.currentQuantity} available` };
+
+        const takeFromSelected = Math.min(Number(lot.currentQuantity), quantity);
+        let remaining = quantity - takeFromSelected;
+
+        let otherLots = [];
+        if (remaining > 0) {
+          otherLots = await all(conn,
+            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND status = 'ACTIVE' AND currentQuantity > 0 AND (expiryDate IS NULL OR expiryDate >= CURDATE()) ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
+            [itemId, lotId]);
+          const otherAvailable = otherLots.reduce((s, l) => s + Number(l.currentQuantity), 0);
+          if (takeFromSelected + otherAvailable < quantity) {
+            throw { status: 400, error: 'INSUFFICIENT_TOTAL_STOCK', message: `Total available: ${takeFromSelected + otherAvailable}, requested: ${quantity}` };
+          }
         }
 
-        await run(conn, 'UPDATE lots SET currentQuantity = currentQuantity - ?, status = CASE WHEN currentQuantity - ? <= 0 THEN "DEPLETED" ELSE status END, updatedBy = ? WHERE id = ?', [quantity, quantity, req.user.username, lotId]);
-        distributionLots.push({ lotId, lotNumber: lot.lotNumber, quantityUsed: quantity });
+        await run(conn, 'UPDATE lots SET currentQuantity = currentQuantity - ?, status = CASE WHEN currentQuantity - ? <= 0 THEN "DEPLETED" ELSE status END, updatedBy = ? WHERE id = ?',
+          [takeFromSelected, takeFromSelected, req.user.username, lotId]);
+        distributionLots.push({ lotId: lot.id, lotNumber: lot.lotNumber, quantityUsed: takeFromSelected });
+        remainingQty -= takeFromSelected;
+
+        for (const otherLot of otherLots) {
+          if (remainingQty <= 0) break;
+          const take = Math.min(Number(otherLot.currentQuantity), remainingQty);
+          const newQty = Number(otherLot.currentQuantity) - take;
+          await run(conn, 'UPDATE lots SET currentQuantity = ?, status = ?, updatedBy = ? WHERE id = ?',
+            [newQty, newQty <= 0 ? 'DEPLETED' : otherLot.status, req.user.username, otherLot.id]);
+          distributionLots.push({ lotId: otherLot.id, lotNumber: otherLot.lotNumber, quantityUsed: take });
+          remainingQty -= take;
+        }
       } else {
         // FEFO auto-selection
         const availableLots = await all(conn, `
@@ -3171,29 +3270,61 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
       const splits = [];
 
       if (lotId) {
-        // Manual single-lot selection — decrement ONLY the chosen lot. One
-        // distribution = one lot; over-quantity is rejected (no spill).
+        // Manual primary-lot selection: take from chosen lot first, then spill
+        // into other active lots (FEFO order) for any remaining quantity.
         const lotRows = await all(conn,
           "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' AND (expiryDate IS NULL OR expiryDate >= CURDATE()) FOR UPDATE",
           [lotId, itemId]);
         const lot = lotRows?.[0];
         if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Seçilen parti bulunamadı, aktif değil veya süresi geçmiş.' };
-        if (Number(lot.currentQuantity) < packQtyNum) {
-          throw { status: 409, error: 'INSUFFICIENT_LOT_STOCK', message: `Seçilen partide yeterli stok yok. Parti ${lot.lotNumber}: ${Number(lot.currentQuantity)}, talep: ${packQtyNum}. Lütfen ayrı dağıtımlara bölün.` };
+
+        const takeFromSelected = Math.min(Number(lot.currentQuantity), packQtyNum);
+        let remaining = packQtyNum - takeFromSelected;
+
+        // If selected lot alone is insufficient, lock the other lots and check total.
+        let otherLots = [];
+        if (remaining > 0) {
+          otherLots = await all(conn,
+            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND status = 'ACTIVE' AND currentQuantity > 0 AND (expiryDate IS NULL OR expiryDate >= CURDATE()) ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
+            [itemId, lotId]);
+          const otherAvailable = otherLots.reduce((s, l) => s + Number(l.currentQuantity), 0);
+          if (takeFromSelected + otherAvailable < packQtyNum) {
+            throw { status: 409, error: 'INSUFFICIENT_TOTAL_STOCK', message: `Toplam yeterli stok yok. Seçilen parti: ${takeFromSelected}, diğer lotlar: ${otherAvailable}, talep: ${packQtyNum}.` };
+          }
         }
+
+        // Decrement selected lot.
         const factor = resolveUnitFactor(item, lot);
-        const takeUnits = packQtyNum * factor;
-        const newQty = Number(lot.currentQuantity) - packQtyNum;
-        const newStatus = newQty <= 0 ? 'DEPLETED' : lot.status;
+        const takeUnitsSelected = takeFromSelected * factor;
+        const newQtySelected = Number(lot.currentQuantity) - takeFromSelected;
         await run(conn,
           'UPDATE lots SET currentQuantity = ?, status = ?, updatedBy = ? WHERE id = ?',
-          [newQty, newStatus, req.user.username, lot.id]);
+          [newQtySelected, newQtySelected <= 0 ? 'DEPLETED' : lot.status, req.user.username, lot.id]);
         await run(conn, `
           INSERT INTO cep_depo_distribution_lots (id, cepDistributionId, lotId, lotNumber, packQty, unitQty)
           VALUES (?, ?, ?, ?, ?, ?)
-        `, [generateId(), cepDistributionId, lot.id, lot.lotNumber, packQtyNum, takeUnits]);
-        splits.push({ lot, take: packQtyNum, takeUnits });
-        totalUnitQty = takeUnits;
+        `, [generateId(), cepDistributionId, lot.id, lot.lotNumber, takeFromSelected, takeUnitsSelected]);
+        splits.push({ lot, take: takeFromSelected, takeUnits: takeUnitsSelected });
+        totalUnitQty += takeUnitsSelected;
+
+        // Fill remainder from other lots in FEFO order.
+        for (const otherLot of otherLots) {
+          if (remaining <= 0) break;
+          const take = Math.min(Number(otherLot.currentQuantity), remaining);
+          const otherFactor = resolveUnitFactor(item, otherLot);
+          const takeUnits = take * otherFactor;
+          const newQty = Number(otherLot.currentQuantity) - take;
+          await run(conn,
+            'UPDATE lots SET currentQuantity = ?, status = ?, updatedBy = ? WHERE id = ?',
+            [newQty, newQty <= 0 ? 'DEPLETED' : otherLot.status, req.user.username, otherLot.id]);
+          await run(conn, `
+            INSERT INTO cep_depo_distribution_lots (id, cepDistributionId, lotId, lotNumber, packQty, unitQty)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `, [generateId(), cepDistributionId, otherLot.id, otherLot.lotNumber, take, takeUnits]);
+          splits.push({ lot: otherLot, take, takeUnits });
+          totalUnitQty += takeUnits;
+          remaining -= take;
+        }
       } else {
         // FEFO fallback (no lotId supplied) — original behavior.
         const lots = await all(conn, `

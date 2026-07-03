@@ -16,7 +16,8 @@ import {
   getExpiringItems,
   getExpiredItems,
   formatDate,
-  getExpiryColorClass
+  getExpiryColorClass,
+  openAttachmentSafely
 } from './labUtils';
 import { AddItemFormLab, WasteForm, ExpiryAlertDashboard, ExpiryBadge, MSDSLink } from './LabComponents';
 import LotInventory from './LotInventory';
@@ -1061,10 +1062,6 @@ const LabEquipmentTracker = () => {
       alert('Seçilen parti artık mevcut değil. Listeyi yenileyin.');
       return;
     }
-    if (packQty > Number(chosenLot.currentQuantity)) {
-      alert(`Seçilen partide yeterli miktar yok (Parti ${chosenLot.lotNumber}: ${chosenLot.currentQuantity}). Fazlası için ayrı bir dağıtım yapın.`);
-      return;
-    }
     if (!window.confirm(
       `${item.name} — ${packQty} ${item.packageUnit || 'koli'} → ${tech.username}\n` +
       `Talep No: ${purchase.requestNumber || purchase.id.slice(0,8)}\n\nOnayla ve CEP DEPOya dağıt?`
@@ -1128,11 +1125,6 @@ const LabEquipmentTracker = () => {
       alert('Seçilen parti artık mevcut değil. Listeyi yenileyin.');
       return;
     }
-    if (parseInt(distributeForm.quantity) > Number(chosenLot.currentQuantity)) {
-      alert(`Seçilen partide yeterli miktar yok (Parti ${chosenLot.lotNumber}: ${chosenLot.currentQuantity}). Fazlası için ayrı bir dağıtım yapın.`);
-      return;
-    }
-
     try {
       // Distribute from the explicitly chosen lot (no auto-FEFO).
       await distribute({
@@ -2204,11 +2196,24 @@ const LabEquipmentTracker = () => {
                   <Upload size={16} />
                   Belge/Fotoğraf Yükle (Fatura, Teslim Fişi vb.)
                 </label>
-                <input 
-                  type="file" 
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"
                   onChange={(e) => {
                     const file = e.target.files[0];
                     if (file) {
+                      const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'];
+                      const maxBytes = 4 * 1024 * 1024; // 4MB (server JSON limit is 5MB)
+                      if (!allowedTypes.includes(file.type)) {
+                        alert('Yalnızca PDF veya resim (PNG/JPG/GIF/WEBP) dosyaları yüklenebilir.');
+                        e.target.value = '';
+                        return;
+                      }
+                      if (file.size > maxBytes) {
+                        alert('Dosya boyutu en fazla 4 MB olabilir.');
+                        e.target.value = '';
+                        return;
+                      }
                       const reader = new FileReader();
                       reader.onloadend = () => {
                         setReceiveForm({
@@ -2738,8 +2743,9 @@ const LabEquipmentTracker = () => {
                               onClick={() => {
                                 const lastReceipt = history.filter(p => p.receipts?.length > 0).flatMap(p => p.receipts).sort((a,b) => new Date(b.receivedAt) - new Date(a.receivedAt))[0];
                                 if (lastReceipt?.attachmentUrl) {
-                                  const win = window.open();
-                                  win.document.write(`<iframe src="${lastReceipt.attachmentUrl}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
+                                  if (!openAttachmentSafely(lastReceipt.attachmentUrl)) {
+                                    alert('Belge güvenli bir biçimde açılamadı (geçersiz dosya türü).');
+                                  }
                                 } else {
                                   alert('Bu malzeme için fatura/belge bulunamadı.');
                                 }
@@ -2887,8 +2893,9 @@ const LabEquipmentTracker = () => {
                                 onClick={() => {
                                   const lastReceipt = history.filter(p => p.receipts?.length > 0).flatMap(p => p.receipts).sort((a,b) => new Date(b.receivedAt) - new Date(a.receivedAt))[0];
                                   if (lastReceipt?.attachmentUrl) {
-                                    const win = window.open();
-                                    win.document.write(`<iframe src="${lastReceipt.attachmentUrl}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
+                                    if (!openAttachmentSafely(lastReceipt.attachmentUrl)) {
+                                      alert('Belge güvenli bir biçimde açılamadı (geçersiz dosya türü).');
+                                    }
                                   } else {
                                     alert('Bu malzeme için fatura/belge bulunamadı.');
                                   }
@@ -3285,7 +3292,7 @@ const LabEquipmentTracker = () => {
                       <td className="px-3 py-2">{purchase.requestedQty}</td>
                       <td className="px-3 py-2">
                         <div>{purchase.requestedBy}</div>
-                        <div className="text-xs text-gray-500">{new Date(purchase.requestDate).toLocaleDateString('tr-TR')}</div>
+                        <div className="text-xs text-gray-500">{(() => { const d = purchase.requestedAt || purchase.requestDate; const dt = d ? new Date(d) : null; return dt && !isNaN(dt) ? dt.toLocaleDateString('tr-TR') : '-'; })()}</div>
                       </td>
                       <td className="px-3 py-2">
                         <span className={`status-pill ${statusBadge.className}`}>{statusBadge.label}</span>
@@ -3376,7 +3383,7 @@ const LabEquipmentTracker = () => {
                       <div>
                         <div className="text-xs text-gray-500">Talep Eden</div>
                         <div className="font-semibold">{purchase.requestedBy}</div>
-                        <div className="text-xs text-gray-500">{new Date(purchase.requestDate).toLocaleDateString('tr-TR')}</div>
+                        <div className="text-xs text-gray-500">{(() => { const d = purchase.requestedAt || purchase.requestDate; const dt = d ? new Date(d) : null; return dt && !isNaN(dt) ? dt.toLocaleDateString('tr-TR') : '-'; })()}</div>
                       </div>
                     </div>
                     {purchase.urgency === 'urgent' && <span className="status-pill bg-red-50 text-red-700 border-red-200">ACİL</span>}
