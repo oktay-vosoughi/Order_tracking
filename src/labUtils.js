@@ -175,15 +175,39 @@ export const isCountingDue = (lastCountingDate, scheduleType = 'MONTHLY') => {
   return false;
 };
 
-// Validate MSDS URL
+// Validate MSDS URL — only http/https links are acceptable.
+// Rejects javascript:, data:, vbscript:, file: etc. which are XSS/phishing vectors.
 export const isValidMSDSUrl = (url) => {
   if (!url) return true; // Optional field
   try {
-    new URL(url);
-    return true;
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
   } catch {
     return false;
   }
+};
+
+// Decide whether a stored attachment/URL is safe to open in a new window.
+// Uploaded attachments are stored as data: URLs; we allow only image/* and
+// application/pdf data URLs plus http(s) links. Everything else (notably
+// data:text/html and javascript:) is refused to prevent same-origin script
+// injection when the document is opened.
+export const isSafeAttachmentUrl = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) return true;
+  if (/^data:image\/(png|jpe?g|gif|webp|bmp|svg\+xml);/i.test(trimmed)) return true;
+  if (/^data:application\/pdf;/i.test(trimmed)) return true;
+  return false;
+};
+
+// Open an attachment in a new tab without ever writing attacker-controlled
+// markup into an app-origin document. Returns false if the URL is unsafe.
+export const openAttachmentSafely = (url) => {
+  if (!isSafeAttachmentUrl(url)) return false;
+  const win = window.open('', '_blank', 'noopener,noreferrer');
+  if (win) win.location.href = url;
+  return true;
 };
 
 // Format date for display

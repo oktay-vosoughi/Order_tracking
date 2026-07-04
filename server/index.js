@@ -905,7 +905,7 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
           createdAt DESC
         FOR UPDATE
       `, [req.params.id]);
-      const positiveLots = lotRows.filter((lot) => Number(lot.currentQuantity) > 0);
+      const positiveLots = lotRows.filter((lot) => lot.status === 'ACTIVE' && Number(lot.currentQuantity) > 0);
 
       const balanceRows = await all(conn, `
         SELECT *
@@ -1755,7 +1755,7 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
 
 // Distribute (LAB_MANAGER + PROCUREMENT + ADMIN)
 app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
-  const { itemId, quantity, receivedBy, department, purpose, useFefo = true, lotId, purchaseId, labTechnicianId } = req.body || {};
+  const { itemId, quantity, receivedBy, department, purpose, useFefo = true, lotId, purchaseId, labTechnicianId, lots } = req.body || {};
   
   if (!itemId || !quantity || quantity <= 0 || !receivedBy) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Item ID, quantity, and receiver are required' });
@@ -1774,7 +1774,28 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
       }
       const item = items[0];
 
-      if (lotId && !useFefo) {
+      if (lots && Array.isArray(lots) && lots.length > 0) {
+        // Explicit multi-lot: validate and deduct exactly the specified quantities, no spillover.
+        const totalRequested = lots.reduce((s, r) => s + Number(r.qty), 0);
+        if (Math.abs(totalRequested - quantity) > 0.001) {
+          throw { status: 400, error: 'LOT_QTY_MISMATCH', message: `Parti toplamı (${totalRequested}) talep edilen miktarla (${quantity}) eşleşmiyor.` };
+        }
+        for (const row of lots) {
+          const rowQty = Number(row.qty);
+          if (!row.lotId || !(rowQty > 0)) throw { status: 400, error: 'INVALID_LOT_ROW', message: 'Her satır için geçerli parti ve miktar gerekli.' };
+          const lotRow = await all(conn,
+            "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' AND (expiryDate IS NULL OR expiryDate >= CURDATE()) FOR UPDATE",
+            [row.lotId, itemId]);
+          const lot = lotRow?.[0];
+          if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Parti bulunamadı veya aktif/süresi geçmiş değil.' };
+          if (Number(lot.currentQuantity) < rowQty) throw { status: 400, error: 'INSUFFICIENT_LOT_STOCK', message: `Parti ${lot.lotNumber}: mevcut ${lot.currentQuantity}, istenen ${rowQty}.` };
+          const newQty = Number(lot.currentQuantity) - rowQty;
+          await run(conn, 'UPDATE lots SET currentQuantity = ?, status = ?, updatedBy = ? WHERE id = ?',
+            [newQty, newQty <= 0 ? 'DEPLETED' : lot.status, req.user.username, lot.id]);
+          distributionLots.push({ lotId: lot.id, lotNumber: lot.lotNumber, quantityUsed: rowQty });
+          remainingQty -= rowQty;
+        }
+      } else if (lotId && !useFefo) {
         // Manual primary-lot selection with spillover to other lots if needed.
         const lots = await all(conn, 'SELECT * FROM lots WHERE id = ? AND itemId = ? FOR UPDATE', [lotId, itemId]);
         if (!lots.length) throw { status: 404, error: 'LOT_NOT_FOUND' };
@@ -3324,7 +3345,7 @@ app.get('/api/cep-depo/my-balances', authRequired, async (req, res) => {
 //   Body: { labTechnicianId, itemId, packQty, purchaseId?, notes?, lotId? }
 //   Uses FEFO across active lots of itemId; deducts lots; upserts cep_depo_balances.
 app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async (req, res) => {
-  const { labTechnicianId, itemId, packQty, purchaseId, notes, lotId } = req.body || {};
+  const { labTechnicianId, itemId, packQty, purchaseId, notes, lotId, lots } = req.body || {};
   const packQtyNum = Number(packQty);
   if (!labTechnicianId || !itemId || !(packQtyNum > 0)) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'labTechnicianId, itemId ve packQty (>0) zorunludur.' });
@@ -3361,7 +3382,33 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
       let totalUnitQty = 0;
       const splits = [];
 
-      if (lotId) {
+      if (lots && Array.isArray(lots) && lots.length > 0) {
+        // Explicit multi-lot: validate and deduct exactly the specified quantities, no spillover.
+        const totalRequested = lots.reduce((s, r) => s + Number(r.qty), 0);
+        if (Math.abs(totalRequested - packQtyNum) > 0.001) {
+          throw { status: 400, error: 'LOT_QTY_MISMATCH', message: `Parti toplamı (${totalRequested}) talep edilen miktarla (${packQtyNum}) eşleşmiyor.` };
+        }
+        for (const row of lots) {
+          const rowQty = Number(row.qty);
+          if (!row.lotId || !(rowQty > 0)) throw { status: 400, error: 'INVALID_LOT_ROW', message: 'Her satır için geçerli parti ve miktar gerekli.' };
+          const lotRow = await all(conn,
+            "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' AND (expiryDate IS NULL OR expiryDate >= CURDATE()) FOR UPDATE",
+            [row.lotId, itemId]);
+          const lot = lotRow?.[0];
+          if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Parti bulunamadı veya aktif/süresi geçmiş değil.' };
+          if (Number(lot.currentQuantity) < rowQty) throw { status: 409, error: 'INSUFFICIENT_LOT_STOCK', message: `Parti ${lot.lotNumber}: mevcut ${lot.currentQuantity}, istenen ${rowQty}.` };
+          const factor = resolveUnitFactor(item, lot);
+          const takeUnits = rowQty * factor;
+          const newQty = Number(lot.currentQuantity) - rowQty;
+          await run(conn, 'UPDATE lots SET currentQuantity = ?, status = ?, updatedBy = ? WHERE id = ?',
+            [newQty, newQty <= 0 ? 'DEPLETED' : lot.status, req.user.username, lot.id]);
+          await run(conn,
+            'INSERT INTO cep_depo_distribution_lots (id, cepDistributionId, lotId, lotNumber, packQty, unitQty) VALUES (?, ?, ?, ?, ?, ?)',
+            [generateId(), cepDistributionId, lot.id, lot.lotNumber, rowQty, takeUnits]);
+          splits.push({ lot, take: rowQty, takeUnits });
+          totalUnitQty += takeUnits;
+        }
+      } else if (lotId) {
         // Manual primary-lot selection: take from chosen lot first, then spill
         // into other active lots (FEFO order) for any remaining quantity.
         const lotRows = await all(conn,

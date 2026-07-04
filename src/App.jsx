@@ -615,6 +615,8 @@ const LabEquipmentTracker = () => {
     targetLotId: ''
   });
   const [correctionLotOptions, setCorrectionLotOptions] = useState([]);
+  const [correctionLotsLoading, setCorrectionLotsLoading] = useState(false);
+  const [correctionLotsError, setCorrectionLotsError] = useState(false);
 
   const handleSaveUnitFields = async () => {
     if (!unitEditItem) return;
@@ -634,6 +636,9 @@ const LabEquipmentTracker = () => {
   };
 
   const openUnitStockCorrection = async (item) => {
+    setCorrectionLotOptions([]); // reset before async fetch to avoid stale picker
+    setCorrectionLotsError(false);
+    setCorrectionLotsLoading(true);
     const cepDisplay = getCepDepoDisplay(item);
     setCorrectionItem(item);
     setCorrectionForm({
@@ -642,27 +647,46 @@ const LabEquipmentTracker = () => {
       consumptionUnit: item.consumptionUnit || '',
       unitsPerPackage: item.unitsPerPackage ?? '',
       consumptionUnitType: item.consumptionUnitType || (item.consumptionUnit ? 'UNIT' : 'PACK'),
-      mainStock: Number(item.activeLotCount) > 1 ? '' : (item.totalStock ?? item.currentStock ?? 0),
+      // Left blank until the live lot fetch below confirms the real lot count — prefilling from
+      // cached activeLotCount here raced with that fetch and could send a stale mainStock to the
+      // server before the multi-lot picker had a chance to appear (server then rightfully 409s).
+      mainStock: '',
       idealStock: item.ideal_stock ?? item.minStock ?? '',
       maxStock: item.max_stock ?? '',
       cepUnitQty: cepDisplay.quantity || 0,
       targetLotId: ''
     });
-    if (Number(item.activeLotCount) > 1) {
-      try {
-        const res = await fetchItemLots(item.id);
-        setCorrectionLotOptions((res.lots || []).filter((l) => l.status === 'ACTIVE' && Number(l.currentQuantity) > 0));
-      } catch (err) {
-        console.error('Failed to load lots for correction:', err);
-        setCorrectionLotOptions([]);
+    try {
+      const res = await fetchItemLots(item.id);
+      const opts = (res.lots || []).filter((l) => l.status === 'ACTIVE' && Number(l.currentQuantity) > 0);
+      setCorrectionLotOptions(opts);
+      // Fill mainStock only once the authoritative lot list is known: a single active lot's own
+      // quantity, or the item total when there's no active lot yet (e.g. brand-new item). With
+      // 2+ lots it stays blank so the admin must explicitly pick one to change quantity.
+      if (opts.length === 1) {
+        setCorrectionForm((prev) => ({ ...prev, mainStock: opts[0].currentQuantity }));
+      } else if (opts.length === 0) {
+        setCorrectionForm((prev) => ({ ...prev, mainStock: item.totalStock ?? item.currentStock ?? 0 }));
       }
-    } else {
+    } catch (err) {
+      console.error('Failed to load lots for correction:', err);
       setCorrectionLotOptions([]);
+      setCorrectionLotsError(true);
+    } finally {
+      setCorrectionLotsLoading(false);
     }
   };
 
   const handleSaveUnitStockCorrection = async () => {
     if (!correctionItem) return;
+    if (correctionLotsLoading) {
+      alert('LOT bilgisi yükleniyor, lütfen birkaç saniye bekleyip tekrar deneyin.');
+      return;
+    }
+    if (correctionLotsError) {
+      alert('LOT listesi yüklenemedi, bu yüzden düzeltme güvenli şekilde kaydedilemiyor. Lütfen pencereyi kapatıp tekrar açın.');
+      return;
+    }
 
     const usesSubUnit = correctionForm.consumptionUnitType !== 'PACK';
     if (usesSubUnit && !correctionForm.consumptionUnit.trim()) {
@@ -695,7 +719,19 @@ const LabEquipmentTracker = () => {
       setCorrectionItem(null);
       alert('Birim ve stok düzeltmesi kaydedildi.');
     } catch (err) {
-      alert('Düzeltme başarısız: ' + (err?.message || 'HATA'));
+      if (err?.message === 'MULTIPLE_ACTIVE_LOTS') {
+        try {
+          const res = await fetchItemLots(correctionItem.id);
+          const opts = (res.lots || []).filter((l) => l.status === 'ACTIVE' && Number(l.currentQuantity) > 0);
+          setCorrectionLotOptions(opts);
+          setCorrectionForm((prev) => ({ ...prev, mainStock: '', targetLotId: '' }));
+          alert('Bu malzemenin birden fazla aktif LOT\'u var. Lütfen aşağıdan düzeltilecek LOT\'u seçin ve tekrar kaydedin.');
+        } catch {
+          alert('Düzeltme başarısız: LOT listesi yüklenemedi.');
+        }
+      } else {
+        alert('Düzeltme başarısız: ' + (err?.message || 'HATA'));
+      }
     }
   };
 
@@ -1053,8 +1089,21 @@ const LabEquipmentTracker = () => {
   
   // For Dağıt modal: per-request editable quantity (key = purchase.id → packQty string).
   const [cepReqQty, setCepReqQty] = useState({});
-  // Per-request chosen lot (key = purchase.id → lotId).
-  const [cepReqLot, setCepReqLot] = useState({});
+  // Per-request lot rows (key = purchase.id → [{lotId, qty}]).
+  const [cepReqLots, setCepReqLots] = useState({});
+  const getCepLotRows = (pid) => cepReqLots[pid] || [{ lotId: '', qty: '' }];
+  const setCepLotRow = (pid, idx, field, val) => setCepReqLots((s) => {
+    const rows = [...(s[pid] || [{ lotId: '', qty: '' }])];
+    rows[idx] = { ...rows[idx], [field]: val };
+    return { ...s, [pid]: rows };
+  });
+  const addCepLotRow = (pid) => setCepReqLots((s) => ({
+    ...s, [pid]: [...(s[pid] || [{ lotId: '', qty: '' }]), { lotId: '', qty: '' }]
+  }));
+  const removeCepLotRow = (pid, idx) => setCepReqLots((s) => {
+    const rows = (s[pid] || []).filter((_, i) => i !== idx);
+    return { ...s, [pid]: rows.length ? rows : [{ lotId: '', qty: '' }] };
+  });
 
   // Approve (if needed) + distribute a CEP DEPO request directly to its lab tech.
   const approveAndDistributeCepRequest = async (purchase, item) => {
@@ -1070,47 +1119,49 @@ const LabEquipmentTracker = () => {
       alert('Geçerli bir miktar girin.');
       return;
     }
-    const lotId = cepReqLot[purchase.id];
-    if (!lotId) {
-      alert('Lütfen dağıtılacak Parti / SKT seçin.');
+    const rows = getCepLotRows(purchase.id);
+    const completeRows = rows.filter((r) => r.lotId && Number(r.qty) > 0);
+    if (!completeRows.length) {
+      alert('Lütfen en az bir Parti / SKT ve miktar seçin.');
       return;
     }
-    const lotsForItem = itemLotsCache[item.id] || [];
-    const chosenLot = lotsForItem.find((l) => l.id === lotId);
-    if (!chosenLot) {
-      alert('Seçilen parti artık mevcut değil. Listeyi yenileyin.');
+    const total = completeRows.reduce((s, r) => s + Number(r.qty), 0);
+    if (Math.abs(total - packQty) > 0.001) {
+      alert(`Parti toplamı (${total}) verilecek miktarla (${packQty}) eşleşmiyor.`);
       return;
     }
+    const lots = completeRows.map((r) => ({ lotId: r.lotId, qty: Number(r.qty) }));
+    const breakdown = lots.map((r) => {
+      const l = (itemLotsCache[item.id] || []).find((x) => x.id === r.lotId);
+      return `  · ${l ? `Parti ${l.lotNumber}` : r.lotId}: ${r.qty} ${item.packageUnit || 'koli'}`;
+    }).join('\n');
     if (!window.confirm(
-      `${item.name} — ${packQty} ${item.packageUnit || 'koli'} → ${tech.username}\n` +
-      `Talep No: ${purchase.requestNumber || purchase.id.slice(0,8)}\n\nOnayla ve CEP DEPOya dağıt?`
+      `${item.name} → ${tech.username}\nTalep: ${purchase.requestNumber || purchase.id.slice(0,8)}\n\nParti dağılımı:\n${breakdown}\n\nOnayla ve CEP DEPOya dağıt?`
     )) return;
 
     try {
-      // 1) Approve if still TALEP_EDILDI (idempotent — backend allows distribute on
-      //    TALEP_EDILDI too, but recording an approval keeps the audit trail clean).
       if (purchase.status === 'TALEP_EDILDI') {
         try { await approvePurchase(purchase.id, 'Dağıtım anında onaylandı'); }
-        catch (e) { /* non-fatal: distribute below will still work */ }
+        catch (e) { /* non-fatal */ }
       }
-      // 2) Distribute to that lab tech's CEP DEPO. Server marks purchase TESLIM_ALINDI.
       const result = await distributeApprovedRequest({
         purchaseId: purchase.id,
         labTechnicianId: tech.id,
         itemId: item.id,
         packQty,
-        lotId,
+        lots,
         notes: `Talep #${purchase.requestNumber || purchase.id.slice(0,8)}`
       });
       await loadUnifiedData();
       await loadAllActionData();
       setCepReqQty((s) => { const n = { ...s }; delete n[purchase.id]; return n; });
-      setCepReqLot((s) => { const n = { ...s }; delete n[purchase.id]; return n; });
+      setCepReqLots((s) => { const n = { ...s }; delete n[purchase.id]; return n; });
       alert(`Dağıtım başarılı.\n${result.packQty} ${item.packageUnit || 'koli'} / ${result.unitQty} ${item.consumptionUnit || 'birim'} → ${tech.username}`);
     } catch (err) {
       const code = err?.payload?.error;
       if (code === 'ALREADY_DISTRIBUTED') alert('Bu talep zaten dağıtılmış.');
-      else if (code === 'INSUFFICIENT_MAIN_STOCK') alert(err.payload.message);
+      else if (code === 'INSUFFICIENT_MAIN_STOCK') alert(err?.payload?.message || 'Yetersiz ana depo stoğu.');
+      else if (code === 'INSUFFICIENT_LOT_STOCK') alert(err?.payload?.message || 'Seçilen partide yeterli stok yok.');
       else alert('Dağıtım başarısız: ' + (err?.payload?.message || err?.message || 'HATA'));
     }
   };
@@ -1120,32 +1171,40 @@ const LabEquipmentTracker = () => {
     receivedBy: '',
     purpose: '',
     department: '',
-    lotId: ''
+    lotRows: [{ lotId: '', qty: '' }]
   });
-  
+  const addDistLotRow = () => setDistributeForm((f) => ({ ...f, lotRows: [...f.lotRows, { lotId: '', qty: '' }] }));
+  const removeDistLotRow = (idx) => setDistributeForm((f) => {
+    const rows = f.lotRows.filter((_, i) => i !== idx);
+    return { ...f, lotRows: rows.length ? rows : [{ lotId: '', qty: '' }] };
+  });
+  const setDistLotRow = (idx, field, val) => setDistributeForm((f) => {
+    const rows = [...f.lotRows];
+    rows[idx] = { ...rows[idx], [field]: val };
+    return { ...f, lotRows: rows };
+  });
+
   const distributeItem = async (item) => {
     if (!distributeForm.quantity || distributeForm.quantity <= 0) {
       alert('Lütfen geçerli bir miktar girin');
       return;
     }
-    
     if (!distributeForm.receivedBy.trim()) {
       alert('Lütfen alan kişiyi girin');
       return;
     }
-
-    if (!distributeForm.lotId) {
-      alert('Lütfen dağıtılacak Parti / SKT seçin');
+    const completeRows = distributeForm.lotRows.filter((r) => r.lotId && Number(r.qty) > 0);
+    if (!completeRows.length) {
+      alert('Lütfen en az bir Parti / SKT ve miktar seçin');
       return;
     }
-    const lotsForItem = itemLotsCache[item.id] || [];
-    const chosenLot = lotsForItem.find((l) => l.id === distributeForm.lotId);
-    if (!chosenLot) {
-      alert('Seçilen parti artık mevcut değil. Listeyi yenileyin.');
+    const total = completeRows.reduce((s, r) => s + Number(r.qty), 0);
+    if (Math.abs(total - Number(distributeForm.quantity)) > 0.001) {
+      alert(`Parti toplamı (${total}) girilen miktarla (${distributeForm.quantity}) eşleşmiyor.`);
       return;
     }
+    const lots = completeRows.map((r) => ({ lotId: r.lotId, qty: Number(r.qty) }));
     try {
-      // Distribute from the explicitly chosen lot (no auto-FEFO).
       await distribute({
         itemId: item.id,
         quantity: parseInt(distributeForm.quantity),
@@ -1153,19 +1212,18 @@ const LabEquipmentTracker = () => {
         department: distributeForm.department || item.department || '',
         purpose: distributeForm.purpose,
         useFefo: false,
-        lotId: distributeForm.lotId
+        lots
       });
-      
-      // Refresh stock and distribution data
       await loadUnifiedData();
       await loadAllActionData();
-      
       setShowDistributeForm(null);
-      setDistributeForm({ quantity: 0, receivedBy: '', purpose: '', department: '', lotId: '' });
+      setDistributeForm({ quantity: 0, receivedBy: '', purpose: '', department: '', lotRows: [{ lotId: '', qty: '' }] });
       alert('Malzeme başarıyla dağıtıldı! Stok güncellendi.');
     } catch (error) {
       console.error('Distribution error:', error);
-      alert('Dağıtım hatası: ' + (error.message || 'Bilinmeyen hata'));
+      const code = error?.payload?.error;
+      if (code === 'INSUFFICIENT_LOT_STOCK') alert(error?.payload?.message || 'Seçilen partide yeterli stok yok.');
+      else alert('Dağıtım hatası: ' + (error?.payload?.message || error?.message || 'Bilinmeyen hata'));
     }
   };
   
@@ -2361,24 +2419,53 @@ const LabEquipmentTracker = () => {
                               className="w-20 px-2 py-1 border rounded text-sm"
                               title="Verilecek miktar (varsayılan = istenen)"
                             />
-                            <select
-                              value={cepReqLot[p.id] || ''}
-                              onChange={(e) => setCepReqLot((s) => ({ ...s, [p.id]: e.target.value }))}
-                              className="px-2 py-1 border rounded text-xs max-w-[16rem]"
-                              title="Dağıtılacak Parti / SKT"
-                            >
-                              <option value="">Parti / SKT seç *</option>
-                              {(itemLotsCache[showDistributeForm.id] || []).map((l) => (
-                                <option key={l.id} value={l.id}>{distributableLotLabel(l, showDistributeForm.packageUnit || 'koli')}</option>
-                              ))}
-                            </select>
-                            <button
-                              onClick={() => approveAndDistributeCepRequest(p, showDistributeForm)}
-                              disabled={!cepReqLot[p.id]}
-                              className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              Onayla & Dağıt
-                            </button>
+                            {(() => {
+                              const lotRows = getCepLotRows(p.id);
+                              const packQty = Number(cepReqQty[p.id] ?? String(p.requestedQty));
+                              const total = lotRows.reduce((s, r) => s + Number(r.qty || 0), 0);
+                              const isReady = lotRows.some((r) => r.lotId && Number(r.qty) > 0) && Math.abs(total - packQty) <= 0.001;
+                              return (
+                                <div className="flex flex-col gap-1">
+                                  {lotRows.map((row, idx) => (
+                                    <div key={idx} className="flex items-center gap-1">
+                                      <select
+                                        value={row.lotId}
+                                        onChange={(e) => setCepLotRow(p.id, idx, 'lotId', e.target.value)}
+                                        className="px-2 py-1 border rounded text-xs flex-1 min-w-[10rem]"
+                                      >
+                                        <option value="">Parti seç *</option>
+                                        {(itemLotsCache[showDistributeForm.id] || []).map((l) => (
+                                          <option key={l.id} value={l.id}>{distributableLotLabel(l, showDistributeForm.packageUnit || 'koli')}</option>
+                                        ))}
+                                      </select>
+                                      <input
+                                        type="number" min="0.01" step="0.01"
+                                        value={row.qty}
+                                        onChange={(e) => setCepLotRow(p.id, idx, 'qty', e.target.value)}
+                                        className="w-16 px-2 py-1 border rounded text-xs"
+                                        placeholder="Miktar"
+                                      />
+                                      {lotRows.length > 1 && (
+                                        <button onClick={() => removeCepLotRow(p.id, idx)} className="text-red-500 hover:text-red-700 px-1 text-sm">✕</button>
+                                      )}
+                                    </div>
+                                  ))}
+                                  <div className="flex items-center justify-between mt-0.5 gap-2">
+                                    <button onClick={() => addCepLotRow(p.id)} className="text-xs text-indigo-600 hover:underline">+ Parti Ekle</button>
+                                    <span className={`text-xs ${isReady ? 'text-green-600 font-semibold' : 'text-gray-500'}`}>
+                                      Toplam: {total} / {packQty}
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => approveAndDistributeCepRequest(p, showDistributeForm)}
+                                    disabled={!isReady}
+                                    className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed self-end"
+                                  >
+                                    Onayla & Dağıt
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })}
@@ -2399,16 +2486,45 @@ const LabEquipmentTracker = () => {
                         Dağıtılabilir aktif parti yok.
                       </div>
                     ) : (
-                      <select
-                        value={distributeForm.lotId}
-                        onChange={(e) => setDistributeForm({ ...distributeForm, lotId: e.target.value })}
-                        className="w-full px-4 py-2 border rounded-lg mb-3 focus:ring-2 focus:ring-indigo-500"
-                      >
-                        <option value="">Parti / SKT seçiniz *</option>
-                        {lots.map((l) => (
-                          <option key={l.id} value={l.id}>{distributableLotLabel(l, unit)}</option>
+                      <>
+                        {distributeForm.lotRows.map((row, idx) => (
+                          <div key={idx} className="flex gap-2 items-center mb-2">
+                            <select
+                              value={row.lotId}
+                              onChange={(e) => setDistLotRow(idx, 'lotId', e.target.value)}
+                              className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                            >
+                              <option value="">Parti / SKT seçiniz *</option>
+                              {lots.map((l) => (
+                                <option key={l.id} value={l.id}>{distributableLotLabel(l, unit)}</option>
+                              ))}
+                            </select>
+                            <input
+                              type="number" min="0.01" step="0.01"
+                              value={row.qty}
+                              onChange={(e) => setDistLotRow(idx, 'qty', e.target.value)}
+                              className="w-24 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                              placeholder="Miktar"
+                            />
+                            {distributeForm.lotRows.length > 1 && (
+                              <button onClick={() => removeDistLotRow(idx)} className="text-red-500 hover:text-red-700 text-lg px-1">✕</button>
+                            )}
+                          </div>
                         ))}
-                      </select>
+                        {(() => {
+                          const lotTotal = distributeForm.lotRows.reduce((s, r) => s + Number(r.qty || 0), 0);
+                          const target = Number(distributeForm.quantity);
+                          const isMatch = target > 0 && Math.abs(lotTotal - target) <= 0.001;
+                          return (
+                            <div className="flex items-center justify-between mb-3">
+                              <button onClick={addDistLotRow} className="text-sm text-indigo-600 hover:underline">+ Parti Ekle</button>
+                              <span className={`text-sm ${isMatch ? 'text-green-600 font-semibold' : 'text-gray-500'}`}>
+                                Toplam: {lotTotal} / {target || '?'} {unit}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </>
                     )}
                   </>
                 );
@@ -2439,7 +2555,7 @@ const LabEquipmentTracker = () => {
               </datalist>
               <input type="text" placeholder="Kullanım Amacı" value={distributeForm.purpose} onChange={(e) => setDistributeForm({...distributeForm, purpose: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <div className="flex gap-3">
-                <button onClick={() => distributeItem(showDistributeForm)} disabled={!distributeForm.lotId} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Dağıt</button>
+                <button onClick={() => distributeItem(showDistributeForm)} disabled={!distributeForm.lotRows.some((r) => r.lotId && Number(r.qty) > 0) || Math.abs(distributeForm.lotRows.reduce((s, r) => s + Number(r.qty || 0), 0) - Number(distributeForm.quantity)) > 0.001} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Dağıt</button>
                 <button onClick={() => setShowDistributeForm(null)} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
               </div>
             </div>
@@ -3965,26 +4081,51 @@ const LabEquipmentTracker = () => {
                                 </td>
                                 {canDistribute && (
                                   <td className="px-3 py-2">
-                                    <div className="flex items-center gap-1">
-                                      <select
-                                        value={cepReqLot[p.id] || ''}
-                                        onChange={(e) => setCepReqLot((s) => ({ ...s, [p.id]: e.target.value }))}
-                                        className="px-2 py-1 border rounded text-xs max-w-[14rem]"
-                                        title="Dağıtılacak Parti / SKT"
-                                      >
-                                        <option value="">Parti / SKT seç *</option>
-                                        {(itemLotsCache[p.itemId] || []).map((l) => (
-                                          <option key={l.id} value={l.id}>{distributableLotLabel(l, item.packageUnit || 'koli')}</option>
-                                        ))}
-                                      </select>
-                                      <button
-                                        onClick={() => approveAndDistributeCepRequest(p, item)}
-                                        disabled={!cepReqLot[p.id]}
-                                        className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        Onayla & Dağıt
-                                      </button>
-                                    </div>
+                                    {(() => {
+                                      const lotRows = getCepLotRows(p.id);
+                                      const packQty = Number(cepReqQty[p.id] ?? String(p.requestedQty));
+                                      const total = lotRows.reduce((s, r) => s + Number(r.qty || 0), 0);
+                                      const isReady = lotRows.some((r) => r.lotId && Number(r.qty) > 0) && Math.abs(total - packQty) <= 0.001;
+                                      return (
+                                        <div className="flex flex-col gap-1 min-w-[20rem]">
+                                          {lotRows.map((row, idx) => (
+                                            <div key={idx} className="flex items-center gap-1">
+                                              <select
+                                                value={row.lotId}
+                                                onChange={(e) => setCepLotRow(p.id, idx, 'lotId', e.target.value)}
+                                                className="px-2 py-1 border rounded text-xs flex-1 max-w-[12rem]"
+                                              >
+                                                <option value="">Parti seç *</option>
+                                                {(itemLotsCache[p.itemId] || []).map((l) => (
+                                                  <option key={l.id} value={l.id}>{distributableLotLabel(l, item.packageUnit || 'koli')}</option>
+                                                ))}
+                                              </select>
+                                              <input
+                                                type="number" min="0.01" step="0.01"
+                                                value={row.qty}
+                                                onChange={(e) => setCepLotRow(p.id, idx, 'qty', e.target.value)}
+                                                className="w-14 px-1.5 py-1 border rounded text-xs"
+                                                placeholder="Miktar"
+                                              />
+                                              {lotRows.length > 1 && (
+                                                <button onClick={() => removeCepLotRow(p.id, idx)} className="text-red-500 hover:text-red-700 text-sm px-0.5">✕</button>
+                                              )}
+                                            </div>
+                                          ))}
+                                          <div className="flex items-center justify-between mt-0.5 gap-1">
+                                            <button onClick={() => addCepLotRow(p.id)} className="text-xs text-indigo-600 hover:underline">+ Ekle</button>
+                                            <span className={`text-xs ${isReady ? 'text-green-600 font-semibold' : 'text-gray-500'}`}>{total}/{packQty}</span>
+                                            <button
+                                              onClick={() => approveAndDistributeCepRequest(p, item)}
+                                              disabled={!isReady}
+                                              className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                              Onayla & Dağıt
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
                                   </td>
                                 )}
                               </tr>
@@ -4187,8 +4328,11 @@ const LabEquipmentTracker = () => {
                   value={correctionForm.mainStock}
                   onChange={(e) => setCorrectionForm({ ...correctionForm, mainStock: e.target.value })}
                 />
-                {correctionLotOptions.length > 1 && !correctionForm.targetLotId && (
-                  <p className="text-xs text-gray-500 mt-1">Miktarı düzeltmek için önce yukarıdan bir LOT seçin. Stok miktarını değiştirmeden sadece birim ayarlarını düzeltmek istiyorsanız bu alanı boş bırakabilirsiniz.</p>
+                {correctionLotOptions.length > 1 && (
+                  <p className="text-xs text-blue-600 mt-1 font-medium">
+                    Birim değişiklikleri (birim, paket birimi, tüketim birimi) tüm LOT'lara otomatik uygulanır — bu alanı boş bırakın.
+                    Sadece belirli bir LOT'un miktarını düzeltmek istiyorsanız yukarıdan LOT seçin ve buraya yeni miktarı girin.
+                  </p>
                 )}
               </div>
 
@@ -4243,12 +4387,19 @@ const LabEquipmentTracker = () => {
               </div>
             </div>
 
+            {correctionLotsError && (
+              <p className="text-xs text-red-600 mt-3 font-medium">
+                LOT listesi yüklenemedi. Pencereyi kapatıp tekrar açmayı deneyin.
+              </p>
+            )}
+
             <div className="flex gap-3 mt-5">
               <button
                 onClick={handleSaveUnitStockCorrection}
-                className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+                disabled={correctionLotsLoading || correctionLotsError}
+                className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Düzeltmeyi Kaydet
+                {correctionLotsLoading ? 'LOT bilgisi yükleniyor...' : 'Düzeltmeyi Kaydet'}
               </button>
               <button
                 onClick={() => setCorrectionItem(null)}
