@@ -5,6 +5,9 @@ Admins can now split one lot's current quantity into multiple new lots, each wit
 its own lot number and SKT (expiry date), for cases where stock was originally
 entered as a single lot but actually spans several physical batches. The item's
 total stock is unaffected — it's always the sum of ACTIVE lots' currentQuantity.
+As of 2026-07-04, one of the resulting portions may optionally keep the original
+lot's own number (and SKT) instead of every portion requiring a brand-new number
+— see "2026-07-04 update" below.
 
 ## Files touched
 - `server/lotSplit.cjs` (new) — pure validation for split requests, including a
@@ -83,3 +86,34 @@ the frontend's `alert()` shows verbatim to the admin — redundant since the
 JSON response already carries the code separately in `error`. Fixed so
 `message` only contains the Turkish text; tests updated to assert on
 `err.code` instead of matching the code via a message regex.
+
+## 2026-07-04 update: keep one portion under the original lot number
+
+Real usage immediately hit the risk flagged above: an admin tried to split a
+lot into 4 (under the existing number) + 3 + 3 and got `409 DUPLICATE_LOT`,
+because every portion previously had to get a brand-new lot number. Fixed:
+
+- `server/index.js`'s split route now allows exactly one split row to reuse
+  the original lot's own `lotNumber`. That row becomes an `UPDATE` to the
+  original lot (`currentQuantity` set to that row's quantity, `status` stays
+  `ACTIVE`, its own SKT is kept unchanged — any `expiryDate` submitted for
+  that row is ignored) instead of an `INSERT`. All other rows still become
+  brand-new `ACTIVE` lots as before. If no row reuses the original number,
+  behavior is unchanged (full close-out to `DEPLETED`/qty 0).
+- No changes were needed in `server/lotSplit.cjs` — the existing
+  intra-request duplicate-lot-number check already rejects two rows both
+  claiming the original's number, since it treats every lot number in the
+  request uniformly.
+- `src/LotInventory.jsx`'s split modal now shows a hint that typing the
+  original lot number into a row keeps that portion under it, and
+  auto-fills/disables the SKT field for that row (same SKT as the original,
+  can't be changed independently).
+
+**Verified live against a real MySQL instance on 2026-07-04**, using a fresh
+disposable test item/lot (cleaned up afterward): split 10 → keep 4 under the
+original number + 3 + 3 new numbers — confirmed the original lot stayed
+`ACTIVE` at qty 4 with its SKT unchanged, the two new lots were created
+correctly, `totalStock`/`activeLotCount` stayed correct (10 / 3), a
+second split chained off one of the new lots (also keeping its own number)
+worked identically, and two rows both claiming the same lot number was still
+correctly rejected.

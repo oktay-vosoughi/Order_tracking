@@ -124,3 +124,35 @@ lots are picked up automatically.
 (`server/index.js`, `src/LotInventory.jsx`), DB changes (none — reuses `lot_adjustments`),
 rollback (no schema change, so rollback is just reverting the two source files), test steps,
 risks.
+
+## Addendum (2026-07-04) — keep one portion under the original lot number
+
+Real usage (admin tried to split 10 into 4 under the *existing* lot number + 3 + 3) revealed
+that the "every split is a brand-new lot number" rule from the original design was too rigid —
+admins commonly want to keep the majority of the quantity under the lot's existing number and
+only carve off the pieces with a different SKT. The `409 DUPLICATE_LOT` error this produced was
+also a documented known risk in the original design (see "Risks" in the change log) that turned
+out to matter in practice.
+
+**Revised rule:** exactly one split row *may* reuse the original lot's own `lotNumber`. When it
+does:
+- That row's `expiryDate` (if any was submitted) is ignored — the original lot keeps its own
+  SKT, since a lot number can't span two expiry dates.
+- The route `UPDATE`s the original lot's `currentQuantity` to that row's quantity and leaves
+  `status = 'ACTIVE'` (instead of closing it out to `DEPLETED`/qty 0).
+- All other rows behave exactly as before: brand-new lot rows with their own number/SKT.
+- If no row reuses the original's number, behavior is unchanged from the original design (full
+  close-out).
+- Two rows both claiming the original's number is still rejected — the existing "duplicate lot
+  number within one request" check in `validateLotSplit` already catches this for free, since it
+  treats every lot number in the request uniformly (no special-casing needed in the validator).
+- The `lot_adjustments` audit entry's `quantityChange` reflects only the quantity that actually
+  left the original lot (`originalQuantity - keptQuantity`), not the full original quantity.
+
+Frontend: the split modal shows a hint that typing the original lot number into a row keeps
+that portion under it, and for that specific row the SKT field auto-fills with (and disables
+editing of) the original's own expiry date.
+
+No backend validator changes were needed — `validateLotSplit` never inspected the original
+lot's `lotNumber` in the first place, so this is entirely a routing change in
+`POST /api/lots/:id/split` (which row becomes an `UPDATE` vs `INSERT`) plus the frontend hint.
