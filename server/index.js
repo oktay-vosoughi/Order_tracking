@@ -906,13 +906,6 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
         FOR UPDATE
       `, [req.params.id]);
       const positiveLots = lotRows.filter((lot) => Number(lot.currentQuantity) > 0);
-      if (positiveLots.length > 1) {
-        throw {
-          status: 409,
-          error: 'MULTIPLE_ACTIVE_LOTS',
-          message: 'Bu malzemede birden fazla aktif LOT var. Manuel düzeltme için LOT Stok ekranını kullanın.'
-        };
-      }
 
       const balanceRows = await all(conn, `
         SELECT *
@@ -954,7 +947,22 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
 
       let correctedLotId = null;
       if (values.mainStock !== null) {
-        const targetLot = positiveLots[0] || lotRows[0];
+        let targetLot;
+        if (req.body?.targetLotId) {
+          targetLot = lotRows.find((lot) => lot.id === req.body.targetLotId);
+          if (!targetLot) {
+            throw { status: 400, error: 'INVALID_INPUT', message: 'Seçilen LOT bu malzemeye ait değil.' };
+          }
+        } else {
+          if (positiveLots.length > 1) {
+            throw {
+              status: 409,
+              error: 'MULTIPLE_ACTIVE_LOTS',
+              message: 'Bu malzemede birden fazla aktif LOT var. Düzeltilecek LOT\'u seçin.'
+            };
+          }
+          targetLot = positiveLots[0] || lotRows[0];
+        }
         if (targetLot) {
           correctedLotId = targetLot.id;
           await run(conn, `

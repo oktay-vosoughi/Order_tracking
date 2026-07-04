@@ -611,8 +611,10 @@ const LabEquipmentTracker = () => {
     mainStock: '',
     idealStock: '',
     maxStock: '',
-    cepUnitQty: ''
+    cepUnitQty: '',
+    targetLotId: ''
   });
+  const [correctionLotOptions, setCorrectionLotOptions] = useState([]);
 
   const handleSaveUnitFields = async () => {
     if (!unitEditItem) return;
@@ -631,7 +633,7 @@ const LabEquipmentTracker = () => {
     }
   };
 
-  const openUnitStockCorrection = (item) => {
+  const openUnitStockCorrection = async (item) => {
     const cepDisplay = getCepDepoDisplay(item);
     setCorrectionItem(item);
     setCorrectionForm({
@@ -640,11 +642,23 @@ const LabEquipmentTracker = () => {
       consumptionUnit: item.consumptionUnit || '',
       unitsPerPackage: item.unitsPerPackage ?? '',
       consumptionUnitType: item.consumptionUnitType || (item.consumptionUnit ? 'UNIT' : 'PACK'),
-      mainStock: item.totalStock ?? item.currentStock ?? 0,
+      mainStock: Number(item.activeLotCount) > 1 ? '' : (item.totalStock ?? item.currentStock ?? 0),
       idealStock: item.ideal_stock ?? item.minStock ?? '',
       maxStock: item.max_stock ?? '',
-      cepUnitQty: cepDisplay.quantity || 0
+      cepUnitQty: cepDisplay.quantity || 0,
+      targetLotId: ''
     });
+    if (Number(item.activeLotCount) > 1) {
+      try {
+        const res = await fetchItemLots(item.id);
+        setCorrectionLotOptions((res.lots || []).filter((l) => l.status === 'ACTIVE' && Number(l.currentQuantity) > 0));
+      } catch (err) {
+        console.error('Failed to load lots for correction:', err);
+        setCorrectionLotOptions([]);
+      }
+    } else {
+      setCorrectionLotOptions([]);
+    }
   };
 
   const handleSaveUnitStockCorrection = async () => {
@@ -659,6 +673,10 @@ const LabEquipmentTracker = () => {
       alert('1 ana birim kaç alt birim değeri pozitif olmalıdır.');
       return;
     }
+    if (correctionLotOptions.length > 1 && correctionForm.mainStock !== '' && !correctionForm.targetLotId) {
+      alert('Lütfen düzeltilecek LOT\'u seçin.');
+      return;
+    }
 
     try {
       await applyUnitStockCorrection(correctionItem.id, {
@@ -670,7 +688,8 @@ const LabEquipmentTracker = () => {
         mainStock: correctionForm.mainStock === '' ? null : Number(correctionForm.mainStock),
         idealStock: correctionForm.idealStock === '' ? null : Number(correctionForm.idealStock),
         maxStock: correctionForm.maxStock === '' ? null : Number(correctionForm.maxStock),
-        cepUnitQty: correctionForm.cepUnitQty === '' ? null : Number(correctionForm.cepUnitQty)
+        cepUnitQty: correctionForm.cepUnitQty === '' ? null : Number(correctionForm.cepUnitQty),
+        targetLotId: correctionForm.targetLotId || null
       });
       await loadUnifiedData();
       setCorrectionItem(null);
@@ -4134,8 +4153,32 @@ const LabEquipmentTracker = () => {
                 </select>
               </div>
 
+              {correctionLotOptions.length > 1 && (
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Hangi LOT'u düzeltmek istiyorsunuz?</label>
+                  <select
+                    className="w-full px-3 py-2 border rounded-lg"
+                    value={correctionForm.targetLotId}
+                    onChange={(e) => {
+                      const lotId = e.target.value;
+                      const lot = correctionLotOptions.find((l) => l.id === lotId);
+                      setCorrectionForm({ ...correctionForm, targetLotId: lotId, mainStock: lot ? lot.currentQuantity : correctionForm.mainStock });
+                    }}
+                  >
+                    <option value="">LOT seçin</option>
+                    {correctionLotOptions.map((lot) => (
+                      <option key={lot.id} value={lot.id}>
+                        {lot.lotNumber} — {lot.currentQuantity} {correctionForm.unit} (SKT: {lot.expiryDate ? formatDate(lot.expiryDate) : '-'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ana depo mevcut stok</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {correctionLotOptions.length > 1 ? 'Seçili LOT Miktarı' : 'Ana depo mevcut stok'}
+                </label>
                 <input
                   type="number"
                   min="0"
@@ -4144,6 +4187,9 @@ const LabEquipmentTracker = () => {
                   value={correctionForm.mainStock}
                   onChange={(e) => setCorrectionForm({ ...correctionForm, mainStock: e.target.value })}
                 />
+                {correctionLotOptions.length > 1 && !correctionForm.targetLotId && (
+                  <p className="text-xs text-gray-500 mt-1">Miktarı düzeltmek için önce yukarıdan bir LOT seçin. Stok miktarını değiştirmeden sadece birim ayarlarını düzeltmek istiyorsanız bu alanı boş bırakabilirsiniz.</p>
+                )}
               </div>
 
               <div>
