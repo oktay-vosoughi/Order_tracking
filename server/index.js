@@ -1086,8 +1086,12 @@ app.post('/api/lots/:id/split', authRequired, adminRequired, async (req, res) =>
         throw { status: 400, error: error.code || 'INVALID_INPUT', message: error.message };
       }
 
+      const keptSplit = splits.find((s) => s.lotNumber === lot.lotNumber);
+      const newSplits = splits.filter((s) => s !== keptSplit);
+      const originalQuantity = lot.currentQuantity;
+
       const newLotIds = [];
-      for (const split of splits) {
+      for (const split of newSplits) {
         const newId = generateId();
         newLotIds.push(newId);
         await run(conn, `
@@ -1104,17 +1108,29 @@ app.post('/api/lots/:id/split', authRequired, adminRequired, async (req, res) =>
         ]);
       }
 
-      await run(conn, `
-        UPDATE lots SET currentQuantity = 0, status = 'DEPLETED', updatedBy = ? WHERE id = ?
-      `, [req.user.username, lot.id]);
+      if (keptSplit) {
+        // This portion stays under the original lot number, so it keeps the
+        // original's own SKT too — a lot number can't span two expiry dates.
+        await run(conn, `
+          UPDATE lots SET currentQuantity = ?, status = 'ACTIVE', updatedBy = ? WHERE id = ?
+        `, [keptSplit.quantity, req.user.username, lot.id]);
+      } else {
+        await run(conn, `
+          UPDATE lots SET currentQuantity = 0, status = 'DEPLETED', updatedBy = ? WHERE id = ?
+        `, [req.user.username, lot.id]);
+      }
 
-      const splitSummary = splits.map((s) => `${s.lotNumber} (${s.quantity})`).join(', ');
+      const splitSummary = newSplits.map((s) => `${s.lotNumber} (${s.quantity})`).join(', ');
+      const reason = keptSplit ? 'LOT kısmen bölündü' : 'LOT bölündü';
+      const notes = keptSplit
+        ? `${lot.lotNumber} altında ${keptSplit.quantity} kaldı; yeni LOT'lar: ${splitSummary}`
+        : `Yeni LOT'lar: ${splitSummary}`;
       await run(conn, `
         INSERT INTO lot_adjustments (id, lotId, adjustmentType, quantityChange, reason, adjustedBy, notes)
         VALUES (?, ?, 'TRANSFER', ?, ?, ?, ?)
       `, [
-        generateId(), lot.id, -lot.currentQuantity, 'LOT bölündü',
-        req.user.username, `Yeni LOT'lar: ${splitSummary}`
+        generateId(), lot.id, -(originalQuantity - (keptSplit ? keptSplit.quantity : 0)), reason,
+        req.user.username, notes
       ]);
 
       const originalLotRows = await all(conn, 'SELECT * FROM lots WHERE id = ?', [lot.id]);
