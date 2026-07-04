@@ -8,6 +8,7 @@ const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { buildUnitCorrectionValues } = require('./unitCorrection.cjs');
+const { validateLotSplit } = require('./lotSplit.cjs');
 
 const PORT = process.env.PORT || 4000;
 
@@ -1139,11 +1140,78 @@ app.put('/api/lots/:id', authRequired, canReceiveGoods, async (req, res) => {
         updatedBy = ?
       WHERE id = ?
     `, [lotNumber, manufacturer, catalogNo, expiryDate, department, location, storageLocation, invoiceNo, attachmentUrl, attachmentName, notes, status, req.user.username, req.params.id]);
-    
+
     const lots = await all(pool, 'SELECT * FROM lots WHERE id = ?', [req.params.id]);
     res.json({ lot: lots[0] });
   } catch (error) {
     console.error('Failed to update lot', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// Split a lot's current quantity into multiple new lots with their own lot numbers/SKTs
+app.post('/api/lots/:id/split', authRequired, adminRequired, async (req, res) => {
+  try {
+    const result = await withTransaction(async (conn) => {
+      const lots = await all(conn, 'SELECT * FROM lots WHERE id = ? FOR UPDATE', [req.params.id]);
+      const lot = lots[0];
+      if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND' };
+
+      let splits;
+      try {
+        splits = validateLotSplit(lot, req.body?.splits);
+      } catch (error) {
+        throw { status: 400, error: error.code || 'INVALID_INPUT', message: error.message };
+      }
+
+      const newLotIds = [];
+      for (const split of splits) {
+        const newId = generateId();
+        newLotIds.push(newId);
+        await run(conn, `
+          INSERT INTO lots
+            (id, itemId, lotNumber, manufacturer, catalogNo, expiryDate, receivedDate,
+             initialQuantity, currentQuantity, status, department, location, storageLocation,
+             invoiceNo, attachmentUrl, attachmentName, notes, createdBy)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          newId, lot.itemId, split.lotNumber, lot.manufacturer, lot.catalogNo, split.expiryDate,
+          lot.receivedDate, split.quantity, split.quantity, lot.department, lot.location,
+          lot.storageLocation, lot.invoiceNo, lot.attachmentUrl, lot.attachmentName, lot.notes,
+          req.user.username
+        ]);
+      }
+
+      await run(conn, `
+        UPDATE lots SET currentQuantity = 0, status = 'DEPLETED', updatedBy = ? WHERE id = ?
+      `, [req.user.username, lot.id]);
+
+      const splitSummary = splits.map((s) => `${s.lotNumber} (${s.quantity})`).join(', ');
+      await run(conn, `
+        INSERT INTO lot_adjustments (id, lotId, adjustmentType, quantityChange, reason, adjustedBy, notes)
+        VALUES (?, ?, 'TRANSFER', ?, ?, ?, ?)
+      `, [
+        generateId(), lot.id, -lot.currentQuantity, 'LOT bölündü',
+        req.user.username, `Yeni LOT'lar: ${splitSummary}`
+      ]);
+
+      const originalLotRows = await all(conn, 'SELECT * FROM lots WHERE id = ?', [lot.id]);
+      const newLotRows = await all(
+        conn,
+        `SELECT * FROM lots WHERE id IN (${newLotIds.map(() => '?').join(',')})`,
+        newLotIds
+      );
+
+      return { originalLot: originalLotRows[0], newLots: newLotRows };
+    });
+
+    res.json(result);
+  } catch (error) {
+    if (String(error?.code) === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'DUPLICATE_LOT', message: 'Bu LOT numarası bu malzeme için zaten kullanılıyor.' });
+    }
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
+    console.error('Failed to split lot', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
   }
 });
