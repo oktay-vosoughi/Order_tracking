@@ -1,0 +1,143 @@
+- generic [ref=f4e3]:
+  - generic [ref=f4e2840]:
+    - img [ref=f4e2841]
+    - generic [ref=f4e2843]: 2 dağıtım talebi bekliyor
+    - button "Görüntüle" [ref=f4e2844] [cursor=pointer]
+    - button "✕" [ref=f4e2845] [cursor=pointer]
+  - complementary [ref=f4e17]:
+    - generic [ref=f4e18]:
+      - img "GTMLIMS" [ref=f4e20]
+      - generic [ref=f4e21]:
+        - strong [ref=f4e22]: GTMLIMS
+        - text: Lab Malzeme Takip
+    - generic [ref=f4e23]: Ana Menü
+    - button "Stok" [ref=f4e24] [cursor=pointer]:
+      - img [ref=f4e25]
+      - generic [ref=f4e29]: Stok
+    - button "Talepler 2" [ref=f4e2846] [cursor=pointer]:
+      - img [ref=f4e31]
+      - generic [ref=f4e35]: Talepler
+      - generic [ref=f4e2847]: "2"
+    - button "Siparişler" [ref=f4e36] [cursor=pointer]:
+      - img [ref=f4e37]
+      - generic [ref=f4e42]: Siparişler
+    - button "Dağıtım 2" [active] [ref=f4e2848] [cursor=pointer]:
+      - img [ref=f4e44]
+      - generic [ref=f4e48]: Dağıtım
+      - generic [ref=f4e2849]: "2"
+    - button "Atık" [ref=f4e49] [cursor=pointer]:
+      - img [ref=f4e50]
+      - generic [ref=f4e57]: Atık
+    - button "Genel Stok" [ref=f4e58] [cursor=pointer]:
+      - img [ref=f4e59]
+      - generic [ref=f4e60]: Genel Stok
+    - button "LOT Stok" [ref=f4e61] [cursor=pointer]:
+      - img [ref=f4e62]
+      - generic [ref=f4e66]: LOT Stok
+    - button "CEP DEPO" [ref=f4e67] [cursor=pointer]:
+      - img [ref=f4e68]
+      - generic [ref=f4e70]: CEP DEPO
+    - button "Fiyatlar" [ref=f4e71] [cursor=pointer]:
+      - img [ref=f4e72]
+      - generic [ref=f4e73]: Fiyatlar
+    - button "Kullanıcılar" [ref=f4e74] [cursor=pointer]:
+      - img [ref=f4e75]
+      - generic [ref=f4e78]: Kullanıcılar
+    - button "Hesabım" [ref=f4e79] [cursor=pointer]:
+      - img [ref=f4e80]
+      - generic [ref=f4e83]: Hesabım
+    - generic [ref=f4e85]:
+      - generic [ref=f4e86]: OK
+      - generic [ref=f4e87]:
+        - strong [ref=f4e88]: Oktay
+        - text: ADMIN
+      - button "Çıkış" [ref=f4e89] [cursor=pointer]:
+        - img [ref=f4e90]
+  - generic [ref=f4e93]:
+    - generic [ref=f4e94]:
+      - generic [ref=f4e95]: Dağıtım
+      - generic [ref=f4e96]:
+        - img [ref=f4e97]
+        - textbox "Ara..." [ref=f4e100]
+    - generic [ref=f4e117]:
+      - generic [ref=f4e2850]:
+        - generic [ref=f4e2851]:
+          - generic [ref=f4e2852]:
+            - img [ref=f4e2853]
+            - heading "Lab Teknisyen Dağıtım Talepleri2" [level=3] [ref=f4e2855]
+            - generic [ref=f4e2856]:
+              - combobox [ref=f4e2857]:
+                - option "Tüm Departmanlar" [selected]
+              - combobox [ref=f4e2858]:
+                - option "Tüm Teknisyenler" [selected]
+                - option "lab1"
+          - table [ref=f4e2860]:
+            - rowgroup [ref=f4e2861]:
+              - row "Talep No Malzeme Talep Eden Miktar Durum İşlem" [ref=f4e2862]:
+                - columnheader "Talep No" [ref=f4e2863]
+                - columnheader "Malzeme" [ref=f4e2864]
+                - columnheader "Talep Eden" [ref=f4e2865]
+                - columnheader "Miktar" [ref=f4e2866]
+                - columnheader "Durum" [ref=f4e2867]
+                - columnheader "İşlem" [ref=f4e2868]
+            - rowgroup [ref=f4e2869]:
+              - row "REQ-963802 Artus BK Virus QS-RGQ Kit (24) lab1 1 kutu Talep Edildi 03.07.2026 Parti / SKT seç * Onayla & Dağıt" [ref=f4e2870]:
+                - cell "REQ-963802" [ref=f4e2871]
+                - cell "Artus BK Virus QS-RGQ Kit (24)" [ref=f4e2872]:
+                  - generic [ref=f4e2873]: Artus BK Virus QS-RGQ Kit (24)
+                - cell "lab1" [ref=f4e2874]
+                - cell "1 kutu" [ref=f4e2875]:
+                  - generic [ref=f4e2876]:
+                    - spinbutton "Verilecek miktar" [ref=f4e2877]: "1"
+                    - generic [ref=f4e2878]: kutu
+                - cell "Talep Edildi 03.07.2026" [ref=f4e2879]:
+                  - generic [ref=f4e2880]: Talep Edildi
+                  - generic [ref=f4e2881]: 03.07.2026
+                - cell "Parti / SKT seç * Onayla & Dağıt" [ref=f4e2882]:
+                  - generic [ref=f4e2883]:
+                    - combobox "Dağıtılacak Parti / SKT" [ref=f4e2884]:
+                      - option "Parti / SKT seç *" [selected]
+                      - option "Parti 4514363 · SKT SKT yok · 33.00 kutu mevcut"
+                    - button "Onayla & Dağıt" [disabled] [ref=f4e2885]
+              - row "REQ-954261 Artus BK Virus QS-RGQ Kit (24) lab1 1 kutu Talep Edildi 03.07.2026 Parti / SKT seç * Onayla & Dağıt" [ref=f4e2886]:
+                - cell "REQ-954261" [ref=f4e2887]
+                - cell "Artus BK Virus QS-RGQ Kit (24)" [ref=f4e2888]:
+                  - generic [ref=f4e2889]: Artus BK Virus QS-RGQ Kit (24)
+                - cell "lab1" [ref=f4e2890]
+                - cell "1 kutu" [ref=f4e2891]:
+                  - generic [ref=f4e2892]:
+                    - spinbutton "Verilecek miktar" [ref=f4e2893]: "1"
+                    - generic [ref=f4e2894]: kutu
+                - cell "Talep Edildi 03.07.2026" [ref=f4e2895]:
+                  - generic [ref=f4e2896]: Talep Edildi
+                  - generic [ref=f4e2897]: 03.07.2026
+                - cell "Parti / SKT seç * Onayla & Dağıt" [ref=f4e2898]:
+                  - generic [ref=f4e2899]:
+                    - combobox "Dağıtılacak Parti / SKT" [ref=f4e2900]:
+                      - option "Parti / SKT seç *" [selected]
+                      - option "Parti 4514363 · SKT SKT yok · 33.00 kutu mevcut"
+                    - button "Onayla & Dağıt" [disabled] [ref=f4e2901]
+        - generic [ref=f4e2902]:
+          - generic [ref=f4e2903]:
+            - heading "Dağıtım Kayıtları" [level=3] [ref=f4e2905]
+            - button "Excel'e Aktar" [ref=f4e2906] [cursor=pointer]:
+              - img [ref=f4e2907]
+              - text: Excel'e Aktar
+          - generic [ref=f4e2910]:
+            - table [ref=f4e2911]:
+              - rowgroup [ref=f4e2912]:
+                - row "Malzeme Miktar Veren Alan Amaç Tarih Durum" [ref=f4e2913]:
+                  - columnheader "Malzeme" [ref=f4e2914]
+                  - columnheader "Miktar" [ref=f4e2915]
+                  - columnheader "Veren" [ref=f4e2916]
+                  - columnheader "Alan" [ref=f4e2917]
+                  - columnheader "Amaç" [ref=f4e2918]
+                  - columnheader "Tarih" [ref=f4e2919]
+                  - columnheader "Durum" [ref=f4e2920]
+              - rowgroup
+            - generic [ref=f4e2921]:
+              - img [ref=f4e2922]
+              - paragraph [ref=f4e2926]: Henüz dağıtım kaydı yok
+      - button "Tümünü Temizle" [ref=f4e2836] [cursor=pointer]:
+        - img [ref=f4e2837]
+        - text: Tümünü Temizle

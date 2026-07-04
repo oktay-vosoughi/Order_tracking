@@ -1,0 +1,13 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - img "GTMLIMS" [ref=e7]
+    - generic [ref=e8]:
+      - strong [ref=e9]: GTMLIMS
+      - text: Laboratuvar Malzeme Takip
+  - generic [ref=e10]: Giriş Yap
+  - generic [ref=e11]: Kullanıcı adı ve şifrenizle giriş yapın.
+  - generic [ref=e12]: "Hata: UNAUTHORIZED"
+  - textbox "Kullanıcı Adı" [ref=e13]
+  - textbox "Şifre" [ref=e14]
+  - button "Giriş Yap" [ref=e15] [cursor=pointer]
+  - button "İlk kurulum (bootstrap) modunu aç" [ref=e16] [cursor=pointer]

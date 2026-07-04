@@ -1,0 +1,128 @@
+- generic [ref=e3]:
+  - complementary [ref=e5158]:
+    - generic [ref=e5159]:
+      - img "GTMLIMS" [ref=e5161]
+      - generic [ref=e5162]:
+        - strong [ref=e5163]: GTMLIMS
+        - text: Lab Malzeme Takip
+    - generic [ref=e5164]: Ana Menü
+    - button "Stok" [ref=e5165] [cursor=pointer]:
+      - img [ref=e5166]
+      - generic [ref=e5170]: Stok
+    - button "Talepler" [ref=e5171] [cursor=pointer]:
+      - img [ref=e5172]
+      - generic [ref=e5176]: Talepler
+    - button "Siparişler" [ref=e5177] [cursor=pointer]:
+      - img [ref=e5178]
+      - generic [ref=e5183]: Siparişler
+    - button "Dağıtım" [ref=e5184] [cursor=pointer]:
+      - img [ref=e5185]
+      - generic [ref=e5189]: Dağıtım
+    - button "Atık" [ref=e5190] [cursor=pointer]:
+      - img [ref=e5191]
+      - generic [ref=e5198]: Atık
+    - button "Genel Stok" [ref=e5199] [cursor=pointer]:
+      - img [ref=e5200]
+      - generic [ref=e5201]: Genel Stok
+    - button "LOT Stok" [ref=e5202] [cursor=pointer]:
+      - img [ref=e5203]
+      - generic [ref=e5207]: LOT Stok
+    - button "CEP DEPO" [ref=e5208] [cursor=pointer]:
+      - img [ref=e5209]
+      - generic [ref=e5211]: CEP DEPO
+    - button "Fiyatlar" [ref=e5212] [cursor=pointer]:
+      - img [ref=e5213]
+      - generic [ref=e5214]: Fiyatlar
+    - button "Kullanıcılar" [ref=e5215] [cursor=pointer]:
+      - img [ref=e5216]
+      - generic [ref=e5219]: Kullanıcılar
+    - button "Hesabım" [ref=e5220] [cursor=pointer]:
+      - img [ref=e5221]
+      - generic [ref=e5224]: Hesabım
+    - generic [ref=e5226]:
+      - generic [ref=e5227]: OK
+      - generic [ref=e5228]:
+        - strong [ref=e5229]: Oktay
+        - text: ADMIN
+      - button "Çıkış" [ref=e5230] [cursor=pointer]:
+        - img [ref=e5231]
+  - generic [ref=e5234]:
+    - generic [ref=e5235]:
+      - generic [ref=e5236]: Genel Stok
+      - generic [ref=e5237]:
+        - img [ref=e5238]
+        - textbox "Ara..." [ref=e5241]
+    - generic [ref=e5242]:
+      - generic [ref=e5243]:
+        - button "Yenile" [ref=e5245] [cursor=pointer]
+        - generic [ref=e5246]:
+          - generic [ref=e5247]:
+            - generic [ref=e5248]:
+              - img [ref=e5249]
+              - text: Toplam Malzeme
+            - generic [ref=e5253]: "74"
+            - generic [ref=e5254]: 74 Aktif LOT
+          - generic [ref=e5255]:
+            - generic [ref=e5256]:
+              - img [ref=e5257]
+              - text: Toplam Stok
+            - generic [ref=e5260]: "3682.00"
+            - generic [ref=e5261]: Birim (LOT bazlı)
+          - generic [ref=e5262]:
+            - generic [ref=e5263]:
+              - img [ref=e5264]
+              - text: SKT Uyarı
+            - generic [ref=e5266]: "2"
+            - generic [ref=e5267]: 30 gün içinde (54.00 birim)
+          - generic [ref=e5268]:
+            - generic [ref=e5269]:
+              - img [ref=e5270]
+              - text: Kritik Stok
+            - generic [ref=e5272]: "31"
+            - generic [ref=e5273]: Min. seviyenin altında
+        - generic [ref=e5274]:
+          - heading "Departman Bazlı Stok Dağılımı (LOT Sistemi)" [level=3] [ref=e5276]
+          - table [ref=e5278]:
+            - rowgroup [ref=e5279]:
+              - row "Departman Malzeme Çeşidi Toplam Stok" [ref=e5280]:
+                - columnheader "Departman" [ref=e5281]
+                - columnheader "Malzeme Çeşidi" [ref=e5282]
+                - columnheader "Toplam Stok" [ref=e5283]
+            - rowgroup [ref=e5284]:
+              - row "Molecular mikro 68 3595.00" [ref=e5285]:
+                - cell "Molecular mikro" [ref=e5286]
+                - cell "68" [ref=e5287]
+                - cell "3595.00" [ref=e5288]
+              - row "Molecular 6 87.00" [ref=e5289]:
+                - cell "Molecular" [ref=e5290]
+                - cell "6" [ref=e5291]
+                - cell "87.00" [ref=e5292]
+        - generic [ref=e5293]:
+          - heading "Son Aktiviteler (7 Gün)" [level=3] [ref=e5295]
+          - table [ref=e5297]:
+            - rowgroup [ref=e5298]:
+              - row "Tip Malzeme Miktar Kişi Tarih" [ref=e5299]:
+                - columnheader "Tip" [ref=e5300]
+                - columnheader "Malzeme" [ref=e5301]
+                - columnheader "Miktar" [ref=e5302]
+                - columnheader "Kişi" [ref=e5303]
+                - columnheader "Tarih" [ref=e5304]
+            - rowgroup [ref=e5305]:
+              - row "Son 7 günde aktivite bulunamadı." [ref=e5306]:
+                - cell "Son 7 günde aktivite bulunamadı." [ref=e5307]
+        - generic [ref=e5308]:
+          - heading "Son Atık Kayıtları" [level=3] [ref=e5310]
+          - table [ref=e5312]:
+            - rowgroup [ref=e5313]:
+              - row "Malzeme Miktar Atık Tipi Tarih Neden" [ref=e5314]:
+                - columnheader "Malzeme" [ref=e5315]
+                - columnheader "Miktar" [ref=e5316]
+                - columnheader "Atık Tipi" [ref=e5317]
+                - columnheader "Tarih" [ref=e5318]
+                - columnheader "Neden" [ref=e5319]
+            - rowgroup [ref=e5320]:
+              - row "Atık kaydı bulunmamaktadır." [ref=e5321]:
+                - cell "Atık kaydı bulunmamaktadır." [ref=e5322]
+      - button "Tümünü Temizle" [ref=e5324] [cursor=pointer]:
+        - img [ref=e5325]
+        - text: Tümünü Temizle

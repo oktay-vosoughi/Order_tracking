@@ -1,0 +1,127 @@
+- generic [ref=f2e3]:
+  - complementary [ref=f2e4]:
+    - generic [ref=f2e5]:
+      - img "GTMLIMS" [ref=f2e7]
+      - generic [ref=f2e8]:
+        - strong [ref=f2e9]: GTMLIMS
+        - text: Lab Malzeme Takip
+    - generic [ref=f2e10]: Ana Menü
+    - button "Stok" [ref=f2e11] [cursor=pointer]:
+      - img [ref=f2e12]
+      - generic [ref=f2e16]: Stok
+    - button "Talepler" [ref=f2e17] [cursor=pointer]:
+      - img [ref=f2e18]
+      - generic [ref=f2e22]: Talepler
+    - button "Siparişler" [ref=f2e23] [cursor=pointer]:
+      - img [ref=f2e24]
+      - generic [ref=f2e29]: Siparişler
+    - button "Dağıtım" [ref=f2e30] [cursor=pointer]:
+      - img [ref=f2e31]
+      - generic [ref=f2e35]: Dağıtım
+    - button "Atık" [ref=f2e36] [cursor=pointer]:
+      - img [ref=f2e37]
+      - generic [ref=f2e44]: Atık
+    - button "Genel Stok" [ref=f2e45] [cursor=pointer]:
+      - img [ref=f2e46]
+      - generic [ref=f2e47]: Genel Stok
+    - button "LOT Stok" [ref=f2e48] [cursor=pointer]:
+      - img [ref=f2e49]
+      - generic [ref=f2e53]: LOT Stok
+    - button "CEP DEPO" [ref=f2e54] [cursor=pointer]:
+      - img [ref=f2e55]
+      - generic [ref=f2e57]: CEP DEPO
+    - button "Fiyatlar" [ref=f2e58] [cursor=pointer]:
+      - img [ref=f2e59]
+      - generic [ref=f2e60]: Fiyatlar
+    - button "Kullanıcılar" [ref=f2e61] [cursor=pointer]:
+      - img [ref=f2e62]
+      - generic [ref=f2e65]: Kullanıcılar
+    - button "Hesabım" [ref=f2e66] [cursor=pointer]:
+      - img [ref=f2e67]
+      - generic [ref=f2e70]: Hesabım
+    - generic [ref=f2e72]:
+      - generic [ref=f2e73]: OK
+      - generic [ref=f2e74]:
+        - strong [ref=f2e75]: Oktay
+        - text: ADMIN
+      - button "Çıkış" [ref=f2e76] [cursor=pointer]:
+        - img [ref=f2e77]
+  - generic [ref=f2e80]:
+    - generic [ref=f2e81]:
+      - generic [ref=f2e82]: Stok
+      - generic [ref=f2e83]:
+        - img [ref=f2e84]
+        - textbox "Ara..." [ref=f2e87]
+      - generic [ref=f2e88]:
+        - combobox [ref=f2e89]:
+          - option "Tümü" [selected]
+          - option "Stokta"
+          - option "Satın Al"
+        - button "FEFO Kapalı" [ref=f2e90] [cursor=pointer]:
+          - img [ref=f2e91]
+          - text: FEFO Kapalı
+        - generic [ref=f2e93] [cursor=pointer]:
+          - img [ref=f2e94]
+          - text: Excel Yükle
+        - button "Excel" [ref=f2e97] [cursor=pointer]:
+          - img [ref=f2e98]
+          - text: Excel
+        - button "Malzeme Ekle" [ref=f2e101] [cursor=pointer]:
+          - img [ref=f2e102]
+          - text: Malzeme Ekle
+    - generic [ref=f2e103]:
+      - generic [ref=f2e104]:
+        - generic [ref=f2e105]:
+          - button "Toplam Malzeme 0 Stoktaki tüm malzemeleri göster" [ref=f2e106] [cursor=pointer]:
+            - generic [ref=f2e107]: Toplam Malzeme
+            - generic [ref=f2e108]: "0"
+            - generic [ref=f2e109]: Stoktaki tüm malzemeleri göster
+          - button "Satın Alınacak 0 Stoktaki \"Satın Al\" durumlarını göster" [ref=f2e110] [cursor=pointer]:
+            - generic [ref=f2e111]: Satın Alınacak
+            - generic [ref=f2e112]: "0"
+            - generic [ref=f2e113]: Stoktaki "Satın Al" durumlarını göster
+          - button "EBYS bekleme 0 Talepleri filtrele" [ref=f2e114] [cursor=pointer]:
+            - generic [ref=f2e116]: EBYS bekleme
+            - generic [ref=f2e117]: "0"
+            - generic [ref=f2e118]: Talepleri filtrele
+          - button "Onaylı 0 Talepleri filtrele" [ref=f2e119] [cursor=pointer]:
+            - generic [ref=f2e121]: Onaylı
+            - generic [ref=f2e122]: "0"
+            - generic [ref=f2e123]: Talepleri filtrele
+          - button "Siparişte 0 Talepleri filtrele" [ref=f2e124] [cursor=pointer]:
+            - generic [ref=f2e126]: Siparişte
+            - generic [ref=f2e127]: "0"
+            - generic [ref=f2e128]: Talepleri filtrele
+          - button "Tamamlanan 0 Talepleri filtrele" [ref=f2e129] [cursor=pointer]:
+            - generic [ref=f2e131]: Tamamlanan
+            - generic [ref=f2e132]: "0"
+            - generic [ref=f2e133]: Talepleri filtrele
+          - button "Reddedildi 0 Talepleri filtrele" [ref=f2e134] [cursor=pointer]:
+            - generic [ref=f2e136]: Reddedildi
+            - generic [ref=f2e137]: "0"
+            - generic [ref=f2e138]: Talepleri filtrele
+          - button "SKT Uyarısı (≤ 90 gün) 0 Yaklaşan SKT'leri göster" [ref=f2e139] [cursor=pointer]:
+            - generic [ref=f2e140]:
+              - img [ref=f2e141]
+              - text: SKT Uyarısı (≤ 90 gün)
+            - generic [ref=f2e143]: "0"
+            - generic [ref=f2e144]: Yaklaşan SKT'leri göster
+        - generic [ref=f2e146]:
+          - table [ref=f2e147]:
+            - rowgroup [ref=f2e148]:
+              - row "Kod Malzeme Stok CEP DEPO (Tüm Kullanıcılar) SKT Durum İşlem" [ref=f2e149]:
+                - columnheader "Kod" [ref=f2e150]
+                - columnheader "Malzeme" [ref=f2e151]
+                - columnheader "Stok" [ref=f2e152]
+                - columnheader "CEP DEPO (Tüm Kullanıcılar)" [ref=f2e153]
+                - columnheader "SKT" [ref=f2e154]
+                - columnheader "Durum" [ref=f2e155]
+                - columnheader "İşlem" [ref=f2e156]
+            - rowgroup
+          - generic [ref=f2e157]:
+            - img [ref=f2e158]
+            - paragraph [ref=f2e162]: Henüz malzeme eklenmemiş
+            - paragraph [ref=f2e163]: Excel yükleyin veya manuel ekleyin
+      - button "Tümünü Temizle" [ref=f2e165] [cursor=pointer]:
+        - img [ref=f2e166]
+        - text: Tümünü Temizle
