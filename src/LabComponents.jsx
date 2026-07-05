@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { AlertTriangle, Calendar, Flame, Droplet, FileText, Recycle, X, ExternalLink } from 'lucide-react';
-import { 
-  CHEMICAL_TYPES, 
-  STORAGE_TEMPS, 
+import {
+  CHEMICAL_TYPES,
+  STORAGE_TEMPS,
   WASTE_TYPES,
   DEPARTMENTS,
   getExpiryStatus,
@@ -11,10 +11,23 @@ import {
   getExpiringItems,
   getExpiredItems
 } from './labUtils';
+import { getFieldConfig, isModuleEnabled } from './platformConfig';
 
-// Add Item Form with Laboratory Fields
-export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
+// Add Item Form with Laboratory Fields.
+// Field visibility / required flags / labels come from the company's field
+// configuration (Ayarlar → Form Alanları); departments come from the runtime
+// registry when provided, else the static fallback list.
+export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel, departments }) => {
   const [allowManualExpiry, setAllowManualExpiry] = useState(false);
+
+  const fieldCfg = getFieldConfig('itemForm') || {};
+  const show = (key) => fieldCfg[key]?.visible !== false;
+  const req = (key) => fieldCfg[key]?.required === true;
+  const lbl = (key, fallback) => (fieldCfg[key]?.label || fallback) + (req(key) ? ' *' : '');
+  const cepEnabled = isModuleEnabled('cep_depo');
+  const departmentOptions = (departments && departments.length)
+    ? departments.filter((d) => d.active !== 0 && d.active !== false).map((d) => d.name)
+    : Object.values(DEPARTMENTS);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
@@ -24,7 +37,7 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Basic Fields */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Malzeme Kodu *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{lbl('code', 'Malzeme Kodu')}</label>
             <input
               type="text"
               placeholder="M001"
@@ -33,9 +46,9 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          
+
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Malzeme Adı *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{lbl('name', 'Malzeme Adı')}</label>
             <input
               type="text"
               placeholder="Pipet 10ml"
@@ -44,23 +57,26 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          
+
+          {show('department') && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Departman *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{lbl('department', 'Departman')}</label>
             <select
               value={newItem.department}
               onChange={(e) => setNewItem({...newItem, department: e.target.value})}
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">Seçiniz</option>
-              {Object.entries(DEPARTMENTS).map(([key, label]) => (
-                <option key={key} value={label}>{label}</option>
+              {departmentOptions.map((name) => (
+                <option key={name} value={name}>{name}</option>
               ))}
             </select>
           </div>
-          
+          )}
+
+          {show('category') && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{lbl('category', 'Kategori')}</label>
             <input
               type="text"
               placeholder="Lab Cam"
@@ -69,9 +85,11 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          
+          )}
+
+          {show('brand') && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Marka</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{lbl('brand', 'Marka')}</label>
             <input
               type="text"
               placeholder="Sigma"
@@ -80,9 +98,11 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          
+          )}
+
+          {show('unit') && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Birim</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{lbl('unit', 'Birim')}</label>
             <input
               type="text"
               placeholder="adet, kg, L"
@@ -91,8 +111,10 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
+          )}
 
-          {/* CEP DEPO — main / sub-unit conversion */}
+          {/* CEP DEPO — main / sub-unit conversion (hidden when the module is off) */}
+          {cepEnabled && (<>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Ana Birim (Talep/Depo)
@@ -175,9 +197,11 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               Reaksiyon (alt birim) bazlı ürünlerde: bölüm CEP DEPO stoğu bu eşiğin altına inince yeni talep açılabilir. Varsayılan 3.
             </p>
           </div>
+          </>)}
 
+          {show('minStock') && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Min Stok</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{lbl('minStock', 'Min Stok')}</label>
             <input
               type="number"
               placeholder="50"
@@ -186,6 +210,7 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
+          )}
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Mevcut Stok</label>
@@ -209,10 +234,11 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
             />
           </div>
           
+          {show('storageLocation') && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               <Droplet className="inline mr-1" size={16} />
-              Buzdolabı/Dolap
+              {lbl('storageLocation', 'Buzdolabı/Dolap')}
             </label>
             <input
               type="text"
@@ -222,10 +248,12 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          
+          )}
+
+          {show('storageTemp') && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Saklama Sıcaklığı
+              {lbl('storageTemp', 'Saklama Sıcaklığı')}
             </label>
             <select
               value={newItem.storageTemp}
@@ -238,11 +266,13 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               ))}
             </select>
           </div>
-          
+          )}
+
+          {show('chemicalType') && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               <Flame className="inline mr-1" size={16} />
-              Kimyasal Tipi
+              {lbl('chemicalType', 'Kimyasal Tipi')}
             </label>
             <select
               value={newItem.chemicalType}
@@ -255,9 +285,11 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               ))}
             </select>
           </div>
-          
+          )}
+
+          {show('supplier') && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Tedarikçi</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{lbl('supplier', 'Tedarikçi')}</label>
             <input
               type="text"
               placeholder="Sigma Aldrich"
@@ -266,9 +298,11 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          
+          )}
+
+          {show('catalogNo') && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Katalog No</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{lbl('catalogNo', 'Katalog No')}</label>
             <input
               type="text"
               placeholder="P1000"
@@ -277,6 +311,7 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
+          )}
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Lot No</label>
@@ -330,10 +365,11 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
             />
           </div>
           
+          {show('msdsUrl') && (
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               <FileText className="inline mr-1" size={16} />
-              MSDS/SDS URL
+              {lbl('msdsUrl', 'MSDS/SDS URL')}
             </label>
             <input
               type="url"
@@ -343,6 +379,7 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
+          )}
         </div>
         
         <div className="flex gap-3 mt-6">

@@ -33,6 +33,9 @@ import {
   getVisibleTabOptions
 } from './mobileUi.mjs';
 import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget } from './stockDisplay.mjs';
+import { fetchPlatformConfig } from './api';
+import { setPlatformConfig, getPlatformConfig, can, isModuleEnabled, t, getRoles } from './platformConfig';
+import SettingsPanel from './SettingsPanel';
 import './theme.css';
 import logoIcon from './logos/icon.png';
 
@@ -203,25 +206,32 @@ const LabEquipmentTracker = () => {
   const isKurumsal = userRole === 'KURUMSAL';
   const isObserver = userRole === 'OBSERVER';
   const isLabTechnician = userRole === 'LAB_TECHNICIAN';
-  const ROLE_LABELS = {
+  // Role display names come from the company's role registry (custom roles
+  // included); the static map remains as the pre-config fallback.
+  const ROLE_LABELS = (getRoles() || []).reduce((acc, r) => {
+    acc[r.key] = r.name || r.key;
+    return acc;
+  }, {
     ADMIN: 'ADMIN',
     SATINAL: 'SATINAL',
     SATINAL_LOJISTIK: 'SATINAL_LOJISTIK',
     KURUMSAL: 'KURUMSAL',
     OBSERVER: 'OBSERVER',
     LAB_TECHNICIAN: 'LAB_TECHNICIAN'
-  };
-  
-  // Capability checks based on RBAC matrix
-  const canManageUsers = isAdmin;
+  });
+
+  // Capability checks — permission-based once /api/config loads; until then the
+  // legacy role expressions act as fallback so the UI never flashes empty.
+  const canManageUsers = can('users.manage', isAdmin);
   const canViewStock = true; // All roles can view stock
-  const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
-  const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isLabTechnician;
-  const canApprove = isAdmin || isSatinal || isKurumsal;
-  const canOrder = isAdmin || isSatinalLojistik;
-  const canReceive = isAdmin || isSatinalLojistik || !!currentUser?.canReceive;
-  const canDistribute = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
-  const canViewPrices = isAdmin || isKurumsal || !!currentUser?.canViewPrices;
+  const canModifyInventory = can('inventory.modify', isAdmin || isSatinal || isSatinalLojistik || isKurumsal);
+  const canCreateRequest = can('purchases.request', isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isLabTechnician);
+  const canApprove = can('purchases.approve', isAdmin || isSatinal || isKurumsal);
+  const canOrder = can('purchases.order', isAdmin || isSatinalLojistik);
+  const canReceive = can('purchases.receive', isAdmin || isSatinalLojistik || !!currentUser?.canReceive);
+  const canDistribute = can('distributions.create', isAdmin || isSatinal || isSatinalLojistik || isKurumsal);
+  const canViewPrices = can('prices.view', isAdmin || isKurumsal || !!currentUser?.canViewPrices);
+  const canManageSettings = can('system.admin', isAdmin);
 
   // Fetch + cache ONLY distributable lots for an item (ACTIVE, qty > 0, not expired).
   const loadItemLots2 = async (itemId) => {
@@ -295,22 +305,41 @@ const LabEquipmentTracker = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
-  const canImportItems = canModifyInventory;
-  const canViewAllDagit = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
+  const canImportItems = can('inventory.import', canModifyInventory);
+  const canViewAllDagit = can('distributions.viewAll', isAdmin || isSatinal || isSatinalLojistik || isKurumsal);
   const canViewDagit = true; // Tab visible to all; content filtered per role
-  const canViewTalep = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
+  const canViewTalep = can('purchases.viewAll', isAdmin || isSatinal || isSatinalLojistik || isKurumsal);
   const canViewSiparis = canOrder;
   
   const username = currentUser?.username || '';
-  
+
+  // Platform config (modules, permissions, terminology, field config).
+  // Stored in the platformConfig module for the helpers and mirrored in state
+  // so the app re-renders when it arrives. A failed load keeps the legacy
+  // role-based fallbacks working.
+  const [platformCfg, setPlatformCfg] = useState(null);
+  const loadPlatformConfig = async () => {
+    try {
+      const cfg = await fetchPlatformConfig();
+      setPlatformConfig(cfg);
+      setPlatformCfg(cfg);
+    } catch (error) {
+      console.error('Platform config load failed (using defaults):', error);
+      setPlatformConfig(null);
+      setPlatformCfg(null);
+    }
+  };
+
   useEffect(() => {
     initAuth();
   }, []);
 
   useEffect(() => {
     if (currentUser) {
+      loadPlatformConfig();
       loadData();
       loadAllActionData();
+      loadDepartments(); // department dropdowns (item form, filters) need the registry
     }
   }, [currentUser]);
 
@@ -365,6 +394,9 @@ const LabEquipmentTracker = () => {
       loadUsers();
       loadDepartments();
     }
+    if (currentUser && activeTab === 'settings' && canManageSettings) {
+      loadDepartments();
+    }
   }, [activeTab, currentUser]);
 
   const initAuth = async () => {
@@ -413,6 +445,8 @@ const LabEquipmentTracker = () => {
   const handleLogout = () => {
     clearAuthToken();
     setCurrentUser(null);
+    setPlatformConfig(null);
+    setPlatformCfg(null);
     setItems([]);
     setPurchases([]);
     setDistributions([]);
@@ -746,7 +780,16 @@ const LabEquipmentTracker = () => {
       alert('Lütfen en azından Malzeme Kodu ve Adı girin');
       return;
     }
-    
+
+    // Company-configured required fields (Ayarlar → Form Alanları)
+    const itemFieldCfg = (getPlatformConfig()?.fieldConfig?.itemForm) || {};
+    for (const [fieldKey, cfg] of Object.entries(itemFieldCfg)) {
+      if (cfg?.required && cfg?.visible !== false && !String(newItem[fieldKey] ?? '').trim()) {
+        alert(`"${cfg.label || fieldKey}" alanı bu şirket için zorunludur`);
+        return;
+      }
+    }
+
     // Check chemical compatibility with existing items in same location
     if (newItem.chemicalType && newItem.storageLocation) {
       const sameLocationItems = (unifiedStock.length > 0 ? unifiedStock : items).filter(i => 
@@ -1754,10 +1797,11 @@ const LabEquipmentTracker = () => {
   }
 
   const tabTitles = {
-    stock: 'Stok', requests: 'Talepler', distributions: 'Dağıtım',
-    orders: 'Siparişler', waste: 'Atık', total_stock: 'Genel Stok', lot_inventory: 'LOT Stok',
-    cep_depo: 'CEP DEPO', users: 'Kullanıcılar', account: 'Hesabım',
-    prices: 'Fiyatlar & Kullanım'
+    stock: t('tab.stock', 'Stok'), requests: t('tab.requests', 'Talepler'), distributions: t('tab.distributions', 'Dağıtım'),
+    orders: t('tab.orders', 'Siparişler'), waste: t('tab.waste', 'Atık'), total_stock: t('tab.total_stock', 'Genel Stok'),
+    lot_inventory: t('tab.lot_inventory', 'LOT Stok'), cep_depo: t('tab.cep_depo', 'CEP DEPO'),
+    users: t('tab.users', 'Kullanıcılar'), account: t('tab.account', 'Hesabım'),
+    prices: t('tab.prices', 'Fiyatlar & Kullanım'), settings: t('tab.settings', 'Ayarlar')
   };
   const userInitials = username.slice(0, 2).toUpperCase() || '??';
   const pendingCount = purchases.filter(p => p.status === 'TALEP_EDILDI').length;
@@ -1792,65 +1836,72 @@ const LabEquipmentTracker = () => {
       <div className={`sbar-overlay${sidebarOpen ? ' open' : ''}`} onClick={() => setSidebarOpen(false)} />
       <aside className={`sbar${sidebarOpen ? ' sbar--open' : ''}`}>
         <div className="slogo">
-          <div className="sico"><img src={logoIcon} alt="GTMLIMS" /></div>
-          <div className="snm"><strong>GTMLIMS</strong><span>Lab Malzeme Takip</span></div>
+          <div className="sico"><img src={logoIcon} alt={t('brand.title', 'GTMLIMS')} /></div>
+          <div className="snm"><strong>{t('brand.title', 'GTMLIMS')}</strong><span>{t('brand.subtitle', 'Lab Malzeme Takip')}</span></div>
         </div>
         <div className="ssec">Ana Menü</div>
-        {canViewStock && (
+        {isModuleEnabled('stock') && canViewStock && (
           <button className={`nv${activeTab === 'stock' ? ' on' : ''}`} onClick={() => navClick('stock')}>
-            <Package size={15} /><span>Stok</span>
+            <Package size={15} /><span>{tabTitles.stock}</span>
           </button>
         )}
-        {canViewTalep && (
+        {isModuleEnabled('requests') && canViewTalep && (
           <button className={`nv${activeTab === 'requests' ? ' on' : ''}`} onClick={() => navClick('requests')}>
-            <ShoppingCart size={15} /><span>Talepler</span>
+            <ShoppingCart size={15} /><span>{tabTitles.requests}</span>
             {pendingCount > 0 && <span className="nbdg">{pendingCount}</span>}
           </button>
         )}
-        {canViewSiparis && (
+        {isModuleEnabled('orders') && canViewSiparis && (
           <button className={`nv${activeTab === 'orders' ? ' on' : ''}`} onClick={() => navClick('orders')}>
-            <Truck size={15} /><span>Siparişler</span>
+            <Truck size={15} /><span>{tabTitles.orders}</span>
             {readyForOrderCount > 0 && <span className="nbdg">{readyForOrderCount}</span>}
           </button>
         )}
-        {canViewDagit && (
+        {isModuleEnabled('distributions') && canViewDagit && (
           <button className={`nv${activeTab === 'distributions' ? ' on' : ''}`} onClick={() => navClick('distributions')}>
-            <FileCheck size={15} /><span>Dağıtım</span>
+            <FileCheck size={15} /><span>{tabTitles.distributions}</span>
             {canViewAllDagit && pendingCepTotal > 0 && <span className="nbdg">{pendingCepTotal}</span>}
           </button>
         )}
-        {!isObserver && (
+        {isModuleEnabled('waste') && !isObserver && (
           <button className={`nv${activeTab === 'waste' ? ' on' : ''}`} onClick={() => navClick('waste')}>
-            <Recycle size={15} /><span>Atık</span>
+            <Recycle size={15} /><span>{tabTitles.waste}</span>
             {wasteRecords.length > 0 && <span className="nbdg">{wasteRecords.length}</span>}
           </button>
         )}
-        {canViewStock && (
+        {isModuleEnabled('total_stock') && canViewStock && (
           <button className={`nv${activeTab === 'total_stock' ? ' on' : ''}`} onClick={() => navClick('total_stock')}>
-            <BarChart2 size={15} /><span>Genel Stok</span>
+            <BarChart2 size={15} /><span>{tabTitles.total_stock}</span>
           </button>
         )}
-        {!isObserver && (
+        {isModuleEnabled('lot_inventory') && !isObserver && (
           <button className={`nv${activeTab === 'lot_inventory' ? ' on' : ''}`} onClick={() => navClick('lot_inventory')}>
-            <Package size={15} /><span>LOT Stok</span>
+            <Package size={15} /><span>{tabTitles.lot_inventory}</span>
           </button>
         )}
-        <button className={`nv${activeTab === 'cep_depo' ? ' on' : ''}`} onClick={() => navClick('cep_depo')}>
-          <Droplet size={15} /><span>CEP DEPO</span>
-        </button>
-        {canViewPrices && (
+        {isModuleEnabled('cep_depo') && (
+          <button className={`nv${activeTab === 'cep_depo' ? ' on' : ''}`} onClick={() => navClick('cep_depo')}>
+            <Droplet size={15} /><span>{tabTitles.cep_depo}</span>
+          </button>
+        )}
+        {isModuleEnabled('prices') && canViewPrices && (
           <button className={`nv${activeTab === 'prices' ? ' on' : ''}`} onClick={() => navClick('prices')}>
-            <BarChart2 size={15} /><span>Fiyatlar</span>
+            <BarChart2 size={15} /><span>{tabTitles.prices}</span>
           </button>
         )}
         {canManageUsers && (
           <button className={`nv${activeTab === 'users' ? ' on' : ''}`} onClick={() => navClick('users')}>
-            <User size={15} /><span>Kullanıcılar</span>
+            <User size={15} /><span>{tabTitles.users}</span>
+          </button>
+        )}
+        {canManageSettings && (
+          <button className={`nv${activeTab === 'settings' ? ' on' : ''}`} onClick={() => navClick('settings')}>
+            <ClipboardCheck size={15} /><span>{tabTitles.settings}</span>
           </button>
         )}
         {currentUser && (
           <button className={`nv${activeTab === 'account' ? ' on' : ''}`} onClick={() => navClick('account')}>
-            <Lock size={15} /><span>Hesabım</span>
+            <Lock size={15} /><span>{tabTitles.account}</span>
           </button>
         )}
         <div className="sbot">
@@ -1858,7 +1909,7 @@ const LabEquipmentTracker = () => {
             <div className="uav">{userInitials}</div>
             <div className="uin">
               <strong>{username}</strong>
-              <span>{currentUser?.role}</span>
+              <span>{ROLE_LABELS[currentUser?.role] || currentUser?.role}</span>
             </div>
             <button className="ulogout" onClick={handleLogout} title="Çıkış">
               <LogOut size={15} />
@@ -1954,6 +2005,7 @@ const LabEquipmentTracker = () => {
             setNewItem={setNewItem}
             onAdd={addItem}
             onCancel={() => setShowAddForm(false)}
+            departments={departments}
           />
         )}
         
@@ -2079,12 +2131,16 @@ const LabEquipmentTracker = () => {
                   onChange={(e) => setUserCreateForm({ ...userCreateForm, role: e.target.value, canReceive: false })}
                   className="px-4 py-2 border rounded-lg"
                 >
-                  <option value="SATINAL_LOJISTIK">SATINAL_LOJISTIK (Sipariş + Teslim Al + Dağıt)</option>
-                  <option value="SATINAL">SATINAL (Talep + Onayla + Dağıt)</option>
-                  <option value="KURUMSAL">KURUMSAL (Onayla + Dağıt + Fiyatlar)</option>
-                  <option value="LAB_TECHNICIAN">LAB_TECHNICIAN (CEP DEPO sahibi)</option>
-                  <option value="OBSERVER">OBSERVER (Sadece Görüntüleme)</option>
-                  <option value="ADMIN">ADMIN (Tüm Yetkiler)</option>
+                  {(getRoles() || [
+                    { key: 'SATINAL_LOJISTIK', name: 'SATINAL_LOJISTIK (Sipariş + Teslim Al + Dağıt)' },
+                    { key: 'SATINAL', name: 'SATINAL (Talep + Onayla + Dağıt)' },
+                    { key: 'KURUMSAL', name: 'KURUMSAL (Onayla + Dağıt + Fiyatlar)' },
+                    { key: 'LAB_TECHNICIAN', name: 'LAB_TECHNICIAN (CEP DEPO sahibi)' },
+                    { key: 'OBSERVER', name: 'OBSERVER (Sadece Görüntüleme)' },
+                    { key: 'ADMIN', name: 'ADMIN (Tüm Yetkiler)' }
+                  ]).map((r) => (
+                    <option key={r.key} value={r.key}>{r.key === r.name ? r.key : `${r.key} — ${r.name}`}</option>
+                  ))}
                 </select>
                 <select
                   value={userCreateForm.department}
@@ -4211,8 +4267,18 @@ const LabEquipmentTracker = () => {
           <LotInventory currentUser={currentUser} />
         )}
 
-        {activeTab === 'cep_depo' && (
+        {activeTab === 'cep_depo' && isModuleEnabled('cep_depo') && (
           <CepDepo currentUser={currentUser} />
+        )}
+
+        {activeTab === 'settings' && canManageSettings && (
+          <SettingsPanel
+            currentUser={currentUser}
+            platformCfg={platformCfg}
+            onConfigChanged={loadPlatformConfig}
+            departments={departments}
+            onDepartmentsChanged={loadDepartments}
+          />
         )}
 
         {/* Deprecated bottom boxes removed */}

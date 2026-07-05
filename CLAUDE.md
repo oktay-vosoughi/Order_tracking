@@ -94,6 +94,8 @@ Skills provide domain-specific protocols. Load the relevant one before starting 
 - `expiryStats` in App.jsx reads from the legacy `items` state array (from `/state`), not `unifiedStock`. Expiry alert counts may be zero even when lots are expiring. Full fix requires migrating expiry stats to read from `unifiedStock`.
 - `docs/05-database-model.md` is stale — does not document the 5 CEP DEPO tables (`cep_depo_balances`, `cep_depo_distributions`, `cep_depo_distribution_lots`, `cep_depo_consumptions`, `stock_movements`) or the `ideal_stock`/`max_stock`/CEP unit columns added by migrations.
 - `purchases.requestDate` display (App.jsx) may render "Invalid Date" for newer DB-backed records — use `requestedAt` instead.
+- Fresh-install migration order: `2026-07-01-shared-cep-depo.sql` requires the server to have booted once first (`ensureCepDepoTables` adds columns it depends on). Order: full dump → older migrations → boot server → shared-cep-depo.
+- Multi-company data isolation is phase 2: `server/migrations/2026-07-05-multi-company-data-scope.sql` is written but NOT applied — run it (with a backup) before onboarding a second company that needs separate data. Users/departments/config are already company-scoped.
 
 ### Fixed in 2026-05-07 review
 - ~~`src/api.js` called `POST /admin/clear-all` but server route is `POST /api/clear-all`~~ — fixed.
@@ -109,11 +111,23 @@ Skills provide domain-specific protocols. Load the relevant one before starting 
 
 ---
 
-## 8. Roles (runtime)
+## 8. Roles & permissions (runtime)
 
-`ADMIN` · `SATINAL` · `SATINAL_LOJISTIK` · `OBSERVER` · `LAB_TECHNICIAN`
+Since 2026-07-05 authorization is **permission-based and per-company configurable**
+(see `docs/13-configurable-platform-design.md` and `server/platform/`):
 
-See `@.claude/skills/lab-domain/SKILL.md` for the full capability matrix.
+- System roles `ADMIN` · `SATINAL` · `SATINAL_LOJISTIK` · `KURUMSAL` · `OBSERVER` ·
+  `LAB_TECHNICIAN` are seeded per company with the legacy capability matrix;
+  companies can add custom roles from the UI (Ayarlar → Roller & Yetkiler).
+- Backend: use `requirePermission('<key>')` / `requireModule('<key>')` — never add
+  new hard-coded role arrays. Permission keys live in `server/platform/registry.cjs`.
+- Frontend: use `can('<key>')`, `isModuleEnabled('<key>')`, `t('<key>', fallback)`
+  from `src/platformConfig.js`.
+- Config tables (`companies`, `company_settings`, `company_modules`, `roles`,
+  `role_permissions`) are created idempotently at boot; if absent, checks fall back
+  to the legacy matrix in `registry.cjs`.
+
+See `@.claude/skills/lab-domain/SKILL.md` for the original capability matrix.
 
 ---
 

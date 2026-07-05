@@ -9,6 +9,9 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { buildUnitCorrectionValues } = require('./unitCorrection.cjs');
 const { validateLotSplit } = require('./lotSplit.cjs');
+const { ensurePlatformSchema } = require('./platform/schema.cjs');
+const { getCompanyConfig, userHasPermission, isModuleEnabled } = require('./platform/configService.cjs');
+const { registerPlatformRoutes, requirePermissionFactory, requireModuleFactory } = require('./platform/routes.cjs');
 
 const PORT = process.env.PORT || 4000;
 
@@ -170,36 +173,26 @@ const requireRole = (allowedRoles) => (req, res, next) => {
   next();
 };
 
-// Capability checks (aligned with updated SATINAL roles)
-const canApprove = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.KURUMSAL])(req, res, next);
-const canOrder = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
-const canReceiveGoods = (req, res, next) => {
-  const u = req.user;
-  if (u?.role === ROLES.ADMIN || u?.role === ROLES.SATINAL_LOJISTIK || u?.canReceive === true) {
-    return next();
-  }
-  res.status(403).json({ error: 'FORBIDDEN' });
-};
-const canDistribute = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
-const canRequest = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
-const canReject = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
+// Capability checks are now dynamic, permission-based (see server/platform/).
+// The middleware names are kept so route definitions stay unchanged; the seeded
+// system roles reproduce the previous hard-coded matrix exactly, and per-user
+// canReceive/canViewPrices flags are OR-ed in inside userHasPermission().
+// If the config tables are missing (un-migrated DB), checks fall back to the
+// legacy role matrix defined in platform/registry.cjs.
+const requirePermission = requirePermissionFactory(pool);
+const requireModule = requireModuleFactory(pool);
 
-const canManageItems = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
-const canViewPrices = (req, res, next) => {
-  const u = req.user;
-  if (u?.role === ROLES.ADMIN || u?.role === ROLES.KURUMSAL || u?.canViewPrices === true) return next();
-  res.status(403).json({ error: 'FORBIDDEN' });
-};
+const canApprove = requirePermission('purchases.approve');
+const canOrder = requirePermission('purchases.order');
+const canReceiveGoods = requirePermission('purchases.receive');
+const canDistribute = requirePermission('distributions.create');
+const canRequest = requirePermission('purchases.request');
+const canReject = requirePermission('purchases.reject');
+const canManageItems = requirePermission('inventory.modify');
+const canViewPrices = requirePermission('prices.view');
 
 // CEP DEPO capability helpers
-const canDistributeToCepDepo = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
+const canDistributeToCepDepo = requirePermission('cepdepo.distribute');
 const canOverrideRequestBlock = (role) =>
   role === ROLES.ADMIN || role === ROLES.SATINAL || role === ROLES.KURUMSAL;
 const isLabTechnicianRole = (role) => role === ROLES.LAB_TECHNICIAN;
@@ -208,6 +201,19 @@ const countUsers = async () => {
   const rows = await all(pool, 'SELECT COUNT(*) AS cnt FROM users');
   return Number(rows?.[0]?.cnt || 0);
 };
+
+// Role keys are validated against the caller's company role registry (system +
+// custom roles), falling back to the legacy list if config is unavailable.
+const isValidRoleForCompany = async (companyId, roleKey) => {
+  try {
+    const config = await getCompanyConfig(pool, companyId || 1);
+    return config.roles.some((r) => r.key === roleKey);
+  } catch {
+    return ALL_ROLES.includes(roleKey);
+  }
+};
+
+const companyIdOf = (req) => Number(req.user?.companyId) || 1;
 
 const countAdmins = async () => {
   const rows = await all(pool, "SELECT COUNT(*) AS cnt FROM users WHERE role = 'ADMIN'");
@@ -218,6 +224,7 @@ const sanitizeUser = (u) => ({
   id: u.id,
   username: u.username,
   role: u.role,
+  companyId: u.companyId || 1,
   canReceive: u.can_receive === 1 || u.can_receive === true || u.can_receive === '1',
   canViewPrices: u.can_view_prices === 1 || u.can_view_prices === true || u.can_view_prices === '1',
   department: u.department || null,
@@ -323,6 +330,9 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Platform configuration API: /api/config + /api/admin/* (see server/platform/).
+registerPlatformRoutes(app, { pool, authRequired, bcrypt });
+
 app.post('/api/auth/bootstrap', async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
@@ -345,7 +355,7 @@ app.post('/api/auth/bootstrap', async (req, res) => {
     await run(pool, 'INSERT INTO users (username, passwordHash, role, createdBy) VALUES (?, ?, ?, ?)', [String(username), passwordHash, 'ADMIN', String(username)]);
     const rows = await all(pool, 'SELECT * FROM users WHERE username = ?', [String(username)]);
     const user = rows?.[0];
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true, canViewPrices: user.can_view_prices === 1 || user.can_view_prices === true }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, companyId: user.companyId || 1, canReceive: user.can_receive === 1 || user.can_receive === true, canViewPrices: user.can_view_prices === 1 || user.can_view_prices === true }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
     console.error('Bootstrap error', error);
@@ -353,7 +363,7 @@ app.post('/api/auth/bootstrap', async (req, res) => {
   }
 });
 
-app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
+app.patch('/api/users/:id', authRequired, requirePermission('users.manage'), async (req, res) => {
   const { username, role, password, canReceive, canViewPrices, department } = req.body || {};
   if (!username && !role && !password && canReceive === undefined && canViewPrices === undefined && department === undefined) {
     res.status(400).json({ error: 'INVALID_INPUT' });
@@ -374,7 +384,7 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
   }
 
   if (role) {
-    if (!ALL_ROLES.includes(role)) {
+    if (!(await isValidRoleForCompany(companyIdOf(req), role))) {
       res.status(400).json({ error: 'INVALID_ROLE' });
       return;
     }
@@ -403,10 +413,11 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
   }
 
   params.push(req.params.id);
+  params.push(companyIdOf(req));
 
   try {
-    await run(pool, `UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
-    const users = await all(pool, 'SELECT id, username, role, department, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    await run(pool, `UPDATE users SET ${updates.join(', ')} WHERE id = ? AND companyId = ?`, params);
+    const users = await all(pool, 'SELECT id, username, role, companyId, department, can_receive, can_view_prices, createdAt, createdBy FROM users WHERE companyId = ? ORDER BY createdAt DESC', [companyIdOf(req)]);
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') {
@@ -447,8 +458,18 @@ app.post('/api/auth/login', authThrottle, async (req, res) => {
       return;
     }
 
+    // Users of a deactivated company cannot log in. Tolerant of an un-migrated
+    // DB where the companies table does not exist yet.
+    try {
+      const companyRows = await all(pool, 'SELECT active FROM companies WHERE id = ?', [user.companyId || 1]);
+      if (companyRows.length && companyRows[0].active === 0) {
+        res.status(403).json({ error: 'COMPANY_INACTIVE', message: 'Şirket hesabı pasif durumda' });
+        return;
+      }
+    } catch { /* pre-platform schema — skip */ }
+
     clearAuthAttempts(req);
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true, canViewPrices: user.can_view_prices === 1 || user.can_view_prices === true }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, companyId: user.companyId || 1, canReceive: user.can_receive === 1 || user.can_receive === true, canViewPrices: user.can_view_prices === 1 || user.can_view_prices === true }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
     console.error('Login error', error);
@@ -505,9 +526,9 @@ app.get('/api/auth/me', authRequired, async (req, res) => {
   }
 });
 
-app.get('/api/users', authRequired, adminRequired, async (_req, res) => {
+app.get('/api/users', authRequired, requirePermission('users.manage'), async (req, res) => {
   try {
-    const users = await all(pool, 'SELECT id, username, role, department, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    const users = await all(pool, 'SELECT id, username, role, companyId, department, can_receive, can_view_prices, createdAt, createdBy FROM users WHERE companyId = ? ORDER BY createdAt DESC', [companyIdOf(req)]);
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     console.error('List users error', error);
@@ -515,7 +536,7 @@ app.get('/api/users', authRequired, adminRequired, async (_req, res) => {
   }
 });
 
-app.post('/api/users', authRequired, adminRequired, async (req, res) => {
+app.post('/api/users', authRequired, requirePermission('users.manage'), async (req, res) => {
   const { username, password, role, department } = req.body || {};
   if (!username || !password || !role) {
     res.status(400).json({ error: 'INVALID_INPUT' });
@@ -525,15 +546,15 @@ app.post('/api/users', authRequired, adminRequired, async (req, res) => {
     res.status(400).json({ error: 'WEAK_PASSWORD', message: 'Şifre en az 8 karakter olmalı' });
     return;
   }
-  if (!ALL_ROLES.includes(role)) {
+  if (!(await isValidRoleForCompany(companyIdOf(req), role))) {
     res.status(400).json({ error: 'INVALID_ROLE' });
     return;
   }
 
   try {
     const passwordHash = await bcrypt.hash(String(password), 10);
-    await run(pool, 'INSERT INTO users (username, passwordHash, role, department, createdBy) VALUES (?, ?, ?, ?, ?)', [String(username), passwordHash, String(role), department ? String(department) : null, String(req.user.username)]);
-    const users = await all(pool, 'SELECT id, username, role, department, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    await run(pool, 'INSERT INTO users (username, passwordHash, role, companyId, department, createdBy) VALUES (?, ?, ?, ?, ?, ?)', [String(username), passwordHash, String(role), companyIdOf(req), department ? String(department) : null, String(req.user.username)]);
+    const users = await all(pool, 'SELECT id, username, role, companyId, department, can_receive, can_view_prices, createdAt, createdBy FROM users WHERE companyId = ? ORDER BY createdAt DESC', [companyIdOf(req)]);
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') {
@@ -555,7 +576,7 @@ app.get('/api/state', authRequired, async (_req, res) => {
   }
 });
 
-app.post('/api/state', authRequired, adminRequired, async (req, res) => {
+app.post('/api/state', authRequired, requirePermission('system.admin'), async (req, res) => {
   const { items = [], purchases = [], distributions = [], wasteRecords = [] } = req.body || {};
   try {
     await withTransaction(async (conn) => {
@@ -881,7 +902,7 @@ app.put('/api/item-definitions/:id', authRequired, canManageItems, async (req, r
   }
 });
 
-app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminRequired, async (req, res) => {
+app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, requirePermission('inventory.correct'), async (req, res) => {
   let values;
   try {
     values = buildUnitCorrectionValues(req.body || {});
@@ -1045,7 +1066,7 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
 });
 
 // Delete item definition (hard delete with cascading lot removal)
-app.delete('/api/item-definitions/:id', authRequired, adminRequired, async (req, res) => {
+app.delete('/api/item-definitions/:id', authRequired, requirePermission('inventory.delete'), async (req, res) => {
   try {
     await withTransaction(async (conn) => {
       await run(conn, 'DELETE FROM lots WHERE itemId = ?', [req.params.id]);
@@ -1158,7 +1179,7 @@ app.put('/api/lots/:id', authRequired, canReceiveGoods, async (req, res) => {
 });
 
 // Split a lot's current quantity into multiple new lots with their own lot numbers/SKTs
-app.post('/api/lots/:id/split', authRequired, adminRequired, async (req, res) => {
+app.post('/api/lots/:id/split', authRequired, requirePermission('inventory.correct'), async (req, res) => {
   try {
     const result = await withTransaction(async (conn) => {
       const lots = await all(conn, 'SELECT * FROM lots WHERE id = ? FOR UPDATE', [req.params.id]);
@@ -2025,11 +2046,14 @@ app.post('/api/purchases', authRequired, async (req, res) => {
   const role = req.user?.role;
   const requesterUsername = req.user?.username || '';
   const isLabTech = isLabTechnicianRole(role);
-  const isPrivileged = role === ROLES.ADMIN || role === ROLES.SATINAL || role === ROLES.SATINAL_LOJISTIK;
 
-  if (!isLabTech && !isPrivileged) {
+  // Permission-based gate (previously a hard-coded role list that rejected
+  // KURUMSAL even though the UI offered the button — permission model fixes that).
+  if (!(await userHasPermission(pool, req.user, 'purchases.request'))) {
     return res.status(403).json({ error: 'FORBIDDEN' });
   }
+  // The CEP DEPO stock-block only applies when the module is enabled for the company.
+  const cepDepoEnabled = await isModuleEnabled(pool, req.user?.companyId, 'cep_depo');
 
   // Determine the effective lab technician this request is for.
   let effectiveLabTechUsername = null;
@@ -2056,7 +2080,7 @@ app.post('/api/purchases', authRequired, async (req, res) => {
       effectiveLabTechUsername = target.username;
       effectiveLabTechId = target.id;
       usedOverride = true;
-    } else if (isLabTech) {
+    } else if (isLabTech && cepDepoEnabled) {
       effectiveLabTechUsername = requesterUsername;
       effectiveLabTechId = req.user.id;
       // Block based on the DEPARTMENT'S shared CEP DEPO pool.
@@ -2308,7 +2332,7 @@ app.post('/api/purchases/:id/order', authRequired, canOrder, async (req, res) =>
 });
 
 // Delete a purchase request (ADMIN only; only allowed in TALEP_EDILDI or REDDEDILDI status)
-app.delete('/api/purchases/:id', authRequired, adminRequired, async (req, res) => {
+app.delete('/api/purchases/:id', authRequired, requirePermission('purchases.delete'), async (req, res) => {
   try {
     const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]);
     if (!purchases.length) return res.status(404).json({ error: 'NOT_FOUND' });
@@ -2346,7 +2370,7 @@ app.get('/api/distributions', authRequired, async (_req, res) => {
 });
 
 // Get all waste records
-app.get('/api/waste-records', authRequired, async (_req, res) => {
+app.get('/api/waste-records', authRequired, requireModule('waste'), async (_req, res) => {
   try {
     const wasteRecords = await all(pool, 'SELECT * FROM waste_records ORDER BY disposedDate DESC');
     res.json({ wasteRecords });
@@ -2379,7 +2403,7 @@ app.get('/api/distributions-detailed', authRequired, async (_req, res) => {
 // ============================================================
 
 // Record waste (LAB_MANAGER + PROCUREMENT + ADMIN)
-app.post('/api/waste-with-lot', authRequired, canDistribute, async (req, res) => {
+app.post('/api/waste-with-lot', authRequired, requireModule('waste'), canDistribute, async (req, res) => {
   const { itemId, lotId, quantity, wasteType, reason, disposalMethod, notes } = req.body || {};
   
   if (!itemId || !quantity || quantity <= 0 || !wasteType) {
@@ -3049,7 +3073,7 @@ app.get('/api/export/talep-ebys', authRequired, async (req, res) => {
 });
 
 // Clear all data endpoint (for "Tümünü Temizle" button)
-app.post('/api/clear-all', authRequired, adminRequired, async (req, res) => {
+app.post('/api/clear-all', authRequired, requirePermission('system.admin'), async (req, res) => {
   try {
     await withTransaction(async (conn) => {
       // Delete all data from all tables (skip missing tables gracefully)
@@ -3301,7 +3325,7 @@ async function getUserDeptId(userId) {
 
 // GET /api/cep-depo/balances — shared department pools. Lab techs see only their
 // department; privileged roles see all (optional ?department= filter).
-app.get('/api/cep-depo/balances', authRequired, async (req, res) => {
+app.get('/api/cep-depo/balances', authRequired, requireModule('cep_depo'), async (req, res) => {
   try {
     const role = req.user.role;
     const dept = isLabTechnicianRole(role) ? await getUserDeptId(req.user.id) : (req.query.department || null);
@@ -3323,7 +3347,7 @@ app.get('/api/cep-depo/balances', authRequired, async (req, res) => {
 });
 
 // GET /api/cep-depo/my-balances — the caller's own department pool.
-app.get('/api/cep-depo/my-balances', authRequired, async (req, res) => {
+app.get('/api/cep-depo/my-balances', authRequired, requireModule('cep_depo'), async (req, res) => {
   try {
     const dept = await getUserDeptId(req.user.id);
     if (!dept) return res.json({ balances: [] });
@@ -3344,7 +3368,7 @@ app.get('/api/cep-depo/my-balances', authRequired, async (req, res) => {
 // POST /api/cep-depo/distribute — Main Depot → Lab Technician's CEP DEPO
 //   Body: { labTechnicianId, itemId, packQty, purchaseId?, notes?, lotId? }
 //   Uses FEFO across active lots of itemId; deducts lots; upserts cep_depo_balances.
-app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async (req, res) => {
+app.post('/api/cep-depo/distribute', authRequired, requireModule('cep_depo'), canDistributeToCepDepo, async (req, res) => {
   const { labTechnicianId, itemId, packQty, purchaseId, notes, lotId, lots } = req.body || {};
   const packQtyNum = Number(packQty);
   if (!labTechnicianId || !itemId || !(packQtyNum > 0)) {
@@ -3549,7 +3573,7 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
 // POST /api/cep-depo/consume — Lab tech records consumption
 //   Body: { itemId, consumptionUnitType: 'PACK'|'UNIT'|'TEST', quantity, testCount?, notes? }
 //   Lab tech can only consume their own; ADMIN may pass labTechnicianId to adjust on behalf.
-app.post('/api/cep-depo/consume', authRequired, async (req, res) => {
+app.post('/api/cep-depo/consume', authRequired, requireModule('cep_depo'), async (req, res) => {
   const role = req.user.role;
   const isLabTech = isLabTechnicianRole(role);
   const isAdmin = role === ROLES.ADMIN;
@@ -3660,7 +3684,7 @@ app.post('/api/cep-depo/consume', authRequired, async (req, res) => {
 
 // POST /api/cep-depo/return — Lab tech returns unused stock back to Main Depot
 //   Body: { itemId, packQty, lotId? (target lot to credit; if absent, uses latest active lot or creates "RETURN" lot), notes? }
-app.post('/api/cep-depo/return', authRequired, async (req, res) => {
+app.post('/api/cep-depo/return', authRequired, requireModule('cep_depo'), async (req, res) => {
   const role = req.user.role;
   const allowed = role === ROLES.ADMIN || role === ROLES.SATINAL || role === ROLES.SATINAL_LOJISTIK || isLabTechnicianRole(role);
   if (!allowed) return res.status(403).json({ error: 'FORBIDDEN' });
@@ -3739,7 +3763,7 @@ app.post('/api/cep-depo/return', authRequired, async (req, res) => {
 });
 
 // GET /api/cep-depo/movements — unified ledger
-app.get('/api/cep-depo/movements', authRequired, async (req, res) => {
+app.get('/api/cep-depo/movements', authRequired, requireModule('cep_depo'), async (req, res) => {
   try {
     const role = req.user.role;
     const limit = Math.min(Number(req.query.limit) || 500, 5000);
@@ -3763,7 +3787,7 @@ app.get('/api/cep-depo/movements', authRequired, async (req, res) => {
 });
 
 // GET /api/cep-depo/distributions
-app.get('/api/cep-depo/distributions', authRequired, async (req, res) => {
+app.get('/api/cep-depo/distributions', authRequired, requireModule('cep_depo'), async (req, res) => {
   try {
     const role = req.user.role;
     const dept = isLabTechnicianRole(role) ? await getUserDeptId(req.user.id) : (req.query.department || null);
@@ -3785,7 +3809,7 @@ app.get('/api/cep-depo/distributions', authRequired, async (req, res) => {
 });
 
 // GET /api/cep-depo/consumptions
-app.get('/api/cep-depo/consumptions', authRequired, async (req, res) => {
+app.get('/api/cep-depo/consumptions', authRequired, requireModule('cep_depo'), async (req, res) => {
   try {
     const role = req.user.role;
     const dept = isLabTechnicianRole(role) ? await getUserDeptId(req.user.id) : (req.query.department || null);
@@ -3824,9 +3848,9 @@ app.get('/api/lab-technicians', authRequired, async (_req, res) => {
 // ============================================================
 
 // GET /api/departments — list (all authed users; needed for dropdowns/labels)
-app.get('/api/departments', authRequired, async (_req, res) => {
+app.get('/api/departments', authRequired, async (req, res) => {
   try {
-    const departments = await all(pool, 'SELECT id, name, active FROM departments ORDER BY name');
+    const departments = await all(pool, 'SELECT id, name, active FROM departments WHERE companyId = ? ORDER BY name', [companyIdOf(req)]);
     res.json({ departments });
   } catch (error) {
     console.error('Failed to list departments', error);
@@ -3834,13 +3858,13 @@ app.get('/api/departments', authRequired, async (_req, res) => {
   }
 });
 
-// POST /api/departments — create a new department name (ADMIN)
-app.post('/api/departments', authRequired, adminRequired, async (req, res) => {
+// POST /api/departments — create a new department name (system.admin permission)
+app.post('/api/departments', authRequired, requirePermission('system.admin'), async (req, res) => {
   const name = String(req.body?.name || '').trim();
   if (!name) return res.status(400).json({ error: 'INVALID_INPUT', message: 'Bölüm adı zorunludur.' });
   try {
     const id = generateId();
-    await run(pool, 'INSERT INTO departments (id, name, active) VALUES (?, ?, 1)', [id, name]);
+    await run(pool, 'INSERT INTO departments (id, name, active, companyId) VALUES (?, ?, 1, ?)', [id, name, companyIdOf(req)]);
     res.json({ department: { id, name, active: 1 } });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'DEPARTMENT_EXISTS', message: 'Bu bölüm zaten var.' });
@@ -3849,8 +3873,8 @@ app.post('/api/departments', authRequired, adminRequired, async (req, res) => {
   }
 });
 
-// PUT /api/departments/:id — rename or activate/deactivate (ADMIN)
-app.put('/api/departments/:id', authRequired, adminRequired, async (req, res) => {
+// PUT /api/departments/:id — rename or activate/deactivate (system.admin permission)
+app.put('/api/departments/:id', authRequired, requirePermission('system.admin'), async (req, res) => {
   const { name, active } = req.body || {};
   const updates = [];
   const params = [];
@@ -3858,8 +3882,9 @@ app.put('/api/departments/:id', authRequired, adminRequired, async (req, res) =>
   if (active !== undefined) { updates.push('active = ?'); params.push(active ? 1 : 0); }
   if (!updates.length) return res.status(400).json({ error: 'INVALID_INPUT' });
   params.push(req.params.id);
+  params.push(companyIdOf(req));
   try {
-    await run(pool, `UPDATE departments SET ${updates.join(', ')} WHERE id = ?`, params);
+    await run(pool, `UPDATE departments SET ${updates.join(', ')} WHERE id = ? AND companyId = ?`, params);
     res.json({ ok: true });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'DEPARTMENT_EXISTS', message: 'Bu bölüm zaten var.' });
@@ -3892,7 +3917,7 @@ app.patch('/api/receipts/:receiptId', authRequired, canViewPrices, async (req, r
 // PRICE HISTORY (SATINAL_YONETICI + ADMIN)
 // ============================================================
 
-app.get('/api/price-history', authRequired, canViewPrices, async (req, res) => {
+app.get('/api/price-history', authRequired, requireModule('prices'), canViewPrices, async (req, res) => {
   const { itemId, startDate, endDate, supplierFirmName } = req.query;
 
   let sql = `
@@ -4004,6 +4029,13 @@ const startServer = async () => {
   try {
     await ensureUsersTable();
     await pool.query('SELECT 1');
+    // Platform config tables (companies, modules, roles, permissions, settings)
+    try {
+      await ensurePlatformSchema(pool);
+      console.log('[platform] Configuration schema verified.');
+    } catch (e) {
+      console.error('[platform] Failed to ensure config schema (falling back to legacy role matrix):', e?.message || e);
+    }
     // Fix any item_definitions rows with NULL status
     try {
       await pool.query("UPDATE item_definitions SET status = 'ACTIVE' WHERE status IS NULL");

@@ -108,6 +108,98 @@ export async function updateUser(id, username, role, password, canReceive, canVi
 }
 
 // ============================================================
+// PLATFORM CONFIG (company, modules, roles, terminology, fields)
+// ============================================================
+
+export async function fetchPlatformConfig() {
+  return apiFetch('/config');
+}
+
+export async function updateCompanyProfile(data) {
+  return apiFetch('/admin/company', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+export async function setModuleEnabled(moduleKey, enabled) {
+  return apiFetch(`/admin/modules/${moduleKey}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled })
+  });
+}
+
+export async function fetchAdminRoles() {
+  return apiFetch('/admin/roles');
+}
+
+export async function createRole(key, name, permissions) {
+  return apiFetch('/admin/roles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, name, permissions })
+  });
+}
+
+export async function updateRole(key, data) {
+  return apiFetch(`/admin/roles/${key}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteRole(key) {
+  return apiFetch(`/admin/roles/${key}`, { method: 'DELETE' });
+}
+
+export async function updateTerminology(overrides) {
+  return apiFetch('/admin/terminology', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ overrides })
+  });
+}
+
+export async function updateFieldConfig(formKey, fields) {
+  return apiFetch('/admin/field-config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ formKey, fields })
+  });
+}
+
+export async function updateGeneralSettings(settings) {
+  return apiFetch('/admin/general', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settings })
+  });
+}
+
+export async function fetchCompanies() {
+  return apiFetch('/admin/companies');
+}
+
+export async function createCompany(data) {
+  return apiFetch('/admin/companies', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateCompany(id, data) {
+  return apiFetch(`/admin/companies/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+// ============================================================
 // DEPARTMENTS registry (runtime-editable name list)
 // ============================================================
 
