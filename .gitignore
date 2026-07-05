@@ -31,3 +31,7 @@ server/.env.*
 
 # Notes / personal folders
 myNotes/
+
+# Isolated platform test harness runtime artifacts
+.platform-test-*.pid
+.platform-test-*.log

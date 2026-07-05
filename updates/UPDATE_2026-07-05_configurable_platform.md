@@ -137,6 +137,25 @@ it can run on a fresh database — the migration chain alone fails at line 62.
 Order for fresh installs: full dump → migrations up to CEP → **boot server once** →
 shared-cep-depo migration.
 
+## Follow-up (same day): isolation self-heal + test harness
+
+- `server/platform/schema.cjs` now **creates the `departments` table if missing** and
+  adds `users.department` / `users.companyId` / `departments.companyId` idempotently.
+  Some older production DBs (incl. the live `order_Tracking`) never got the 2026-07-01
+  CEP DEPO migration, so `departments` didn't exist; the platform layer now self-heals
+  it instead of depending on migration order.
+- Added `scripts/test-isolated-platform.sh` — spins up a fully isolated environment
+  (DB `order_tracking_platform_test`, API :4100, optional UI :3010) built from the dump
+  + migration chain, never touching the real app. `--fresh`, `--frontend`, `--smoke`,
+  `--stop`. Reads creds from gitignored `server/.env.test`.
+- `vite.config.js` proxy target is overridable via `VITE_PROXY_TARGET` (for the
+  isolated UI).
+- **Isolation bug found & fixed in the harness:** several migration files contain a
+  hardcoded `USE \`order_Tracking\`;` (e.g. `add_cep_depo_system.sql`). Piped raw, that
+  redirects statements to the real DB. The harness now sanitizes `USE`/`SET @db` lines
+  so everything is forced onto the test DB (`load_sql()`); verified a full rebuild+smoke
+  leaves the real DB byte-for-byte unchanged.
+
 ## Risks
 
 - Permission middleware is now async + DB-backed (cached 60s, invalidated on config

@@ -64,10 +64,29 @@ const ensurePlatformSchema = async (pool) => {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
   );
 
+  // Self-heal the departments registry: some older production databases never
+  // received the 2026-07-01 CEP DEPO migration that first created this table.
+  // Creating it here (idempotently) removes that migration-order dependency and
+  // keeps the /api/departments routes working on any database.
+  await pool.execute(
+    `CREATE TABLE IF NOT EXISTS departments (
+      id VARCHAR(64) NOT NULL,
+      name VARCHAR(150) NOT NULL,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      companyId INT UNSIGNED NOT NULL DEFAULT ${DEFAULT_COMPANY_ID},
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_department_name (name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
+  );
+
   // Company scoping on identity roots. DEFAULT 1 backfills existing rows to the
   // default company, so single-company deployments keep working untouched.
   await pool.execute(`ALTER TABLE users ADD COLUMN companyId INT UNSIGNED NOT NULL DEFAULT ${DEFAULT_COMPANY_ID}`).catch(() => {});
   await pool.execute(`ALTER TABLE departments ADD COLUMN companyId INT UNSIGNED NOT NULL DEFAULT ${DEFAULT_COMPANY_ID}`).catch(() => {});
+  // users.department is read by the CEP DEPO flow and sanitizeUser; older schemas lack it.
+  await pool.execute('ALTER TABLE users ADD COLUMN department VARCHAR(150) NULL').catch(() => {});
 
   // Ensure the default company row exists (id 1 = the current deployment).
   await pool.execute(
