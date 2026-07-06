@@ -31,3 +31,6 @@ server/.env.*
 
 # Notes / personal folders
 myNotes/
+
+# Git worktrees
+.worktrees/
