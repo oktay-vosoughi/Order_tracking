@@ -9,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { buildUnitCorrectionValues } = require('./unitCorrection.cjs');
 const { validateLotSplit } = require('./lotSplit.cjs');
+const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause } = require('./departmentScope.cjs');
 
 const PORT = process.env.PORT || 4000;
 
@@ -191,6 +192,11 @@ const canReject = (req, res, next) =>
 
 const canManageItems = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
+// Who can assign user<->department and item<->department memberships (distinct
+// from canManageItems, which is broader — SATINAL/KURUMSAL manage item catalog
+// fields but not department assignment scope).
+const canManageDepartmentMemberships = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canViewPrices = (req, res, next) => {
   const u = req.user;
   if (u?.role === ROLES.ADMIN || u?.role === ROLES.KURUMSAL || u?.canViewPrices === true) return next();
@@ -3327,6 +3333,14 @@ const resolveConsumptionUnitType = (item, lot) =>
 async function getUserDeptId(userId) {
   const r = await all(pool, 'SELECT department FROM users WHERE id = ?', [userId]);
   return r?.[0]?.department || null;
+}
+
+// Resolve a caller's department memberships — null means "no filter" (bypass role).
+// Always resolved fresh from the DB per request; never trust JWT or query params.
+async function getUserDepartments(userId, role) {
+  if (isBypassRole(role)) return null;
+  const rows = await all(pool, 'SELECT department FROM user_departments WHERE userId = ?', [userId]);
+  return rows.map((r) => r.department);
 }
 
 // GET /api/cep-depo/balances — shared department pools. Lab techs see only their
