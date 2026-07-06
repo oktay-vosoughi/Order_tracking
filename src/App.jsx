@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -606,7 +606,7 @@ const LabEquipmentTracker = () => {
   };
   
   const [unitEditItem, setUnitEditItem] = useState(null);
-  const [unitEditForm, setUnitEditForm] = useState({ packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK' });
+  const [unitEditForm, setUnitEditForm] = useState({ packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK', departmentTags: [], isGlobal: false });
   const [correctionItem, setCorrectionItem] = useState(null);
   const [correctionForm, setCorrectionForm] = useState({
     unit: 'kutu',
@@ -633,6 +633,7 @@ const LabEquipmentTracker = () => {
         unitsPerPackage: unitEditForm.unitsPerPackage === '' ? null : Number(unitEditForm.unitsPerPackage) || null,
         consumptionUnitType: unitEditForm.consumptionUnitType || 'PACK'
       });
+      await updateItemDepartments(unitEditItem.id, { departments: unitEditForm.departmentTags, isGlobal: unitEditForm.isGlobal });
       await loadUnifiedData();
       setUnitEditItem(null);
       alert('Birim bilgileri güncellendi. CEP DEPO bakiyeleri otomatik yeniden hesaplandı.');
@@ -744,7 +745,8 @@ const LabEquipmentTracker = () => {
   const [newItem, setNewItem] = useState({
     code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: '',
     // CEP DEPO main/sub-unit fields
-    packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK', minReactionThreshold: 3
+    packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK', minReactionThreshold: 3,
+    departmentTags: [], isGlobal: false
   });
   
   const addItem = async () => {
@@ -772,7 +774,7 @@ const LabEquipmentTracker = () => {
     }
     
     try {
-      await createItemDefinition({
+      const created = await createItemDefinition({
         code: newItem.code,
         name: newItem.name,
         category: newItem.category || '',
@@ -795,11 +797,16 @@ const LabEquipmentTracker = () => {
         minReactionThreshold: newItem.minReactionThreshold === '' ? 3 : Number(newItem.minReactionThreshold)
       });
 
+      if (created?.item?.id) {
+        await updateItemDepartments(created.item.id, { departments: newItem.departmentTags, isGlobal: newItem.isGlobal });
+      }
+
       await loadUnifiedData();
 
       setNewItem({
         code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: '',
-        packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK', minReactionThreshold: 3
+        packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK', minReactionThreshold: 3,
+        departmentTags: [], isGlobal: false
       });
       setShowAddForm(false);
       alert('Malzeme başarıyla eklendi!');
@@ -1960,6 +1967,7 @@ const LabEquipmentTracker = () => {
             setNewItem={setNewItem}
             onAdd={addItem}
             onCancel={() => setShowAddForm(false)}
+            departmentsList={departments}
           />
         )}
         
@@ -2869,7 +2877,9 @@ const LabEquipmentTracker = () => {
                                   packageUnit: item.packageUnit || '',
                                   consumptionUnit: item.consumptionUnit || '',
                                   unitsPerPackage: item.unitsPerPackage ?? '',
-                                  consumptionUnitType: item.consumptionUnitType || 'PACK'
+                                  consumptionUnitType: item.consumptionUnitType || 'PACK',
+                                  departmentTags: item.departments || [],
+                                  isGlobal: !!item.isGlobal
                                 });
                               }}
                               className="status-action status-action--muted"
@@ -3066,7 +3076,9 @@ const LabEquipmentTracker = () => {
                                     packageUnit: item.packageUnit || '',
                                     consumptionUnit: item.consumptionUnit || '',
                                     unitsPerPackage: item.unitsPerPackage ?? '',
-                                    consumptionUnitType: item.consumptionUnitType || 'PACK'
+                                    consumptionUnitType: item.consumptionUnitType || 'PACK',
+                                    departmentTags: item.departments || [],
+                                    isGlobal: !!item.isGlobal
                                   });
                                 }}
                                 className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs"
@@ -4486,6 +4498,36 @@ const LabEquipmentTracker = () => {
                   <option value="UNIT">UNIT — alt birim ile tüketilir (adet, ml…)</option>
                   <option value="TEST">TEST — test sayısı ile tüketilir</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+                  <input
+                    type="checkbox"
+                    checked={unitEditForm.isGlobal}
+                    onChange={(e) => setUnitEditForm({ ...unitEditForm, isGlobal: e.target.checked, departmentTags: e.target.checked ? [] : unitEditForm.departmentTags })}
+                  />
+                  Tüm Departmanlara Açık
+                </label>
+                {!unitEditForm.isGlobal && (
+                  <div className="flex flex-wrap gap-3 mt-1">
+                    {departments.filter((d) => d.active).map((d) => (
+                      <label key={d.id} className="flex items-center gap-1 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={unitEditForm.departmentTags.includes(d.name)}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? [...unitEditForm.departmentTags, d.name]
+                              : unitEditForm.departmentTags.filter((x) => x !== d.name);
+                            setUnitEditForm({ ...unitEditForm, departmentTags: next });
+                          }}
+                        />
+                        {d.name}
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {unitEditForm.consumptionUnit && !unitEditForm.unitsPerPackage && (

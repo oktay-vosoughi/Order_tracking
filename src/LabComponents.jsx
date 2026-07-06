@@ -13,7 +13,7 @@ import {
 } from './labUtils';
 
 // Add Item Form with Laboratory Fields
-export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
+export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel, departmentsList }) => {
   const [allowManualExpiry, setAllowManualExpiry] = useState(false);
 
   return (
@@ -58,7 +58,36 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel }) => {
               ))}
             </select>
           </div>
-          
+          <div>
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+              <input
+                type="checkbox"
+                checked={newItem.isGlobal}
+                onChange={(e) => setNewItem({ ...newItem, isGlobal: e.target.checked, departmentTags: e.target.checked ? [] : newItem.departmentTags })}
+              />
+              Tüm Departmanlara Açık
+            </label>
+            {!newItem.isGlobal && (
+              <div className="flex flex-wrap gap-3 mt-1">
+                {(departmentsList || []).filter((d) => d.active).map((d) => (
+                  <label key={d.id} className="flex items-center gap-1 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={newItem.departmentTags.includes(d.name)}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...newItem.departmentTags, d.name]
+                          : newItem.departmentTags.filter((x) => x !== d.name);
+                        setNewItem({ ...newItem, departmentTags: next });
+                      }}
+                    />
+                    {d.name}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
             <input
