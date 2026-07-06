@@ -484,6 +484,8 @@ app.post('/api/auth/login', authThrottle, async (req, res) => {
 
     clearAuthAttempts(req);
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true, canViewPrices: user.can_view_prices === 1 || user.can_view_prices === true }, JWT_SECRET, { expiresIn: '7d' });
+    const deptRows = await all(pool, 'SELECT department FROM user_departments WHERE userId = ?', [user.id]);
+    user.departments = deptRows.map((r) => r.department);
     res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
     console.error('Login error', error);
@@ -533,6 +535,8 @@ app.get('/api/auth/me', authRequired, async (req, res) => {
       res.status(401).json({ error: 'UNAUTHORIZED' });
       return;
     }
+    const deptRows = await all(pool, 'SELECT department FROM user_departments WHERE userId = ?', [user.id]);
+    user.departments = deptRows.map((r) => r.department);
     res.json({ user: sanitizeUser(user) });
   } catch (error) {
     console.error('Me error', error);
