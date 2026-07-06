@@ -1521,10 +1521,12 @@ app.get('/api/reports/department-stock', authRequired, async (_req, res) => {
 // ============================================================
 
 // Get unified stock view (items with aggregated lot data)
-app.get('/api/unified-stock', authRequired, async (_req, res) => {
+app.get('/api/unified-stock', authRequired, async (req, res) => {
   try {
+    const departments = await getUserDepartments(req.user.id, req.user.role);
+    const deptFilter = buildItemDepartmentFilter(departments);
     const items = await all(pool, `
-      SELECT 
+      SELECT
         id.id,
         id.code,
         id.name,
@@ -1549,6 +1551,8 @@ app.get('/api/unified-stock', authRequired, async (_req, res) => {
         id.status AS itemStatus,
         id.createdAt,
         id.createdBy,
+        id.isGlobal,
+        (SELECT GROUP_CONCAT(department SEPARATOR '||') FROM item_departments WHERE itemDefinitionId = id.id) AS departmentsRaw,
         COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 THEN l.currentQuantity ELSE 0 END), 0) AS totalStock,
         COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) AS availableStock,
         COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND l.expiryDate < CURDATE() THEN l.currentQuantity ELSE 0 END), 0) AS expiredStock,
@@ -1583,10 +1587,19 @@ app.get('/api/unified-stock', authRequired, async (_req, res) => {
       FROM item_definitions id
       LEFT JOIN lots l ON id.id = l.itemId
       WHERE id.status = 'ACTIVE'
+      ${deptFilter.clause}
       GROUP BY id.id
       ORDER BY id.name ASC
-    `);
-    res.json({ items });
+    `, deptFilter.params);
+    const mapped = items.map((item) => {
+      const { departmentsRaw, ...rest } = item;
+      return {
+        ...rest,
+        isGlobal: !!item.isGlobal,
+        departments: departmentsRaw ? departmentsRaw.split('||') : [],
+      };
+    });
+    res.json({ items: mapped });
   } catch (error) {
     console.error('[/api/unified-stock] ERROR:', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
