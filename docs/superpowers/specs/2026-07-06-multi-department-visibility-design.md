@@ -168,7 +168,54 @@ table — maintain manually per project rules).
 
 ---
 
-## 8. Edge Cases
+## 8. Testing Plan (must be executed live against the dev DB before merge)
+
+### 8.1 Migration integrity
+- Row-count parity (§7.5) for both `user_departments` and `item_departments`.
+- Spot-check a sample of migrated rows by hand against the original scalar `department` values.
+- Verify the rollback SQL (§7 Rollback) actually runs clean on a scratch copy of the DB.
+
+### 8.2 Backend — exhaustive role × department matrix
+- `ADMIN`, `SATINAL`, `SATINAL_LOJISTIK`, `KURUMSAL`: confirm `unified-stock`, `lots`, and every
+  `cep-depo/*` read endpoint return full, unfiltered results — including verifying the filter is truly
+  skipped (`getUserDepartments` returns `null`), not accidentally applied and passing.
+- `LAB_TECHNICIAN`/`OBSERVER` with **zero** departments: see only `isGlobal = 1` items — confirms
+  least-privilege default rather than an empty-filter-means-everything bug.
+- `LAB_TECHNICIAN`/`OBSERVER` with **one** department: parity check against pre-migration behavior for
+  that same account (regression guard — this is the majority of real accounts right after migration).
+- `LAB_TECHNICIAN`/`OBSERVER` with **multiple** departments: confirm the result set is the union of each
+  department's items/CEP DEPO balances, correctly tagged, no duplicates for items in more than one of
+  their departments.
+- Global items: appear for every role/department combination including zero-department users; toggling
+  `isGlobal` off makes them disappear from non-assigned departments' views on the very next request.
+- CEP DEPO end-to-end: run an actual distribute → consume cycle for a multi-department test user and
+  confirm `stock_movements`/`cep_depo_consumptions` still attribute the correct single department per
+  transaction (write paths must stay unaffected by the read-side scoping change).
+- Negative/security test: as a scoped `LAB_TECHNICIAN`, attempt to fetch another department's data via a
+  manipulated query param (e.g. `?department=X`) — confirm the server ignores it and still derives the
+  filter from `userId` server-side, never from client input.
+
+### 8.3 Frontend — manual pass through the actual UI
+- Log in as a freshly-migrated single-department `LAB_TECHNICIAN` → Stok/LOT Stok/CEP DEPO look identical
+  to pre-migration (visual regression check).
+- Log in as a new multi-department test user (created via the new admin checkboxes) → combined view +
+  department badges render correctly on every affected list.
+- As `ADMIN`/`SATINAL_LOJISTIK`: create/edit a user and toggle department checkboxes, create/edit an item
+  and toggle department checkboxes + global flag, confirm changes persist and the affected user's very
+  next fetch reflects them (no caching/staleness).
+- DevTools network tab, logged in as a scoped `LAB_TECHNICIAN`/`OBSERVER`: confirm the raw JSON response
+  itself excludes unauthorized departments' data — the actual security assertion, not just a hidden-in-UI
+  cosmetic check.
+
+### 8.4 Existing-feature regression sweep
+- Distribute multi-lot picker still works end-to-end for a department-scoped recipient.
+- LOT split / SKT edit / multi-lot Düzelt correction unaffected (write-path, but renders from the same
+  now-filtered lot lists — verify it still renders what it should for the acting user's role).
+- Talep (purchase requests) confirmed unfiltered/unchanged for every role.
+
+---
+
+## 9. Edge Cases
 
 - Item created with zero departments and not global → invisible to all non-bypass roles. Item form shows
   a soft warning (not a hard block) on save if this state is reached.
@@ -181,7 +228,7 @@ table — maintain manually per project rules).
 
 ---
 
-## 9. Definition of Done
+## 10. Definition of Done
 
 - `ADMIN`/`SATINAL`/`SATINAL_LOJISTIK`/`KURUMSAL` see all stock/CEP DEPO across every department, unchanged from today.
 - A `LAB_TECHNICIAN`/`OBSERVER` with one department sees exactly what they see today (regression parity)
@@ -193,10 +240,11 @@ table — maintain manually per project rules).
   `isGlobal`, via the updated forms.
 - No write path, stock quantity truth (`lots.currentQuantity`), or Talep visibility changed.
 - Change-log file created with rollback SQL; row-count parity verified post-migration.
+- Full testing plan (§8) executed and passing against the live dev DB.
 
 ---
 
-## 10. Risks & Coupling
+## 11. Risks & Coupling
 
 - **Immediate access narrowing** for `LAB_TECHNICIAN`/`OBSERVER` accounts right after deploy (decision #9)
   — mitigated by the mandatory rollout review step (§7.6), but this is a real, intentional behavior change
