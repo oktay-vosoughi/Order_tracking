@@ -2121,7 +2121,7 @@ const LabEquipmentTracker = () => {
                   </div>
                 </div>
               </div>
-              {userCreateForm.role === 'LAB_TECHNICIAN' && !userCreateForm.department && (
+              {userCreateForm.role === 'LAB_TECHNICIAN' && userCreateForm.departments.length === 0 && (
                 <p className="text-xs text-amber-600 mb-4">Lab teknisyenleri CEP DEPO kullanabilmek için bir bölüme atanmalıdır.</p>
               )}
               {userCreateForm.role === 'SATINAL' && (

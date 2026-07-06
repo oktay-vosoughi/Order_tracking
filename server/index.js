@@ -447,6 +447,10 @@ app.put('/api/users/:id/departments', authRequired, canManageDepartmentMembershi
       for (const dept of cleaned) {
         await run(conn, 'INSERT INTO user_departments (userId, department) VALUES (?, ?)', [req.params.id, dept]);
       }
+      // Keep the legacy scalar in sync so CEP DEPO write paths (distribute/consume/return),
+      // which still key off users.department directly, keep working for users managed
+      // through the multi-select checkbox UI.
+      await run(conn, 'UPDATE users SET department = ? WHERE id = ?', [cleaned[0] || null, req.params.id]);
     });
     res.json({ ok: true, departments: cleaned });
   } catch (error) {
@@ -1697,21 +1701,32 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
 // Get item lots (for drill-down)
 app.get('/api/unified-stock/:itemId/lots', authRequired, async (req, res) => {
   try {
-    const lots = await all(pool, `
-      SELECT l.*, 
-        CASE 
+    const departments = await getUserDepartments(req.user.id, req.user.role);
+    const deptFilter = buildItemDepartmentFilter(departments);
+    const params = [req.params.itemId];
+    let sql = `
+      SELECT l.*,
+        CASE
           WHEN l.expiryDate < CURDATE() THEN 'EXPIRED'
           WHEN l.expiryDate <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) THEN 'EXPIRING_SOON'
           ELSE 'OK'
         END AS expiryStatus
       FROM lots l
+      JOIN item_definitions id ON l.itemId = id.id
       WHERE l.itemId = ?
-      ORDER BY 
+    `;
+    if (deptFilter.clause) {
+      sql += ` ${deptFilter.clause}`;
+      params.push(...deptFilter.params);
+    }
+    sql += `
+      ORDER BY
         CASE WHEN l.status = 'ACTIVE' THEN 0 ELSE 1 END,
         CASE WHEN l.expiryDate IS NULL THEN 1 ELSE 0 END,
         l.expiryDate ASC,
         l.receivedDate ASC
-    `, [req.params.itemId]);
+    `;
+    const lots = await all(pool, sql, params);
     res.json({ lots });
   } catch (error) {
     console.error('Failed to get item lots', error);
