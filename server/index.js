@@ -1069,6 +1069,8 @@ app.delete('/api/item-definitions/:id', authRequired, adminRequired, async (req,
 // Get all lots (with item info)
 app.get('/api/lots', authRequired, async (req, res) => {
   try {
+    const departments = await getUserDepartments(req.user.id, req.user.role);
+    const deptFilter = buildItemDepartmentFilter(departments);
     const { itemId, status, expiringSoon } = req.query;
     let sql = `
       SELECT l.*, id.name AS itemName, id.code AS itemCode, id.unit AS itemUnit
@@ -1089,7 +1091,11 @@ app.get('/api/lots', authRequired, async (req, res) => {
     if (expiringSoon === 'true') {
       sql += ' AND l.expiryDate IS NOT NULL AND l.expiryDate <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND l.expiryDate >= CURDATE()';
     }
-    
+    if (deptFilter.clause) {
+      sql += ` ${deptFilter.clause}`;
+      params.push(...deptFilter.params);
+    }
+
     sql += ' ORDER BY l.expiryDate ASC, l.receivedDate ASC';
     
     const lots = await all(pool, sql, params);
