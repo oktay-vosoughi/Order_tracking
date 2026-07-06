@@ -2752,7 +2752,10 @@ const LabEquipmentTracker = () => {
                         <div className="mobile-card-title">{item.name}</div>
                         <div className="mobile-meta-row">
                           {item.brand && <span>{item.brand}</span>}
-                          {item.department && <span>{item.department}</span>}
+                          {item.isGlobal && <span>Genel</span>}
+                          {!item.isGlobal && (item.departments?.length ? item.departments : item.department ? [item.department] : []).map((d) => (
+                            <span key={d}>{d}</span>
+                          ))}
                           {item.activeLotCount > 0 && <span>{item.activeLotCount} LOT</span>}
                         </div>
                       </div>
@@ -2966,7 +2969,10 @@ const LabEquipmentTracker = () => {
                                 <div className="font-medium text-gray-900">{item.name}</div>
                                 <div className="flex flex-wrap gap-1 mt-1">
                                   {item.brand && <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{item.brand}</span>}
-                                  {item.department && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded">{item.department}</span>}
+                                  {item.isGlobal && <span className="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded">Genel</span>}
+                                  {!item.isGlobal && (item.departments?.length ? item.departments : item.department ? [item.department] : []).map((d) => (
+                                    <span key={d} className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded">{d}</span>
+                                  ))}
                                   {item.category && <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">{item.category}</span>}
                                   {item.activeLotCount > 0 && <span className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium">{item.activeLotCount} LOT</span>}
                                 </div>
