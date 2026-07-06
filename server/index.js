@@ -352,6 +352,8 @@ app.post('/api/auth/bootstrap', async (req, res) => {
     await run(pool, 'INSERT INTO users (username, passwordHash, role, createdBy) VALUES (?, ?, ?, ?)', [String(username), passwordHash, 'ADMIN', String(username)]);
     const rows = await all(pool, 'SELECT * FROM users WHERE username = ?', [String(username)]);
     const user = rows?.[0];
+    const deptRows = await all(pool, 'SELECT department FROM user_departments WHERE userId = ?', [user.id]);
+    user.departments = deptRows.map((r) => r.department);
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true, canViewPrices: user.can_view_prices === 1 || user.can_view_prices === true }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
