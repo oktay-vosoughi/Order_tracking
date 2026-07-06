@@ -3366,18 +3366,17 @@ async function getUserDepartments(userId, role) {
 // department; privileged roles see all (optional ?department= filter).
 app.get('/api/cep-depo/balances', authRequired, async (req, res) => {
   try {
-    const role = req.user.role;
-    const dept = isLabTechnicianRole(role) ? await getUserDeptId(req.user.id) : (req.query.department || null);
-    if (isLabTechnicianRole(role) && !dept) return res.json({ balances: [] });
+    const departments = await getUserDepartments(req.user.id, req.user.role);
+    if (departments !== null && departments.length === 0) return res.json({ balances: [] });
+    const deptFilter = buildDeptInClause(departments, 'b.department');
     const sql = `
       SELECT b.*, i.code AS itemCode, i.name AS itemName, i.packageUnit, i.consumptionUnit, i.unitsPerPackage, i.consumptionUnitType
       FROM cep_depo_balances b
       LEFT JOIN item_definitions i ON i.id = b.itemId
-      ${dept ? 'WHERE b.department = ?' : ''}
+      WHERE 1=1 ${deptFilter.clause}
       ORDER BY b.department, i.name
     `;
-    const params = dept ? [dept] : [];
-    const balances = await all(pool, sql, params);
+    const balances = await all(pool, sql, deptFilter.params);
     res.json({ balances });
   } catch (error) {
     console.error('Failed to list cep-depo balances', error);
@@ -3388,15 +3387,16 @@ app.get('/api/cep-depo/balances', authRequired, async (req, res) => {
 // GET /api/cep-depo/my-balances — the caller's own department pool.
 app.get('/api/cep-depo/my-balances', authRequired, async (req, res) => {
   try {
-    const dept = await getUserDeptId(req.user.id);
-    if (!dept) return res.json({ balances: [] });
+    const departments = await getUserDepartments(req.user.id, req.user.role);
+    if (departments !== null && departments.length === 0) return res.json({ balances: [] });
+    const deptFilter = buildDeptInClause(departments, 'b.department');
     const balances = await all(pool, `
       SELECT b.*, i.code AS itemCode, i.name AS itemName, i.packageUnit, i.consumptionUnit, i.unitsPerPackage, i.consumptionUnitType
       FROM cep_depo_balances b
       LEFT JOIN item_definitions i ON i.id = b.itemId
-      WHERE b.department = ?
+      WHERE 1=1 ${deptFilter.clause}
       ORDER BY i.name
-    `, [dept]);
+    `, deptFilter.params);
     res.json({ balances });
   } catch (error) {
     console.error('Failed to list my cep-depo balances', error);
@@ -3804,20 +3804,19 @@ app.post('/api/cep-depo/return', authRequired, async (req, res) => {
 // GET /api/cep-depo/movements — unified ledger
 app.get('/api/cep-depo/movements', authRequired, async (req, res) => {
   try {
-    const role = req.user.role;
     const limit = Math.min(Number(req.query.limit) || 500, 5000);
-    const dept = isLabTechnicianRole(role) ? await getUserDeptId(req.user.id) : (req.query.department || null);
-    if (isLabTechnicianRole(role) && !dept) return res.json({ movements: [] });
+    const departments = await getUserDepartments(req.user.id, req.user.role);
+    if (departments !== null && departments.length === 0) return res.json({ movements: [] });
+    const deptFilter = buildDeptInClause(departments, 'm.department');
     const sql = `
       SELECT m.*, i.code AS itemCode, i.name AS itemName
       FROM stock_movements m
       LEFT JOIN item_definitions i ON i.id = m.itemId
-      ${dept ? 'WHERE m.department = ?' : ''}
+      WHERE 1=1 ${deptFilter.clause}
       ORDER BY m.createdAt DESC
       LIMIT ${limit}
     `;
-    const params = dept ? [dept] : [];
-    const movements = await all(pool, sql, params);
+    const movements = await all(pool, sql, deptFilter.params);
     res.json({ movements });
   } catch (error) {
     console.error('Failed to list stock_movements', error);
@@ -3828,18 +3827,17 @@ app.get('/api/cep-depo/movements', authRequired, async (req, res) => {
 // GET /api/cep-depo/distributions
 app.get('/api/cep-depo/distributions', authRequired, async (req, res) => {
   try {
-    const role = req.user.role;
-    const dept = isLabTechnicianRole(role) ? await getUserDeptId(req.user.id) : (req.query.department || null);
-    if (isLabTechnicianRole(role) && !dept) return res.json({ distributions: [] });
+    const departments = await getUserDepartments(req.user.id, req.user.role);
+    if (departments !== null && departments.length === 0) return res.json({ distributions: [] });
+    const deptFilter = buildDeptInClause(departments, 'd.department');
     const sql = `
       SELECT d.*, i.code AS itemCode, i.name AS itemName
       FROM cep_depo_distributions d
       LEFT JOIN item_definitions i ON i.id = d.itemId
-      ${dept ? 'WHERE d.department = ?' : ''}
+      WHERE 1=1 ${deptFilter.clause}
       ORDER BY d.distributedAt DESC
     `;
-    const params = dept ? [dept] : [];
-    const distributions = await all(pool, sql, params);
+    const distributions = await all(pool, sql, deptFilter.params);
     res.json({ distributions });
   } catch (error) {
     console.error('Failed to list cep distributions', error);
@@ -3850,18 +3848,17 @@ app.get('/api/cep-depo/distributions', authRequired, async (req, res) => {
 // GET /api/cep-depo/consumptions
 app.get('/api/cep-depo/consumptions', authRequired, async (req, res) => {
   try {
-    const role = req.user.role;
-    const dept = isLabTechnicianRole(role) ? await getUserDeptId(req.user.id) : (req.query.department || null);
-    if (isLabTechnicianRole(role) && !dept) return res.json({ consumptions: [] });
+    const departments = await getUserDepartments(req.user.id, req.user.role);
+    if (departments !== null && departments.length === 0) return res.json({ consumptions: [] });
+    const deptFilter = buildDeptInClause(departments, 'c.department');
     const sql = `
       SELECT c.*, i.code AS itemCode, i.name AS itemName
       FROM cep_depo_consumptions c
       LEFT JOIN item_definitions i ON i.id = c.itemId
-      ${dept ? 'WHERE c.department = ?' : ''}
+      WHERE 1=1 ${deptFilter.clause}
       ORDER BY c.performedAt DESC
     `;
-    const params = dept ? [dept] : [];
-    const consumptions = await all(pool, sql, params);
+    const consumptions = await all(pool, sql, deptFilter.params);
     res.json({ consumptions });
   } catch (error) {
     console.error('Failed to list cep consumptions', error);
