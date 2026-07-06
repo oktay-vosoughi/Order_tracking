@@ -227,6 +227,7 @@ const sanitizeUser = (u) => ({
   canReceive: u.can_receive === 1 || u.can_receive === true || u.can_receive === '1',
   canViewPrices: u.can_view_prices === 1 || u.can_view_prices === true || u.can_view_prices === '1',
   department: u.department || null,
+  departments: Array.isArray(u.departments) ? u.departments : [],
   createdAt: u.createdAt,
   createdBy: u.createdBy
 });
@@ -413,6 +414,13 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
   try {
     await run(pool, `UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
     const users = await all(pool, 'SELECT id, username, role, department, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    const deptRows = await all(pool, 'SELECT userId, department FROM user_departments');
+    const deptsByUser = new Map();
+    for (const row of deptRows) {
+      if (!deptsByUser.has(row.userId)) deptsByUser.set(row.userId, []);
+      deptsByUser.get(row.userId).push(row.department);
+    }
+    for (const u of users) u.departments = deptsByUser.get(u.id) || [];
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') {
@@ -420,6 +428,27 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
       return;
     }
     console.error('Update user error', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// PUT /api/users/:id/departments — replace a user's department memberships wholesale.
+app.put('/api/users/:id/departments', authRequired, canManageDepartmentMemberships, async (req, res) => {
+  const { departments } = req.body || {};
+  if (!Array.isArray(departments)) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: 'departments must be an array' });
+  }
+  const cleaned = [...new Set(departments.map((d) => String(d).trim()).filter(Boolean))];
+  try {
+    await withTransaction(async (conn) => {
+      await run(conn, 'DELETE FROM user_departments WHERE userId = ?', [req.params.id]);
+      for (const dept of cleaned) {
+        await run(conn, 'INSERT INTO user_departments (userId, department) VALUES (?, ?)', [req.params.id, dept]);
+      }
+    });
+    res.json({ ok: true, departments: cleaned });
+  } catch (error) {
+    console.error('Failed to update user departments', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
   }
 });
@@ -514,6 +543,13 @@ app.get('/api/auth/me', authRequired, async (req, res) => {
 app.get('/api/users', authRequired, adminRequired, async (_req, res) => {
   try {
     const users = await all(pool, 'SELECT id, username, role, department, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    const deptRows = await all(pool, 'SELECT userId, department FROM user_departments');
+    const deptsByUser = new Map();
+    for (const row of deptRows) {
+      if (!deptsByUser.has(row.userId)) deptsByUser.set(row.userId, []);
+      deptsByUser.get(row.userId).push(row.department);
+    }
+    for (const u of users) u.departments = deptsByUser.get(u.id) || [];
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     console.error('List users error', error);
@@ -540,6 +576,13 @@ app.post('/api/users', authRequired, adminRequired, async (req, res) => {
     const passwordHash = await bcrypt.hash(String(password), 10);
     await run(pool, 'INSERT INTO users (username, passwordHash, role, department, createdBy) VALUES (?, ?, ?, ?, ?)', [String(username), passwordHash, String(role), department ? String(department) : null, String(req.user.username)]);
     const users = await all(pool, 'SELECT id, username, role, department, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
+    const deptRows = await all(pool, 'SELECT userId, department FROM user_departments');
+    const deptsByUser = new Map();
+    for (const row of deptRows) {
+      if (!deptsByUser.has(row.userId)) deptsByUser.set(row.userId, []);
+      deptsByUser.get(row.userId).push(row.department);
+    }
+    for (const u of users) u.departments = deptsByUser.get(u.id) || [];
     res.json({ users: users.map(sanitizeUser) });
   } catch (error) {
     if (String(error?.code) === 'ER_DUP_ENTRY') {
