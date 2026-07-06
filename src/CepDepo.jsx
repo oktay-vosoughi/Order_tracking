@@ -30,7 +30,8 @@ export default function CepDepo({ currentUser }) {
   const isLabTech = role === 'LAB_TECHNICIAN';
   const isAdmin = role === 'ADMIN';
   const isSatinal = role === 'SATINAL';
-  const isPrivileged = isAdmin || isSatinal || role === 'SATINAL_LOJISTIK';
+  const isPrivileged = isAdmin || isSatinal || role === 'SATINAL_LOJISTIK' || role === 'KURUMSAL';
+  const showDeptColumn = !isLabTech || (Array.isArray(currentUser?.departments) && currentUser.departments.length > 1);
 
   const [balances, setBalances] = useState([]);
   const [movements, setMovements] = useState([]);
@@ -287,8 +288,8 @@ export default function CepDepo({ currentUser }) {
           String(b.itemName || '').toLowerCase().includes(q) ||
           String(b.itemCode || '').toLowerCase().includes(q))
       : rows;
-    // Columns: [Bölüm if !isLabTech] + Ürün + Miktar + Son Dağıtım + Durum + [action if privileged]
-    const colSpan = 4 + (!isLabTech ? 1 : 0) + (isPrivileged ? 1 : 0);
+    // Columns: [Bölüm if showDeptColumn] + Ürün + Miktar + Son Dağıtım + Durum + [action if privileged]
+    const colSpan = 4 + (showDeptColumn ? 1 : 0) + (isPrivileged ? 1 : 0);
     return (
       <div>
         <input
@@ -302,7 +303,7 @@ export default function CepDepo({ currentUser }) {
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100">
             <tr>
-              {!isLabTech && <th className="px-3 py-2 text-left">Bölüm</th>}
+              {showDeptColumn && <th className="px-3 py-2 text-left">Bölüm</th>}
               <th className="px-3 py-2 text-left">Ürün</th>
               <th className="px-3 py-2 text-right">Miktar</th>
               <th className="px-3 py-2 text-left">Son Dağıtım</th>
@@ -323,7 +324,7 @@ export default function CepDepo({ currentUser }) {
                 : (isFinite(Number(b.packQty)) ? Number(b.packQty) : 0).toFixed(2);
               return (
                 <tr key={b.id} className="border-t">
-                  {!isLabTech && <td className="px-3 py-2">{b.department || '-'}</td>}
+                  {showDeptColumn && <td className="px-3 py-2">{b.department || '-'}</td>}
                   <td className="px-3 py-2">
                     {b.itemName || b.itemId}{' '}
                     {b.itemCode ? <span className="text-gray-500 text-xs">({b.itemCode})</span> : null}
