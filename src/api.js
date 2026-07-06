@@ -107,6 +107,14 @@ export async function updateUser(id, username, role, password, canReceive, canVi
   });
 }
 
+export async function updateUserDepartments(id, departments) {
+  return apiFetch(`/users/${id}/departments`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ departments })
+  });
+}
+
 // ============================================================
 // DEPARTMENTS registry (runtime-editable name list)
 // ============================================================
@@ -222,6 +230,14 @@ export async function updateItemDefinition(id, data) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
+  });
+}
+
+export async function updateItemDepartments(id, { departments, isGlobal }) {
+  return apiFetch(`/item-definitions/${id}/departments`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ departments, isGlobal })
   });
 }
 
