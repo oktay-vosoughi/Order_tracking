@@ -141,7 +141,7 @@ until it has actually been executed and its result observed.
   before relying on this in production.
 - **Untested against live data as of this commit**: the full checklist above has not been
   executed against production or any real dataset. Everything in this feature — including
-  the two review-caught bugs already fixed — has only been verified by code reading and
+  the three review-caught bugs already fixed — has only been verified by code reading and
   unit-level review, not by exercising the running system end-to-end. Treat this branch as
   unverified for merge purposes until a human runs the checklist and updates this file.
 - The three review-caught bugs (`resetUserForm()` departments reset; `login`/`me`/`bootstrap`
