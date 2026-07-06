@@ -3281,6 +3281,36 @@ const ensureCepDepoTables = async () => {
       }
     }
   } catch (e) { console.warn('[ensureCepDepo] department seed skipped:', e?.code || e?.message); }
+
+  // Multi-department membership (user_departments / item_departments) — see
+  // docs/superpowers/specs/2026-07-06-multi-department-visibility-design.md
+  await pool.query(`CREATE TABLE IF NOT EXISTS user_departments (
+    userId BIGINT UNSIGNED NOT NULL,
+    department VARCHAR(150) NOT NULL,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (userId, department),
+    FOREIGN KEY (userId) REFERENCES users(id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS item_departments (
+    itemDefinitionId VARCHAR(64) NOT NULL,
+    department VARCHAR(150) NOT NULL,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (itemDefinitionId, department),
+    FOREIGN KEY (itemDefinitionId) REFERENCES item_definitions(id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
+  await ensureColumn('item_definitions', 'isGlobal', 'isGlobal TINYINT(1) NOT NULL DEFAULT 0');
+
+  // Backfill from the legacy scalar columns (idempotent — INSERT IGNORE skips rows already migrated)
+  await pool.query(`
+    INSERT IGNORE INTO user_departments (userId, department)
+    SELECT id, department FROM users WHERE department IS NOT NULL AND department <> ''
+  `);
+  await pool.query(`
+    INSERT IGNORE INTO item_departments (itemDefinitionId, department)
+    SELECT id, department FROM item_definitions WHERE department IS NOT NULL AND department <> ''
+  `);
 };
 
 // Helper: resolve effective pack/unit factor (lot override > item default > 1)
