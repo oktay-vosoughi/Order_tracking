@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -168,7 +168,7 @@ const LabEquipmentTracker = () => {
   const [bootstrapMode, setBootstrapMode] = useState(false);
 
   const [users, setUsers] = useState([]);
-  const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false, department: '' });
+  const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false, department: '', departments: [] });
   const [departments, setDepartments] = useState([]);
   const [newDeptName, setNewDeptName] = useState('');
   const [editingUserId, setEditingUserId] = useState(null);
@@ -534,7 +534,7 @@ const LabEquipmentTracker = () => {
   };
 
   const resetUserForm = () => {
-    setUserCreateForm({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false, department: '' });
+    setUserCreateForm({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false, department: '', departments: [] });
     setEditingUserId(null);
   };
 
@@ -587,12 +587,18 @@ const LabEquipmentTracker = () => {
       let res;
       if (editingUserId) {
         res = await updateUser(editingUserId, trimmedUsername, userCreateForm.role, userCreateForm.password || undefined, userCreateForm.canReceive, userCreateForm.canViewPrices, userCreateForm.department || '');
+        await updateUserDepartments(editingUserId, userCreateForm.departments);
         alert('Kullanıcı güncellendi');
       } else {
         res = await createUser(trimmedUsername, userCreateForm.password, userCreateForm.role, userCreateForm.department || null);
+        const created = (res.users || []).find((u) => u.username === trimmedUsername);
+        if (created) {
+          await updateUserDepartments(created.id, userCreateForm.departments);
+        }
         alert('Kullanıcı oluşturuldu');
       }
-      setUsers(res.users || []);
+      const refreshed = await listUsers();
+      setUsers(refreshed.users || []);
       resetUserForm();
     } catch (error) {
       alert((editingUserId ? 'Kullanıcı güncellenemedi: ' : 'Kullanıcı oluşturma hatası: ') + (error?.message || 'HATA'));
@@ -2086,17 +2092,26 @@ const LabEquipmentTracker = () => {
                   <option value="OBSERVER">OBSERVER (Sadece Görüntüleme)</option>
                   <option value="ADMIN">ADMIN (Tüm Yetkiler)</option>
                 </select>
-                <select
-                  value={userCreateForm.department}
-                  onChange={(e) => setUserCreateForm({ ...userCreateForm, department: e.target.value })}
-                  className="px-4 py-2 border rounded-lg"
-                  title="Bölüm (CEP DEPO havuzu bu bölüme göre paylaşılır)"
-                >
-                  <option value="">Bölüm seç… (opsiyonel)</option>
-                  {departments.filter((d) => d.active).map((d) => (
-                    <option key={d.id} value={d.name}>{d.name}</option>
-                  ))}
-                </select>
+                <div className="px-4 py-2 border rounded-lg" title="Kullanıcının erişebileceği bölümler">
+                  <div className="text-xs font-medium text-gray-500 mb-1">Bölümler (birden fazla seçilebilir)</div>
+                  <div className="flex flex-wrap gap-3">
+                    {departments.filter((d) => d.active).map((d) => (
+                      <label key={d.id} className="flex items-center gap-1 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={userCreateForm.departments.includes(d.name)}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? [...userCreateForm.departments, d.name]
+                              : userCreateForm.departments.filter((x) => x !== d.name);
+                            setUserCreateForm({ ...userCreateForm, departments: next });
+                          }}
+                        />
+                        {d.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
               {userCreateForm.role === 'LAB_TECHNICIAN' && !userCreateForm.department && (
                 <p className="text-xs text-amber-600 mb-4">Lab teknisyenleri CEP DEPO kullanabilmek için bir bölüme atanmalıdır.</p>
@@ -2189,7 +2204,7 @@ const LabEquipmentTracker = () => {
                             {u.role}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-xs text-gray-600">{u.department || '-'}</td>
+                        <td className="px-3 py-2 text-xs text-gray-600">{(u.departments || []).join(', ') || '-'}</td>
                         <td className="px-3 py-2">
                           {u.canReceive && (
                             <span className="px-2 py-1 rounded text-xs bg-green-100 text-green-700">Teslim Al</span>
@@ -2202,7 +2217,7 @@ const LabEquipmentTracker = () => {
                         <td className="px-3 py-2 text-right">
                           <button
                             onClick={() => {
-                              setUserCreateForm({ username: u.username, password: '', role: u.role, canReceive: !!u.canReceive, canViewPrices: !!u.canViewPrices, department: u.department || '' });
+                              setUserCreateForm({ username: u.username, password: '', role: u.role, canReceive: !!u.canReceive, canViewPrices: !!u.canViewPrices, department: u.department || '', departments: Array.isArray(u.departments) ? u.departments : [] });
                               setEditingUserId(u.id);
                             }}
                             className="px-3 py-1 rounded bg-yellow-100 text-yellow-700 text-xs hover:bg-yellow-200"
