@@ -9,7 +9,7 @@ be flagged `isGlobal` to bypass scoping entirely. `ADMIN`/`SATINAL`/`SATINAL_LOJ
 a pre-existing gap where CEP DEPO read endpoints trusted a client-supplied
 `?department=` query param for non-lab-tech roles.
 
-Two real defects were found and fixed by review during this work, not shipped:
+Three real defects were found and fixed by review during this work, not shipped:
 
 1. **Task 10 review**: `resetUserForm()` in `src/App.jsx` was not resetting the new
    `departments` field. A save-then-cancel (or repeated add-user) cycle would have left
@@ -24,17 +24,25 @@ Two real defects were found and fixed by review during this work, not shipped:
    Bölüm-column logic (it always rendered as if the user had zero departments). Fixed in
    a follow-up commit; both endpoints now query `user_departments` and attach the array
    before sanitizing.
+3. **Task 14 close-out**: the same gap existed at a third call site, `POST /api/auth/bootstrap`
+   (the first-admin-creation endpoint). A `grep` for every remaining `sanitizeUser(` call
+   site — prompted by the pattern in #2 — found it and confirmed it was the last one. This
+   one is currently harmless in practice (the bootstrapped user is always `ADMIN`, which
+   bypasses department filtering everywhere), but was fixed anyway for consistency, since
+   `sanitizeUser`'s output should reliably reflect real DB state regardless of role. All
+   3 `sanitizeUser(` call sites in `server/index.js` now attach `departments` first.
 
-Both were caught by review before merge to `main`, not discovered in production, but are
-recorded here because they were real, live bugs during the branch's development history.
+All three were caught by review before merge to `main`, not discovered in production, but
+are recorded here because they were real, live bugs during the branch's development history.
 
 ## Files touched
 - `server/migrations/2026-07-06-department-scoping.sql` (new)
 - `server/departmentScope.cjs`, `server/departmentScope.test.cjs` (new)
 - `server/index.js` — schema bootstrap, `getUserDepartments`, `canManageDepartmentMemberships`,
   `/api/unified-stock`, `/api/lots`, 5 CEP DEPO read endpoints, 2 new department-membership
-  endpoints, `sanitizeUser` + user/item listing queries, `POST /api/auth/login` and
-  `GET /api/auth/me` (departments attached before `sanitizeUser`, follow-up fix)
+  endpoints, `sanitizeUser` + user/item listing queries, `POST /api/auth/login`,
+  `GET /api/auth/me`, and `POST /api/auth/bootstrap` (all 3 now attach departments before
+  `sanitizeUser`; the latter two were follow-up fixes)
 - `src/api.js` — `updateUserDepartments`, `updateItemDepartments`
 - `src/App.jsx` — user form checkboxes, `resetUserForm()` departments reset (follow-up fix),
   item form checkboxes + global flag, Stok badges
@@ -136,8 +144,10 @@ until it has actually been executed and its result observed.
   the two review-caught bugs already fixed — has only been verified by code reading and
   unit-level review, not by exercising the running system end-to-end. Treat this branch as
   unverified for merge purposes until a human runs the checklist and updates this file.
-- The two review-caught bugs (`resetUserForm()` departments reset; `login`/`me` missing
-  `departments` before `sanitizeUser`) are strong evidence that this feature area has
-  several call sites that all need the same "attach departments" treatment; a `grep` for
-  other `sanitizeUser(` call sites and other places `users.department` is read as a scalar
-  is worth doing before signing off, in case a third site was missed.
+- The three review-caught bugs (`resetUserForm()` departments reset; `login`/`me`/`bootstrap`
+  missing `departments` before `sanitizeUser`) are strong evidence that this feature area
+  has several call sites that all need the same "attach departments" treatment. A `grep`
+  for every `sanitizeUser(` call site was run during close-out and confirmed exactly 3
+  exist, all now fixed — but other places `users.department` (the legacy scalar) is read
+  directly, outside `sanitizeUser`, were not re-audited and are worth a final look before
+  sign-off.
