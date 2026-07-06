@@ -750,8 +750,8 @@ const generateId = () => {
 app.get('/api/item-definitions', authRequired, async (_req, res) => {
   try {
     const items = await all(pool, `
-      SELECT 
-        id.*, 
+      SELECT
+        id.*,
         COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) AS totalStock,
         COUNT(DISTINCT CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 THEN l.id END) AS activeLotCount
       FROM item_definitions id
@@ -759,7 +759,18 @@ app.get('/api/item-definitions', authRequired, async (_req, res) => {
       GROUP BY id.id
       ORDER BY id.name ASC
     `);
-    res.json({ items });
+    const deptRows = await all(pool, 'SELECT itemDefinitionId, department FROM item_departments');
+    const deptsByItem = new Map();
+    for (const row of deptRows) {
+      if (!deptsByItem.has(row.itemDefinitionId)) deptsByItem.set(row.itemDefinitionId, []);
+      deptsByItem.get(row.itemDefinitionId).push(row.department);
+    }
+    const mapped = items.map((item) => ({
+      ...item,
+      isGlobal: !!item.isGlobal,
+      departments: deptsByItem.get(item.id) || [],
+    }));
+    res.json({ items: mapped });
   } catch (error) {
     console.error('Failed to get item definitions', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
@@ -926,6 +937,28 @@ app.put('/api/item-definitions/:id', authRequired, canManageItems, async (req, r
     res.json({ item: updated });
   } catch (error) {
     console.error('Failed to update item definition', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// PUT /api/item-definitions/:id/departments — replace an item's department tags + global flag.
+app.put('/api/item-definitions/:id/departments', authRequired, canManageDepartmentMemberships, async (req, res) => {
+  const { departments, isGlobal } = req.body || {};
+  if (!Array.isArray(departments)) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: 'departments must be an array' });
+  }
+  const cleaned = [...new Set(departments.map((d) => String(d).trim()).filter(Boolean))];
+  try {
+    await withTransaction(async (conn) => {
+      await run(conn, 'UPDATE item_definitions SET isGlobal = ? WHERE id = ?', [isGlobal ? 1 : 0, req.params.id]);
+      await run(conn, 'DELETE FROM item_departments WHERE itemDefinitionId = ?', [req.params.id]);
+      for (const dept of cleaned) {
+        await run(conn, 'INSERT INTO item_departments (itemDefinitionId, department) VALUES (?, ?)', [req.params.id, dept]);
+      }
+    });
+    res.json({ ok: true, departments: cleaned, isGlobal: !!isGlobal });
+  } catch (error) {
+    console.error('Failed to update item departments', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
   }
 });
