@@ -3347,13 +3347,6 @@ const resolveUnitFactor = (item, lot) => {
 
 const resolveConsumptionUnitType = (item, lot) =>
   (lot && lot.consumptionUnitType) || (item && item.consumptionUnitType) || 'PACK';
-
-// Resolve a user's department (name string) from the DB — never trust the JWT.
-async function getUserDeptId(userId) {
-  const r = await all(pool, 'SELECT department FROM users WHERE id = ?', [userId]);
-  return r?.[0]?.department || null;
-}
-
 // Resolve a caller's department memberships — null means "no filter" (bypass role).
 // Always resolved fresh from the DB per request; never trust JWT or query params.
 async function getUserDepartments(userId, role) {
@@ -3362,8 +3355,9 @@ async function getUserDepartments(userId, role) {
   return rows.map((r) => r.department);
 }
 
-// GET /api/cep-depo/balances — shared department pools. Lab techs see only their
-// department; privileged roles see all (optional ?department= filter).
+// GET /api/cep-depo/balances — shared department pools. Department scoping is
+// always resolved server-side from the caller's identity (getUserDepartments);
+// bypass roles (ADMIN/SATINAL/SATINAL_LOJISTIK/KURUMSAL) see all departments.
 app.get('/api/cep-depo/balances', authRequired, async (req, res) => {
   try {
     const departments = await getUserDepartments(req.user.id, req.user.role);
