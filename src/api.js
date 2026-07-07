@@ -470,3 +470,15 @@ export async function createPurchaseRequestForLabTech({ itemId, itemCode, itemNa
     })
   });
 }
+
+export async function lookupBarcode(code) {
+  return apiFetch(`/barcodes/${encodeURIComponent(code)}`);
+}
+
+export async function registerBarcode({ barcode, itemId, barcodeType }) {
+  return apiFetch('/barcodes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ barcode, itemId, barcodeType })
+  });
+}

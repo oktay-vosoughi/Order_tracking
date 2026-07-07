@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const { buildUnitCorrectionValues } = require('./unitCorrection.cjs');
 const { validateLotSplit } = require('./lotSplit.cjs');
 const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause } = require('./departmentScope.cjs');
+const { parseGs1, lookupKeys } = require('./gs1');
 
 const PORT = process.env.PORT || 4000;
 
@@ -1867,6 +1868,84 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
       return res.status(error.status).json({ error: error.error, message: error.message });
     }
     console.error('Failed to receive goods', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// --- Barcode lookup & registration (scan-based receiving) ---
+
+app.get('/api/barcodes/:code', authRequired, async (req, res) => {
+  const parsed = parseGs1(String(req.params.code || ''));
+  const keys = lookupKeys(parsed);
+  if (!keys.length) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: 'Barcode is required' });
+  }
+  try {
+    const placeholders = keys.map(() => '?').join(',');
+    let itemId = null;
+    let matchedBy = null;
+
+    const mapped = await all(pool, `SELECT itemId FROM item_barcodes WHERE barcode IN (${placeholders}) LIMIT 1`, keys);
+    if (mapped.length) {
+      itemId = mapped[0].itemId;
+      matchedBy = 'barcode';
+    } else {
+      const byCatalog = await all(pool, `SELECT id FROM item_definitions WHERE catalogNo IN (${placeholders}) LIMIT 1`, keys);
+      if (byCatalog.length) {
+        itemId = byCatalog[0].id;
+        matchedBy = 'catalogNo';
+      }
+    }
+
+    if (!itemId) {
+      return res.status(404).json({ error: 'BARCODE_NOT_FOUND', parsed });
+    }
+
+    const item = (await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [itemId]))[0];
+    const openPurchases = await all(pool, `
+      SELECT * FROM purchases
+      WHERE itemId = ? AND status IN ('SIPARIS_VERILDI', 'KISMI_TESLIM')
+      ORDER BY requestedAt DESC
+    `, [itemId]);
+
+    res.json({ item, parsed, openPurchases, matchedBy });
+  } catch (error) {
+    console.error('Barcode lookup failed', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+app.post('/api/barcodes', authRequired, canReceiveGoods, async (req, res) => {
+  const { barcode, itemId, barcodeType } = req.body || {};
+  const normalized = typeof barcode === 'string' ? barcode.trim() : '';
+  if (!normalized || !itemId) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: 'Barcode and item ID are required' });
+  }
+  try {
+    const items = await all(pool, 'SELECT id, name FROM item_definitions WHERE id = ?', [itemId]);
+    if (!items.length) {
+      return res.status(404).json({ error: 'ITEM_NOT_FOUND' });
+    }
+
+    const existing = await all(pool, 'SELECT * FROM item_barcodes WHERE barcode = ?', [normalized]);
+    if (existing.length) {
+      if (existing[0].itemId === itemId) {
+        return res.json(existing[0]); // idempotent re-registration
+      }
+      const mappedItem = (await all(pool, 'SELECT id, name FROM item_definitions WHERE id = ?', [existing[0].itemId]))[0] || null;
+      return res.status(409).json({ error: 'BARCODE_EXISTS', mappedItem });
+    }
+
+    const type = barcodeType === 'GTIN' ? 'GTIN' : 'OTHER';
+    const id = generateId();
+    await run(pool, `
+      INSERT INTO item_barcodes (id, itemId, barcode, barcodeType, createdBy)
+      VALUES (?, ?, ?, ?, ?)
+    `, [id, itemId, normalized, type, req.user.username]);
+
+    res.json({ id, itemId, barcode: normalized, barcodeType: type });
+  } catch (error) {
+    console.error('Barcode registration failed', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
   }
 });
