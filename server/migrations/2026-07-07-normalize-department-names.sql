@@ -23,16 +23,25 @@
 -- Design: docs/superpowers/specs/2026-07-06-multi-department-visibility-design.md
 -- Plan:   docs/superpowers/plans/2026-07-06-multi-department-visibility.md
 
--- Registry itself. The owner had already manually deactivated the old English
--- entries ('Cytogenetic', 'Molecular Micro') and added correct-language active
--- replacements ('SİTOGENETİK', 'Molecular mikro') via the departments admin UI
--- before this migration was written — so a straight rename would collide with the
--- unique name constraint. Delete the now-redundant inactive rows first, then rename
--- the remaining active rows to the exact canonical spelling/casing.
-DELETE FROM departments WHERE name = 'Cytogenetic' AND active = 0;
-DELETE FROM departments WHERE name = 'Molecular Micro' AND active = 0;
-UPDATE departments SET name = 'Moleküler Mikro' WHERE name = 'Molecular mikro';
-UPDATE departments SET name = 'Moleküler Genetik' WHERE name = 'Molecular Genetic';
+-- Registry itself. Different environments were observed in two different starting
+-- states: a local test copy already had manually-added, active, correct-language
+-- rows ('SİTOGENETİK', 'Molecular mikro') alongside deactivated old English rows,
+-- while production still had only the original active English seed rows with no
+-- separate canonical row at all. This must handle either starting state (and any
+-- future fresh install, which also has no separate canonical row) without erroring:
+-- if a canonical-named row already exists, drop the redundant old-named row; if it
+-- doesn't, rename the old row in place. Order matters — DELETE before UPDATE.
+DELETE d1 FROM departments d1 INNER JOIN departments d2 ON d2.name = 'SİTOGENETİK'
+  WHERE d1.name = 'Cytogenetic';
+UPDATE departments SET name = 'SİTOGENETİK' WHERE name = 'Cytogenetic';
+
+DELETE d1 FROM departments d1 INNER JOIN departments d2 ON d2.name = 'Moleküler Mikro'
+  WHERE d1.name IN ('Molecular Micro', 'Molecular mikro');
+UPDATE departments SET name = 'Moleküler Mikro' WHERE name IN ('Molecular Micro', 'Molecular mikro');
+
+DELETE d1 FROM departments d1 INNER JOIN departments d2 ON d2.name = 'Moleküler Genetik'
+  WHERE d1.name IN ('Molecular Genetic', 'Molecular');
+UPDATE departments SET name = 'Moleküler Genetik' WHERE name IN ('Molecular Genetic', 'Molecular');
 
 -- users.department (scalar, CEP DEPO write-path primary department)
 UPDATE users SET department = 'SİTOGENETİK' WHERE department = 'Cytogenetic';
