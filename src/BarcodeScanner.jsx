@@ -26,13 +26,18 @@ export default function BarcodeScanner({ onScan, autoFocus = true, placeholder =
     let done = false;
     reader
       .decodeFromVideoDevice(undefined, videoRef.current, (result, err, controls) => {
+        if (done) { controls.stop(); return; }
         controlsRef.current = controls;
-        if (result && !done) {
+        if (result) {
           done = true;
           controls.stop();
           setCameraOpen(false);
           submit(result.getText());
         }
+      })
+      .then((controls) => {
+        if (done) { controls.stop(); return; }
+        controlsRef.current = controls;
       })
       .catch((e) => {
         setCameraError('Kamera açılamadı: ' + (e && e.message ? e.message : 'bilinmeyen hata'));
