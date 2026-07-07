@@ -47,7 +47,8 @@ function parseGs1(input) {
   }
 
   // Human-readable form: (01)04012345678901(17)261231(10)ABC123
-  if (s.includes('(')) {
+  // Anchored to string start so vendor codes containing "(NN)" don't false-positive.
+  if (/^\(\d{2,4}\)/.test(s)) {
     const pairs = [...s.matchAll(/\((\d{2,4})\)([^(]*)/g)];
     if (pairs.length) {
       result.isGs1 = true;

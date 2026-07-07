@@ -79,6 +79,13 @@ test('lookupKeys for plain code is the raw string', () => {
   assert.deepEqual(keys, ['KAT-2024-XYZ']);
 });
 
+test('vendor code containing a parenthesized substring is not misparsed as GS1', () => {
+  const r = parseGs1('PART(01)04012345678901');
+  assert.equal(r.isGs1, false);
+  assert.equal(r.gtin, null);
+  assert.equal(r.raw, 'PART(01)04012345678901');
+});
+
 test('storageKey: GTIN for GS1 scans (lot varies per shipment), raw otherwise', () => {
   assert.equal(storageKey(parseGs1('01' + '08690123456789' + '10' + 'L1')), '08690123456789');
   assert.equal(storageKey(parseGs1('8690123456789')), '8690123456789');
