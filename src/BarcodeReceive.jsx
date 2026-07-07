@@ -28,6 +28,7 @@ export default function BarcodeReceive({ currentUsername, onReceived }) {
   const remainingFor = (p) => (p.orderedQty || p.requestedQty || 0) - (p.receivedQtyTotal || 0);
 
   const handleScan = async (code) => {
+    if (busy) return;
     setMessage(null);
     setBusy(true);
     try {
@@ -50,6 +51,7 @@ export default function BarcodeReceive({ currentUsername, onReceived }) {
           setItemOptions(await fetchItemDefinitions());
         } catch {
           setItemOptions([]);
+          setMessage({ kind: 'err', text: 'Ürün listesi yüklenemedi — sayfayı yenileyip tekrar deneyin' });
         }
       } else {
         setMessage({ kind: 'err', text: 'Barkod sorgulanamadı: ' + (err.message || 'bilinmeyen hata') });
@@ -60,6 +62,7 @@ export default function BarcodeReceive({ currentUsername, onReceived }) {
   };
 
   const handleRegister = async (item) => {
+    if (busy) return;
     setBusy(true);
     setMessage(null);
     try {
@@ -84,6 +87,7 @@ export default function BarcodeReceive({ currentUsername, onReceived }) {
   };
 
   const handleReceive = async () => {
+    if (busy) return;
     const purchase = (scan.openPurchases || []).find((p) => p.id === selectedPurchaseId);
     if (!purchase) { setMessage({ kind: 'err', text: 'Lütfen bir sipariş seçin' }); return; }
     const qty = parseInt(form.qty, 10);
