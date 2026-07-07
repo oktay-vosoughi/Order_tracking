@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X } from 'lucide-react';
+import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
@@ -21,6 +21,7 @@ import {
 } from './labUtils';
 import { AddItemFormLab, WasteForm, ExpiryAlertDashboard, ExpiryBadge, MSDSLink } from './LabComponents';
 import LotInventory from './LotInventory';
+import BarcodeReceive from './BarcodeReceive';
 import CepDepo from './CepDepo';
 import { buildLotImportPayload } from './utils/lotExcelImporter';
 import {
@@ -1769,6 +1770,7 @@ const LabEquipmentTracker = () => {
   const tabTitles = {
     stock: 'Stok', requests: 'Talepler', distributions: 'Dağıtım',
     orders: 'Siparişler', waste: 'Atık', total_stock: 'Genel Stok', lot_inventory: 'LOT Stok',
+    barcode_receive: 'Barkodla Teslim Al',
     cep_depo: 'CEP DEPO', users: 'Kullanıcılar', account: 'Hesabım',
     prices: 'Fiyatlar & Kullanım'
   };
@@ -1824,6 +1826,11 @@ const LabEquipmentTracker = () => {
           <button className={`nv${activeTab === 'orders' ? ' on' : ''}`} onClick={() => navClick('orders')}>
             <Truck size={15} /><span>Siparişler</span>
             {readyForOrderCount > 0 && <span className="nbdg">{readyForOrderCount}</span>}
+          </button>
+        )}
+        {canReceive && (
+          <button className={`nv${activeTab === 'barcode_receive' ? ' on' : ''}`} onClick={() => navClick('barcode_receive')}>
+            <ScanBarcode size={15} /><span>Barkodla Teslim Al</span>
           </button>
         )}
         {canViewDagit && (
@@ -4238,6 +4245,13 @@ const LabEquipmentTracker = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === 'barcode_receive' && canReceive && (
+          <BarcodeReceive
+            currentUsername={username}
+            onReceived={() => { loadUnifiedData(); loadAllActionData(); }}
+          />
         )}
 
         {activeTab === 'lot_inventory' && (
