@@ -64,24 +64,48 @@ ALTER TABLE item_definitions DROP COLUMN isGlobal;
 Non-destructive to existing data — the old scalar `department` columns were never touched
 and remain intact if this is rolled back.
 
+## Live-DB testing log (2026-07-07, local copy of production)
+
+Testing has since started against a real local MySQL copy identical to production
+(schema + data, root/local credentials — not production itself). Findings:
+
+1. **Migration applied cleanly to the local copy.** `2026-07-06-department-scoping.sql`
+   ran with zero errors; every pre-existing table, row, and column survived untouched;
+   backfill row counts matched exactly (`user_departments`: 1 row / 1 distinct user
+   pre-normalization; `item_departments`: 120 rows / 120 distinct items — both matching
+   the pre-migration scalar counts exactly). Full `mysqldump` backup taken immediately
+   before applying, kept alongside the worktree.
+2. **Found a real, production-affecting data problem — the department name mismatch
+   the design spec's Risks section warned about actually occurred.** The `departments`
+   registry was seeded with English names (`Cytogenetic`, `Molecular Micro`,
+   `Molecular Genetic`) that do not match the real strings already in use across
+   `item_definitions`/`users`/CEP DEPO tables (`SİTOGENETİK`, `Molecular mikro`,
+   `Molecular`). Since department filtering is exact-string, this would have left
+   ~97% of real items (117 of 120) permanently invisible to any department-scoped
+   user assigned via the new checkboxes — only the 3 "Numune Kabul" items would have
+   worked. New migration `server/migrations/2026-07-07-normalize-department-names.sql`
+   normalizes all 12 affected tables plus the registry to the canonical Turkish names
+   (`SİTOGENETİK`, `Moleküler Mikro`, `Moleküler Genetik`, `Numune Kabul`, `Diğer`),
+   confirmed against the owner directly. **Must run after the department-scoping
+   migration, on production too, before this feature is usable for real.**
+3. Confirmed live end-to-end: `POST /api/auth/login` and `GET /api/auth/me` now
+   correctly return a populated `departments` array (previously `[]` for every user,
+   per the Task 13 fix above) — verified directly against a real admin account.
+
 ## Test steps
 
-**NOT YET EXECUTED — run manually against production before merging.**
-
-This repository's only MySQL instance is production; this worktree has no dev/test
-database, no DB credentials, and no `mysql` client available. No connection was attempted
-and no test was run as part of this task — the checklist below is transcribed from the
-design spec (`docs/superpowers/specs/2026-07-06-multi-department-visibility-design.md`,
-§8) as a pending action list. Every box must be checked off by a human against production
-(or a faithful staging copy) before this branch merges. Do not treat any item as verified
-until it has actually been executed and its result observed.
+**PARTIALLY EXECUTED against a local copy of production — see log above. Production
+itself has NOT been touched. Re-run the full checklist below against production (or
+this same verified local copy) before merging; items marked done below were actually
+observed, not assumed.**
 
 ### Migration integrity
-- [ ] Row-count parity: count of non-null/non-empty `users.department` equals
+- [x] Row-count parity: count of non-null/non-empty `users.department` equals
       `COUNT(DISTINCT userId)` in `user_departments`; same check for
-      `item_definitions.department` vs. `item_departments`.
-- [ ] Spot-check a sample of migrated rows by hand against the original scalar
-      `department` values.
+      `item_definitions.department` vs. `item_departments`. — verified against local
+      copy, exact match both before and after department-name normalization.
+- [x] Spot-check a sample of migrated rows by hand against the original scalar
+      `department` values. — done for all 10 users and cross-checked item counts.
 - [ ] Verify the rollback SQL above actually runs clean on a scratch copy of the DB.
 
 ### Backend — exhaustive role x department matrix
