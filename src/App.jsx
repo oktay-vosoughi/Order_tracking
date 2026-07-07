@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, lookupBarcode } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
+import BarcodeScanner from './BarcodeScanner';
+import { parseGs1 } from './gs1';
 import { 
   CHEMICAL_TYPES, 
   STORAGE_TEMPS, 
@@ -1016,7 +1018,8 @@ const LabEquipmentTracker = () => {
   };
   
   const [receiveForm, setReceiveForm] = useState({ ...RECEIVE_FORM_DEFAULT });
-  
+  const [receiveScanWarning, setReceiveScanWarning] = useState('');
+
   const addReceipt = async (purchase) => {
     if (!canReceive) {
       alert('Bu işlem için SATINAL_LOJISTIK/ADMIN yetkisi gereklidir');
@@ -1090,6 +1093,7 @@ const LabEquipmentTracker = () => {
       
       setShowReceiveForm(null);
       setReceiveForm({ ...RECEIVE_FORM_DEFAULT });
+      setReceiveScanWarning('');
 
       const latestPurchase = result?.purchase;
       const totalReceived = latestPurchase?.receivedQtyTotal ?? newTotal;
@@ -2290,6 +2294,31 @@ const LabEquipmentTracker = () => {
                   Kalan: {(showReceiveForm.orderedQty || showReceiveForm.requestedQty) - (showReceiveForm.receivedQtyTotal || 0)}
                 </span>
               </p>
+              <div className="mb-3">
+                <BarcodeScanner
+                  autoFocus={false}
+                  placeholder="Barkod okut — LOT ve SKT otomatik dolar"
+                  onScan={async (code) => {
+                    const parsed = parseGs1(code);
+                    setReceiveScanWarning('');
+                    try {
+                      const res = await lookupBarcode(code);
+                      if (res.item && res.item.id !== showReceiveForm.itemId) {
+                        setReceiveScanWarning(`Barkod farklı ürüne ait: ${res.item.name}`);
+                        return;
+                      }
+                    } catch {
+                      // Barkod kayıtlı olmasa bile GS1 içindeki LOT/SKT yine de kullanılabilir.
+                    }
+                    setReceiveForm((f) => ({
+                      ...f,
+                      lotNo: parsed.lotNumber || f.lotNo,
+                      expiryDate: parsed.expiryDate || f.expiryDate
+                    }));
+                  }}
+                />
+                {receiveScanWarning && <p className="text-xs text-red-600 mt-1">{receiveScanWarning}</p>}
+              </div>
               <input type="number" placeholder="Gelen Miktar" value={receiveForm.receivedQty} onChange={(e) => setReceiveForm({...receiveForm, receivedQty: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <input type="text" placeholder="Teslim Alan Kişi *" value={receiveForm.receivedBy} onChange={(e) => setReceiveForm({...receiveForm, receivedBy: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <input type="text" placeholder="LOT/Parti No *" value={receiveForm.lotNo} onChange={(e) => setReceiveForm({...receiveForm, lotNo: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3 border-orange-300" required />
@@ -2341,7 +2370,7 @@ const LabEquipmentTracker = () => {
 
               <div className="flex gap-3">
                 <button onClick={() => addReceipt(showReceiveForm)} className="flex-1 bg-green-600 text-white py-2 rounded-lg">Teslim Al</button>
-                <button onClick={() => setShowReceiveForm(null)} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
+                <button onClick={() => { setShowReceiveForm(null); setReceiveScanWarning(''); }} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
               </div>
             </div>
           </div>
