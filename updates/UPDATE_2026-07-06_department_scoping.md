@@ -92,12 +92,49 @@ Testing has since started against a real local MySQL copy identical to productio
    correctly return a populated `departments` array (previously `[]` for every user,
    per the Task 13 fix above) — verified directly against a real admin account.
 
+## Production deployment (2026-07-07)
+
+Merged to `main` via `git merge --ff-only` (clean fast-forward, 26 commits, no
+conflicts) and pushed to `origin/main`. Applied to the live server
+(`SkvcLabInvWeb01`, `~/Order_tracking`) as follows:
+
+1. Full `mysqldump` backup taken before touching anything.
+2. `git pull` (fast-forward, same commits as above).
+3. Both migrations run manually, one at a time (not via `deploy.sh`'s automatic
+   loop, so each step's success could be confirmed before proceeding):
+   `2026-07-06-department-scoping.sql` then `2026-07-07-normalize-department-names.sql`.
+4. **Found a real gap in the normalization migration on this first production
+   run**: its registry-cleanup logic was written against the specific state the
+   *local* test copy happened to be in (old English rows already deactivated, new
+   Turkish rows already added by hand) — production had never had that manual step
+   done, so on production the registry cleanup silently did nothing, leaving
+   `Cytogenetic`/`Molecular Micro` as the only checkbox options for those two
+   departments (the underlying `item_definitions`/`item_departments`/`users` data
+   still renamed correctly, since that logic matches on the string value directly
+   and doesn't depend on registry state at all — confirmed by direct query before
+   fixing the registry). Fixed by hand on production
+   (`UPDATE departments SET name='SİTOGENETİK' WHERE name='Cytogenetic'` and the
+   `Molecular Micro` equivalent), then the migration file itself was rewritten
+   (commit `1482f5b`) to a delete-if-canonical-exists-else-rename pattern that is
+   correct for local's prior state, production's actual state, and any future
+   fresh install — so this won't recur on the next environment.
+5. Verified clean on production: registry shows exactly the 5 canonical names, all
+   active; `item_definitions`/`item_departments` show only canonical department
+   values across all real items; all 13 real users' `department` scalar values are
+   canonical.
+6. Code deployment via `deploy.sh` (build + Apache + PM2 restart + reload, migrations
+   skipped in its own prompt since already applied and verified by hand above) —
+   **pending confirmation as of this writing; update this line once the health check
+   passes.**
+
 ## Test steps
 
-**PARTIALLY EXECUTED against a local copy of production — see log above. Production
-itself has NOT been touched. Re-run the full checklist below against production (or
-this same verified local copy) before merging; items marked done below were actually
-observed, not assumed.**
+**DATABASE migrations applied and verified on BOTH the local copy and production
+(see logs above). Code deployment to the live app is pending confirmation. The
+role x department matrix / CEP DEPO end-to-end / frontend checklist below has still
+only been spot-checked (login/me `departments` field), not fully executed. Items
+marked done below were actually observed, not assumed — do not check off anything
+else until it's actually run.**
 
 ### Migration integrity
 - [x] Row-count parity: count of non-null/non-empty `users.department` equals
