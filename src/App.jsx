@@ -1029,8 +1029,8 @@ const LabEquipmentTracker = () => {
       alert('Lütfen gelen miktarı girin');
       return;
     }
-    if (!receiveForm.expiryDate) {
-      alert('Son kullanma tarihi zorunludur. Lütfen ürünün üzerinde belirtilen SKT bilgisini girin.');
+    if (!receiveForm.expiryDate &&
+        !confirm('Bu ürün için son kullanma tarihi (SKT) girilmedi. SKT olmayan bir ürün mü (ör. sarf malzeme)? Devam edilsin mi?')) {
       return;
     }
     if (!receiveForm.receivedBy.trim()) {

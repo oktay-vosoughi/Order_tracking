@@ -95,8 +95,12 @@ export default function BarcodeReceive({ currentUsername, onReceived }) {
     const qty = parseInt(form.qty, 10);
     if (!qty || qty <= 0) { setMessage({ kind: 'err', text: 'Lütfen geçerli bir miktar girin' }); return; }
     if (!form.lotNo.trim()) { setMessage({ kind: 'err', text: 'LOT numarası zorunludur' }); return; }
-    if (!form.expiryDate) { setMessage({ kind: 'err', text: 'Son kullanma tarihi (SKT) zorunludur' }); return; }
     if (!form.receivedBy.trim()) { setMessage({ kind: 'err', text: 'Teslim alan kişi zorunludur' }); return; }
+    // SKT zorunlu değil ama boşsa açık onay iste — sarf malzemede SKT olmayabilir,
+    // reaktifte ise boş SKT bir hatadır; kullanıcı bilinçli onaylamalı.
+    if (!form.expiryDate && !confirm('Bu ürün için son kullanma tarihi (SKT) girilmedi. SKT olmayan bir ürün mü (ör. sarf malzeme)? Devam edilsin mi?')) {
+      return;
+    }
     const newTotal = (purchase.receivedQtyTotal || 0) + qty;
     const ordered = purchase.orderedQty || purchase.requestedQty || 0;
     if (newTotal > ordered && !confirm(`Dikkat: Toplam gelen miktar (${newTotal}) sipariş miktarını (${ordered}) aşıyor. Devam edilsin mi?`)) {
