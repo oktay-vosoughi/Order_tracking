@@ -116,6 +116,14 @@ With `npm run server` + `npm run dev` running, logged in as ADMIN:
 7. `node --test server/gs1.test.js` son bir kez çalıştırıp 13/13 geçtiğini doğrulayın.
 
 ## Risks
+- **USB scanner configuration:** many keyboard-wedge scanners do NOT transmit the
+  GS1 FNC1/GS control character (ASCII 29) as a keystroke by default. If GS is
+  dropped, a GS1-128 element string where the lot number is followed by another AI
+  (e.g. `(01)…(10)LOTA(GS)(17)271200`) parses with the lot absorbing the trailing
+  AIs (lot becomes `LOTA17271200`). During hardware verification, compare the
+  prefilled LOT/SKT against the printed label; if GS is stripped, configure the
+  scanner to transmit it (or to emit AIM symbology prefixes `]C1`/`]d2`) — see the
+  scanner vendor's programming guide.
 - Camera-based scanning requires HTTPS in the browser (`getUserMedia` is blocked on
   plain HTTP for non-localhost origins) — will not work on production
   (SkvcLabInvWeb01) until it's served over HTTPS. The USB keyboard-wedge scanner path
