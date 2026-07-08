@@ -24,8 +24,17 @@ export default function BarcodeScanner({ onScan, autoFocus = true, placeholder =
     if (!cameraOpen) return undefined;
     const reader = new BrowserMultiFormatReader();
     let done = false;
+    // Prefer the rear camera and a high resolution — small DataMatrix codes
+    // need the detail; the default camera on a phone is often the front one.
+    const constraints = {
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    };
     reader
-      .decodeFromVideoDevice(undefined, videoRef.current, (result, err, controls) => {
+      .decodeFromConstraints(constraints, videoRef.current, (result, err, controls) => {
         if (done) { controls.stop(); return; }
         controlsRef.current = controls;
         if (result) {
@@ -90,7 +99,12 @@ export default function BarcodeScanner({ onScan, autoFocus = true, placeholder =
       </div>
       {cameraError && <p className="text-xs text-red-600 mt-1">{cameraError}</p>}
       {cameraOpen && (
-        <video ref={videoRef} className="w-full mt-2 rounded-lg border" style={{ maxHeight: 280 }} muted playsInline />
+        <>
+          <video ref={videoRef} className="w-full mt-2 rounded-lg border" style={{ maxHeight: 280 }} muted playsInline />
+          <p className="text-xs text-gray-500 mt-1">
+            📷 Barkod aranıyor… Kodu çerçeveye yakın, net ve iyi aydınlatılmış tutun. Küçük DataMatrix/QR kodları için telefon kamerası, dizüstü kamerasından çok daha iyi sonuç verir.
+          </p>
+        </>
       )}
     </div>
   );
