@@ -1874,7 +1874,7 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
 
 // --- Barcode lookup & registration (scan-based receiving) ---
 
-app.get('/api/barcodes/:code', authRequired, async (req, res) => {
+app.get('/api/barcodes/:code', authRequired, canReceiveGoods, async (req, res) => {
   const parsed = parseGs1(String(req.params.code || ''));
   const keys = lookupKeys(parsed);
   if (!keys.length) {

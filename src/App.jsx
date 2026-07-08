@@ -2307,8 +2307,11 @@ const LabEquipmentTracker = () => {
                         setReceiveScanWarning(`Barkod farklı ürüne ait: ${res.item.name}`);
                         return;
                       }
-                    } catch {
-                      // Barkod kayıtlı olmasa bile GS1 içindeki LOT/SKT yine de kullanılabilir.
+                    } catch (err) {
+                      // 404 = barkod kayıtlı değil — GS1 içindeki LOT/SKT yine de kullanılabilir.
+                      if (err.status !== 404) {
+                        setReceiveScanWarning('Barkod doğrulanamadı — ürün eşleşmesi kontrol edilemedi');
+                      }
                     }
                     setReceiveForm((f) => ({
                       ...f,
