@@ -48,7 +48,9 @@ export default function BarcodeReceive({ currentUsername, onReceived }) {
         setScan(null);
         setUnknown({ code, parsed: (err.payload && err.payload.parsed) || parseGs1(code) });
         try {
-          setItemOptions(await fetchItemDefinitions());
+          // /api/item-definitions returns { items: [...] }, not a bare array
+          const defs = await fetchItemDefinitions();
+          setItemOptions(Array.isArray(defs?.items) ? defs.items : []);
         } catch {
           setItemOptions([]);
           setMessage({ kind: 'err', text: 'Ürün listesi yüklenemedi — sayfayı yenileyip tekrar deneyin' });
