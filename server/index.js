@@ -1950,6 +1950,31 @@ app.post('/api/barcodes', authRequired, canReceiveGoods, async (req, res) => {
   }
 });
 
+// List all barcode→item mappings (for the enrollment screen)
+app.get('/api/item-barcodes', authRequired, canReceiveGoods, async (_req, res) => {
+  try {
+    const rows = await all(pool, 'SELECT id, itemId, barcode, barcodeType FROM item_barcodes ORDER BY createdAt DESC');
+    res.json({ barcodes: rows });
+  } catch (error) {
+    console.error('Failed to list item barcodes', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// Remove one barcode mapping (fix a mis-scan during enrollment)
+app.delete('/api/barcodes/:id', authRequired, canReceiveGoods, async (req, res) => {
+  try {
+    const result = await run(pool, 'DELETE FROM item_barcodes WHERE id = ?', [req.params.id]);
+    if (!result.affectedRows) {
+      return res.status(404).json({ error: 'BARCODE_NOT_FOUND' });
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Failed to delete barcode', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
 // ============================================================
 // DISTRIBUTION - Lot-traceable with FEFO
 // ============================================================

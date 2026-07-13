@@ -482,3 +482,11 @@ export async function registerBarcode({ barcode, itemId, barcodeType }) {
     body: JSON.stringify({ barcode, itemId, barcodeType })
   });
 }
+
+export async function fetchItemBarcodes() {
+  return apiFetch('/item-barcodes');
+}
+
+export async function deleteBarcode(id) {
+  return apiFetch(`/barcodes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
