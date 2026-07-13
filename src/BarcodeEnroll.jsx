@@ -46,6 +46,10 @@ export default function BarcodeEnroll({ currentUsername }) {
   const selected = items.find((it) => it.id === selectedId) || null;
 
   const advanceToNextMissing = (afterId) => {
+    // Called right after setByItem(afterId), so byItem here is still the PRE-update
+    // snapshot where afterId looks unenrolled. The explicit `it.id !== afterId`
+    // exclusion is what keeps us from re-selecting the item we just enrolled —
+    // do not remove it.
     const idx = filtered.findIndex((it) => it.id === afterId);
     const rest = filtered.slice(idx + 1).concat(filtered.slice(0, idx + 1));
     const next = rest.find((it) => (byItem[it.id] || []).length === 0 && it.id !== afterId);
