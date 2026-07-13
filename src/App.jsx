@@ -24,6 +24,7 @@ import {
 import { AddItemFormLab, WasteForm, ExpiryAlertDashboard, ExpiryBadge, MSDSLink } from './LabComponents';
 import LotInventory from './LotInventory';
 import BarcodeReceive from './BarcodeReceive';
+import BarcodeEnroll from './BarcodeEnroll';
 import CepDepo from './CepDepo';
 import { buildLotImportPayload } from './utils/lotExcelImporter';
 import {
@@ -1775,6 +1776,7 @@ const LabEquipmentTracker = () => {
     stock: 'Stok', requests: 'Talepler', distributions: 'Dağıtım',
     orders: 'Siparişler', waste: 'Atık', total_stock: 'Genel Stok', lot_inventory: 'LOT Stok',
     barcode_receive: 'Barkodla Teslim Al',
+    barcode_enroll: 'Barkod Eşleştirme',
     cep_depo: 'CEP DEPO', users: 'Kullanıcılar', account: 'Hesabım',
     prices: 'Fiyatlar & Kullanım'
   };
@@ -1835,6 +1837,11 @@ const LabEquipmentTracker = () => {
         {canReceive && (
           <button className={`nv${activeTab === 'barcode_receive' ? ' on' : ''}`} onClick={() => navClick('barcode_receive')}>
             <ScanBarcode size={15} /><span>Barkodla Teslim Al</span>
+          </button>
+        )}
+        {canReceive && (
+          <button className={`nv${activeTab === 'barcode_enroll' ? ' on' : ''}`} onClick={() => navClick('barcode_enroll')}>
+            <ScanBarcode size={15} /><span>Barkod Eşleştirme</span>
           </button>
         )}
         {canViewDagit && (
@@ -4284,6 +4291,10 @@ const LabEquipmentTracker = () => {
             currentUsername={username}
             onReceived={() => { loadUnifiedData(); loadAllActionData(); }}
           />
+        )}
+
+        {activeTab === 'barcode_enroll' && canReceive && (
+          <BarcodeEnroll currentUsername={username} />
         )}
 
         {activeTab === 'lot_inventory' && (
