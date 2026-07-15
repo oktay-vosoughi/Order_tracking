@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -157,6 +157,8 @@ const LabEquipmentTracker = () => {
   const [expandedPurchaseId, setExpandedPurchaseId] = useState(null);
   const [showAllMobileLotsFor, setShowAllMobileLotsFor] = useState(null);
   const [stockDepartmentFilter, setStockDepartmentFilter] = useState('');
+  const [isoFormDept, setIsoFormDept] = useState('');
+  const [isoFormBusy, setIsoFormBusy] = useState(false);
   const [cepFilterDept, setCepFilterDept] = useState('');
   const [cepFilterTech, setCepFilterTech] = useState('');
   const [showEbysModal, setShowEbysModal] = useState(false);
@@ -220,6 +222,7 @@ const LabEquipmentTracker = () => {
   const canApprove = isAdmin || isSatinal || isKurumsal;
   const canOrder = isAdmin || isSatinalLojistik;
   const canReceive = isAdmin || isSatinalLojistik || !!currentUser?.canReceive;
+  const canExportIsoForm = isAdmin || isSatinalLojistik;
   const canDistribute = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
   const canViewPrices = isAdmin || isKurumsal || !!currentUser?.canViewPrices;
 
@@ -1549,6 +1552,24 @@ const LabEquipmentTracker = () => {
     }
   };
 
+  // ISO Malzeme Sayım Formu (LY-F064) — download the controlled count form
+  // for the chosen department. ADMIN / SATINAL_LOJISTIK only.
+  const handleIsoCountFormExport = async () => {
+    if (!isoFormDept) {
+      alert('Lütfen ISO Sayım Formu için bir departman seçin.');
+      return;
+    }
+    setIsoFormBusy(true);
+    try {
+      await downloadIsoCountForm(isoFormDept);
+    } catch (error) {
+      console.error('ISO count form export error:', error);
+      alert('ISO Sayım Formu indirilemedi: ' + (error?.message || 'Bilinmeyen hata'));
+    } finally {
+      setIsoFormBusy(false);
+    }
+  };
+
   const clearAllData = async () => {
     if (!confirm('TÜM VERİLERİ SİLMEK İSTEDİĞİNİZDEN EMİN MİSİNİZ?\n\nBu işlem geri alınamaz!')) return;
     
@@ -1951,6 +1972,29 @@ const LabEquipmentTracker = () => {
               <button onClick={exportToExcel} className="tbar-btn">
                 <Download size={13} /> Excel
               </button>
+            )}
+            {activeTab === 'stock' && canExportIsoForm && (
+              <>
+                <select
+                  value={isoFormDept}
+                  onChange={(e) => setIsoFormDept(e.target.value)}
+                  className="tbar-select"
+                  aria-label="ISO Sayım Formu departmanı"
+                >
+                  <option value="">ISO: Departman seç…</option>
+                  {uniqueStockDepartments.map(dept => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleIsoCountFormExport}
+                  disabled={!isoFormDept || isoFormBusy}
+                  className="tbar-btn"
+                  title="Seçili departman için ISO Malzeme Sayım Formu (LY-F064) indir"
+                >
+                  <Download size={13} /> {isoFormBusy ? 'Hazırlanıyor…' : 'ISO Sayım Formu'}
+                </button>
+              </>
             )}
           </div>
         </div>

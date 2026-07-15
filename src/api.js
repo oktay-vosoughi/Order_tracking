@@ -47,6 +47,41 @@ async function apiFetch(path, options = {}) {
   throw err;
 }
 
+// Downloads the controlled ISO count form (LY-F064) as an .xlsx for one
+// department. apiFetch only returns JSON, so this does its own authenticated
+// fetch for the binary blob and triggers a browser download — keeping all
+// HTTP inside api.js per the API-boundary rule.
+export async function downloadIsoCountForm(department) {
+  const token = getAuthToken();
+  const response = await fetch(
+    `${API_BASE}/iso-count-form?department=${encodeURIComponent(department)}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+  );
+
+  if (!response.ok) {
+    let payload = null;
+    try { payload = await response.json(); } catch { payload = null; }
+    const err = new Error(payload?.error || 'REQUEST_FAILED');
+    err.status = response.status;
+    err.payload = payload;
+    throw err;
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename\*=UTF-8''([^;]+)/i) || disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match ? decodeURIComponent(match[1]) : 'Malzeme_Sayim_LY-F064.xlsx';
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function login(username, password) {
   const result = await apiFetch('/auth/login', {
     method: 'POST',
