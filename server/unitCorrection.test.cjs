@@ -28,6 +28,7 @@ test('builds UNIT correction values from visible CEP DEPO sub-unit quantity', ()
     idealStock: 1,
     maxStock: 2,
     cepUnitQty: 24,
+    storageLocation: null,
     cepPackQty: 0.48
   });
 });

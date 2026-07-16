@@ -1028,6 +1028,7 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
           consumptionUnitType = ?,
           ideal_stock = ?,
           max_stock = ?,
+          storageLocation = COALESCE(?, storageLocation),
           updatedBy = ?
         WHERE id = ?
       `, [
@@ -1038,6 +1039,7 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
         values.consumptionUnitType,
         values.idealStock,
         values.maxStock,
+        values.storageLocation,
         req.user.username,
         req.params.id
       ]);

@@ -664,6 +664,7 @@ const LabEquipmentTracker = () => {
       idealStock: item.ideal_stock ?? item.minStock ?? '',
       maxStock: item.max_stock ?? '',
       cepUnitQty: cepDisplay.quantity || 0,
+      storageLocation: item.storageLocation || '',
       targetLotId: ''
     });
     try {
@@ -723,6 +724,7 @@ const LabEquipmentTracker = () => {
         idealStock: correctionForm.idealStock === '' ? null : Number(correctionForm.idealStock),
         maxStock: correctionForm.maxStock === '' ? null : Number(correctionForm.maxStock),
         cepUnitQty: correctionForm.cepUnitQty === '' ? null : Number(correctionForm.cepUnitQty),
+        storageLocation: correctionForm.storageLocation.trim() || null,
         targetLotId: correctionForm.targetLotId || null
       });
       await loadUnifiedData();
@@ -4461,6 +4463,22 @@ const LabEquipmentTracker = () => {
                     Sistem paket karşılığı: {(Number(correctionForm.cepUnitQty || 0) / Number(correctionForm.unitsPerPackage)).toFixed(4)} {correctionForm.packageUnit || correctionForm.unit || 'kutu'}
                   </p>
                 )}
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Depo Konumu (Buzdolabı/Dolap)
+                </label>
+                <input
+                  type="text"
+                  placeholder="örn. Depo Oda Isısı /Koridor1/Raf1-1"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={correctionForm.storageLocation}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, storageLocation: e.target.value })}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  ISO Malzeme Sayım Formu'ndaki "Buzdolabı/Dolap" sütununa yazılır.
+                </p>
               </div>
             </div>
 
