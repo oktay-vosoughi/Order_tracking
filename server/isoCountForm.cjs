@@ -24,16 +24,23 @@ function formatDateTR(value) {
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
 }
 
-// Per-lot expiry breakdown for the "Son Kullanma Tarihi" column.
-// lots: [{ expiryDate, currentQuantity }] in FEFO order. Expired lots are
-// included on purpose — the form is a physical shelf count. "Yok" when no
-// lot carries an expiry date.
+// Per-lot expiry breakdown for the "Son Kullanma Tarihi" column, matching the
+// hand-maintained form's "<SKT>X<adet>" convention (uppercase X is the quantity
+// multiplier). lots: [{ expiryDate, currentQuantity }] in FEFO order. Expired
+// lots are included on purpose — the form is a physical shelf count.
+//   - all lots undated               -> "Yok"
+//   - dated lots                     -> "01.05.2026X1 09.2027X3"
+//   - mix of dated + undated lots    -> "01.05.2026X1 YokX4"  (undated qty summed)
 function formatExpiryBreakdown(lots) {
-  const dated = (lots || []).filter((l) => l.expiryDate);
+  const list = lots || [];
+  const dated = list.filter((l) => l.expiryDate);
+  const undatedQty = list
+    .filter((l) => !l.expiryDate)
+    .reduce((sum, l) => sum + Number(l.currentQuantity || 0), 0);
   if (dated.length === 0) return 'Yok';
-  return dated
-    .map((l) => `${formatDateTR(l.expiryDate)}x${Number(l.currentQuantity)}`)
-    .join(' ');
+  const parts = dated.map((l) => `${formatDateTR(l.expiryDate)}X${Number(l.currentQuantity)}`);
+  if (undatedQty > 0) parts.push(`YokX${undatedQty}`);
+  return parts.join(' ');
 }
 
 // "Stok Durumu" column: SATINAL below the ideal (fallback: critical) level,
@@ -52,7 +59,7 @@ function stockStatusLabel(shelfQty, idealStock, minStock) {
 function buildIsoRows(items) {
   return (items || []).map((item, index) => [
     index + 1, // A: Sıra No
-    item.catalogNo || '', // B: Katolog Numarası
+    item.catalogNo || item.code || '', // B: Katolog Numarası (system "Kod"; catalogNo is unused/empty)
     item.name || '', // C: Malzeme Adı
     item.brand || '', // D: Marka
     Number(item.shelfQty) || 0, // E: Depo (physical count incl. expired)

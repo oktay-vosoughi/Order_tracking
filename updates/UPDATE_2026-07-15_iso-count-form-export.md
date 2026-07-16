@@ -44,13 +44,13 @@ None. No migration, no schema change. Read-only queries against
 | Col | Header | Source |
 |-----|--------|--------|
 | A | Sıra No | 1-based index |
-| B | Katolog Numarası | `item_definitions.catalogNo` |
+| B | Katolog Numarası | `item_definitions.catalogNo`, fallback `code` (the system "Kod" is the catalog number; `catalogNo` is unused/empty in the DB) |
 | C | Malzeme Adı | `name` |
 | D | Marka | `brand` |
 | E | Depo | `SUM(currentQuantity)` over ACTIVE lots qty>0 (**incl. expired**) |
 | F | Birim | `unit` |
 | G | Buzdolabı/Dolap | `storageLocation`, fallback `storageTemp` |
-| H | Son Kullanma Tarihi | per-lot `DD.MM.YYYYxQTY` (FEFO), `Yok` if none dated |
+| H | Son Kullanma Tarihi | per-lot `DD.MM.YYYYX<qty>` (FEFO, uppercase `X` = qty multiplier); undated portion of a mixed item appended as `YokX<qty>`; `Yok` if no lot is dated |
 | I | Kritik Stok Seviyesi | `minStock` |
 | J | İdeal Stok Seviyesi (3 aylık) | `ideal_stock` |
 | K | Maksimum Stok Seviyesi | `max_stock` |
@@ -60,8 +60,8 @@ Item scoping: `id.isGlobal = 1 OR EXISTS(item_departments d WHERE d.department =
 
 ## Test steps / verification (done against local test DB)
 
-Unit: `node --test server/isoCountForm.test.cjs` → 8/8 pass. Full suite
-`node --test server/*.test.cjs` → 29/29 pass.
+Unit: `node --test server/isoCountForm.test.cjs` → 9/9 pass. Full suite
+`node --test server/*.test.cjs` → 30/30 pass.
 
 HTTP matrix (minted JWTs, local server):
 - ADMIN + valid dept → **200**; SATINAL_LOJISTIK + valid dept → **200**
@@ -78,13 +78,39 @@ Generated-file checks (opened with exceljs):
 - Multi-lot item shows FEFO-ordered `DD.MM.YYYYxQTY` breakdown; item with no dated
   lots shows `Yok`.
 
+## Follow-up refinements (2026-07-16)
+
+Post-review fixes after comparing the generated form against the hand-maintained
+`ÇALISMA.xlsx`:
+
+- **Column B (Katalog Numarası) now falls back to `code`.** `catalogNo` is empty
+  for every item in the DB; the system "Kod" *is* the catalog number, so column B
+  uses `catalogNo || code` and is now populated.
+- **SKT column matches the hand convention.** Uppercase `X` as the quantity
+  multiplier, and the undated portion of a mixed item is written as `YokX<qty>`
+  (previously the undated quantity was silently dropped, so the SKT column no
+  longer reconciled with the "Depo" total). Verified live: e.g. `01.10.2027X44
+  YokX5` with Depo `49` = 44 + 5.
+- **Fixed a Turkish-character crash in the download filename.** Departments with
+  characters outside Latin-1 (e.g. `İ` U+0130 in "SİTOGENETİK") threw
+  `ERR_INVALID_CHAR` from `res.setHeader('Content-Disposition', …)` → HTTP 500.
+  The plain `filename=` fallback is now ASCII-sanitized; the real Unicode name is
+  carried by the RFC 5987 `filename*=UTF-8''…` parameter (which browsers prefer).
+
+**Columns M and N:** in the hand-maintained sheet these are *unofficial*
+annotation columns (no headers in the controlled form, which is A–L) holding
+free-text physical-count notes like `SABIT DEPO` ("in the fixed depot"), `AÇIK`
+("opened package"), or an `X` mark. They are **not derivable from the system** and
+are left blank for hand-annotation, like the sign-off fields.
+
 ## Risks
 
 - Template file is a controlled ISO document; keep it in sync if the official
   LY-F064 layout changes (row/column positions are hard-coded to the current
   template: headers row 9, data from row 10, header date cell `G3`).
-- `catalogNo` is empty for all items in the current DB, so column B renders blank
-  — this is faithful to the data, not a defect.
+- Column G (Buzdolabı/Dolap) renders blank because `storageLocation`/`storageTemp`
+  are unpopulated in the DB; the export can't synthesize it — it needs data entry
+  on each item. (Column B was similarly blank until the `code` fallback above.)
 - `exceljs` is a new server dependency (~large). Server-side only; does not affect
   the frontend bundle.
 

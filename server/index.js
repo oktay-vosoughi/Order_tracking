@@ -1762,6 +1762,7 @@ app.get('/api/iso-count-form', authRequired, canExportIsoForm, async (req, res) 
     const items = await all(pool, `
       SELECT
         id.id,
+        id.code,
         id.catalogNo,
         id.name,
         id.brand,
@@ -1811,16 +1812,20 @@ app.get('/api/iso-count-form', authRequired, canExportIsoForm, async (req, res) 
 
     const buffer = await fillIsoCountForm({ countDate: new Date(), rows });
 
-    const safeDept = department.replace(/[^\p{L}\p{N}_-]+/gu, '_');
     const dateStr = new Date().toISOString().slice(0, 10);
+    // The Unicode name (Turkish chars like İ, ü) goes in the RFC 5987 filename*
+    // parameter. The plain filename= fallback must be ASCII only — HTTP header
+    // values are Latin-1, and chars such as İ (U+0130) throw ERR_INVALID_CHAR.
+    const safeDept = department.replace(/[^\p{L}\p{N}_-]+/gu, '_');
     const filename = `Malzeme_Sayim_LY-F064_${safeDept}_${dateStr}.xlsx`;
+    const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, '');
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     );
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+      `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
     );
     res.send(Buffer.from(buffer));
   } catch (error) {
