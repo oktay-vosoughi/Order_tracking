@@ -8,9 +8,12 @@ scoped to one department + year — and introduces a dedicated left-nav page
 
 - **Sheet 1 "Malzeme Takip Listesi":** one row per talep (purchase request) for
   the department + year, showing its request→receive lifecycle columns plus a
-  **Durum** (status) column, so *every* request appears with its stage (Talep
-  Edildi / Onaylandı / Sipariş Verildi / Kısmi Teslim / Teslim Alındı /
-  Reddedildi / İptal), not just received ones.
+  **Durum** (status) column, so *every* request appears with its stage — not just
+  received ones. Durum labels match the Satın Alma Talepleri screen exactly
+  (EBYS bekleme / Onaylandı / Sipariş Verildi / Kısmen Geldi / Tamamlandı /
+  Reddedildi). Department is resolved as `COALESCE(NULLIF(p.department,''),
+  item.department)` so taleps saved with a blank department (but a valid item
+  department) are no longer dropped.
 - **Sheet 2 "Dağıtım Listesi":** one row per CEP DEPO distribution (dağıt) for
   the department + year — date, material, quantity in the stock unit, who
   distributed, recipient technician, linked talep number, notes. The existing
@@ -41,12 +44,17 @@ None. Read-only queries against `purchases` + `distributions`.
 
 ## Data mapping (each sheet: title row 1, headers row 2, data row 3+)
 
-**Sheet 1 (Malzeme Takip Listesi)** — one row per talep, straight from
-`purchases WHERE department = ? AND YEAR(requestedAt) = ?` (no distribution join,
-so no lot-number matching to get wrong):
+**Sheet 1 (Malzeme Takip Listesi)** — one row per talep, from `purchases p LEFT
+JOIN item_definitions i WHERE COALESCE(NULLIF(p.department,''), i.department) = ?
+AND YEAR(p.requestedAt) = ?` (no distribution join, so no lot-number matching to
+get wrong):
 A=requestNumber, B=itemCode, C=itemName, D=requestedQty, E=requestedAt,
 F=receivedDate, G=receivedQtyTotal, H=expiryDate, I=lotNo, J=supplierName,
-K=receivedBy, L=approvedBy, M=Durum (status → Turkish label). Dates `DD.MM.YYYY`.
+K=receivedBy, L=approvedBy, M=Durum. Durum maps the status enum to the same label
+the UI shows (src/mobileUi.mjs): TALEP_EDILDI→"EBYS bekleme", ONAYLANDI→
+"Onaylandı", SIPARIS_VERILDI→"Sipariş Verildi", KISMI_TESLIM/KISMEN_GELDI→
+"Kısmen Geldi", TESLIM_ALINDI/GELDI→"Tamamlandı", REDDEDILDI→"Reddedildi".
+Dates `DD.MM.YYYY`.
 
 **Sheet 2 (Dağıtım Listesi)** — one row per CEP DEPO dağıt:
 `cep_depo_distributions cd LEFT JOIN item_definitions i ON i.id = cd.itemId

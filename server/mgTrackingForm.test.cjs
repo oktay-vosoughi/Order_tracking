@@ -16,10 +16,13 @@ test('tracking headers end with Onay + Durum', () => {
   assert.equal(TRACKING_HEADERS[12], 'Durum');
 });
 
-test('statusLabel maps Turkish enums to readable labels, passes through unknown', () => {
-  assert.equal(statusLabel('TALEP_EDILDI'), 'Talep Edildi');
+test('statusLabel matches the UI badge labels (mobileUi.mjs), passes through unknown', () => {
+  assert.equal(statusLabel('TALEP_EDILDI'), 'EBYS bekleme');
   assert.equal(statusLabel('ONAYLANDI'), 'Onaylandı');
-  assert.equal(statusLabel('TESLIM_ALINDI'), 'Teslim Alındı');
+  assert.equal(statusLabel('SIPARIS_VERILDI'), 'Sipariş Verildi');
+  assert.equal(statusLabel('KISMI_TESLIM'), 'Kısmen Geldi');
+  assert.equal(statusLabel('TESLIM_ALINDI'), 'Tamamlandı');
+  assert.equal(statusLabel('REDDEDILDI'), 'Reddedildi');
   assert.equal(statusLabel('SOMETHING_NEW'), 'SOMETHING_NEW');
   assert.equal(statusLabel(null), '');
 });
@@ -44,7 +47,7 @@ test('buildTrackingRows maps a received talep to columns A..M incl Durum', () =>
   ]);
   assert.deepEqual(rows[0], [
     'REQ-1', '951054', 'EZ1 Kit', 1, '09.01.2026', '05.02.2026', 1, '22.06.2026',
-    'L1', 'Monogenx', 'Mehtap', 'Nilgun', 'Teslim Alındı',
+    'L1', 'Monogenx', 'Mehtap', 'Nilgun', 'Tamamlandı',
   ]);
 });
 
@@ -67,7 +70,7 @@ test('buildTrackingRows shows a request-only talep with blank receipt cols and i
     },
   ]);
   assert.deepEqual(rows[0], [
-    'REQ-2', 'ABC', 'Item', 3, '01.03.2026', '', '', '', '', '', '', '', 'Talep Edildi',
+    'REQ-2', 'ABC', 'Item', 3, '01.03.2026', '', '', '', '', '', '', '', 'EBYS bekleme',
   ]);
 });
 

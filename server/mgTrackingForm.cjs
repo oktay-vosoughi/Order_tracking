@@ -47,14 +47,18 @@ const DIST_HEADERS = [
 ];
 const DIST_WIDTHS = [15, 14, 32, 16, 12, 16, 18, 20, 30];
 
-// Turkish status enums → human-readable Durum labels. "EBYS onay" in lab speak
-// is the ONAYLANDI (approved) stage; there is no separate EBYS status.
+// Turkish status enums → Durum labels. MUST match the UI badges in
+// src/mobileUi.mjs (PURCHASE_STATUS_BADGES) so the Excel reads the same as the
+// Satın Alma Talepleri screen (e.g. TALEP_EDILDI shows as "EBYS bekleme",
+// TESLIM_ALINDI as "Tamamlandı"). Keep in sync if those labels change.
 const STATUS_LABELS = {
-  TALEP_EDILDI: 'Talep Edildi',
+  TALEP_EDILDI: 'EBYS bekleme',
   ONAYLANDI: 'Onaylandı',
   SIPARIS_VERILDI: 'Sipariş Verildi',
-  KISMI_TESLIM: 'Kısmi Teslim',
-  TESLIM_ALINDI: 'Teslim Alındı',
+  KISMI_TESLIM: 'Kısmen Geldi',
+  KISMEN_GELDI: 'Kısmen Geldi',
+  TESLIM_ALINDI: 'Tamamlandı',
+  GELDI: 'Tamamlandı',
   REDDEDILDI: 'Reddedildi',
   IPTAL: 'İptal',
 };

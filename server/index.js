@@ -1859,15 +1859,20 @@ app.get('/api/mg-tracking-form', authRequired, canExportIsoForm, async (req, res
     // Sheet 1 — every talep (purchase request) for the department + year, one
     // row each, with its current status. No distribution join here (that detail
     // is on sheet 2), so there is no lot-number matching to get wrong.
+    // Department is resolved as the purchase's own department, falling back to
+    // its item's department when the purchase's is blank — otherwise requests
+    // saved with an empty department (but a valid item department) would be
+    // silently dropped from every export.
     const trackingRecords = await all(pool, `
       SELECT
-        requestNumber, itemCode, itemName, requestedQty, requestedAt,
-        receivedDate, receivedQtyTotal, expiryDate, lotNo, supplierName,
-        receivedBy, approvedBy, status
-      FROM purchases
-      WHERE department = ?
-        AND YEAR(requestedAt) = ?
-      ORDER BY requestedAt ASC, requestNumber ASC
+        p.requestNumber, p.itemCode, p.itemName, p.requestedQty, p.requestedAt,
+        p.receivedDate, p.receivedQtyTotal, p.expiryDate, p.lotNo, p.supplierName,
+        p.receivedBy, p.approvedBy, p.status
+      FROM purchases p
+      LEFT JOIN item_definitions i ON i.id = p.itemId
+      WHERE COALESCE(NULLIF(p.department, ''), i.department) = ?
+        AND YEAR(p.requestedAt) = ?
+      ORDER BY p.requestedAt ASC, p.requestNumber ASC
     `, [department, filterYear]);
 
     // Sheet 2 — every CEP DEPO distribution (dağıt) for the department + year.
