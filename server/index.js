@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const { buildUnitCorrectionValues } = require('./unitCorrection.cjs');
 const { validateLotSplit } = require('./lotSplit.cjs');
 const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause } = require('./departmentScope.cjs');
+const { buildIsoRows, fillIsoCountForm } = require('./isoCountForm.cjs');
 
 const PORT = process.env.PORT || 4000;
 
@@ -196,6 +197,10 @@ const canManageItems = (req, res, next) =>
 // from canManageItems, which is broader — SATINAL/KURUMSAL manage item catalog
 // fields but not department assignment scope).
 const canManageDepartmentMemberships = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
+// Who can export the controlled ISO count form (LY-F064). Restricted to
+// ADMIN and SATINAL_LOJISTIK only (NOT SATINAL) per the design decision.
+const canExportIsoForm = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canViewPrices = (req, res, next) => {
   const u = req.user;
@@ -1023,6 +1028,7 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
           consumptionUnitType = ?,
           ideal_stock = ?,
           max_stock = ?,
+          storageLocation = COALESCE(?, storageLocation),
           updatedBy = ?
         WHERE id = ?
       `, [
@@ -1033,6 +1039,7 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
         values.consumptionUnitType,
         values.idealStock,
         values.maxStock,
+        values.storageLocation,
         req.user.username,
         req.params.id
       ]);
@@ -1730,6 +1737,101 @@ app.get('/api/unified-stock/:itemId/lots', authRequired, async (req, res) => {
     res.json({ lots });
   } catch (error) {
     console.error('Failed to get item lots', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// ============================================================
+// ISO MALZEME SAYIM FORMU (LY-F064) — controlled count-form export
+// ============================================================
+// Generates the controlled ISO stock-count .xlsx pre-filled from live stock,
+// scoped to one department per file. ADMIN / SATINAL_LOJISTIK only.
+app.get('/api/iso-count-form', authRequired, canExportIsoForm, async (req, res) => {
+  try {
+    const department = typeof req.query.department === 'string' ? req.query.department.trim() : '';
+    if (!department) {
+      return res.status(400).json({ error: 'DEPARTMENT_REQUIRED' });
+    }
+
+    // Department-access check. Both allowed roles are bypass roles (see
+    // everything), but validate defensively so a future role change is safe.
+    const userDepartments = await getUserDepartments(req.user.id, req.user.role);
+    if (userDepartments !== null && !userDepartments.includes(department)) {
+      return res.status(403).json({ error: 'DEPARTMENT_FORBIDDEN' });
+    }
+
+    // Active items scoped to the department: explicit membership or a global item.
+    const items = await all(pool, `
+      SELECT
+        id.id,
+        id.code,
+        id.catalogNo,
+        id.name,
+        id.brand,
+        id.unit,
+        id.storageLocation,
+        id.storageTemp,
+        id.minStock,
+        id.ideal_stock,
+        id.max_stock,
+        COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 THEN l.currentQuantity ELSE 0 END), 0) AS shelfQty
+      FROM item_definitions id
+      LEFT JOIN lots l ON id.id = l.itemId
+      WHERE id.status = 'ACTIVE'
+        AND (
+          id.isGlobal = 1
+          OR EXISTS (
+            SELECT 1 FROM item_departments d
+            WHERE d.itemDefinitionId = id.id AND d.department = ?
+          )
+        )
+      GROUP BY id.id
+      ORDER BY id.name ASC
+    `, [department]);
+
+    // Per-lot expiry breakdown over ACTIVE lots with qty > 0 (incl. expired),
+    // FEFO order (null expiry last). Fetched once, grouped in JS.
+    const itemIds = items.map((it) => it.id);
+    const lotsByItem = new Map();
+    if (itemIds.length > 0) {
+      const placeholders = itemIds.map(() => '?').join(',');
+      const lotRows = await all(pool, `
+        SELECT itemId, expiryDate, currentQuantity
+        FROM lots
+        WHERE status = 'ACTIVE' AND currentQuantity > 0
+          AND itemId IN (${placeholders})
+        ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC
+      `, itemIds);
+      for (const lot of lotRows) {
+        if (!lotsByItem.has(lot.itemId)) lotsByItem.set(lot.itemId, []);
+        lotsByItem.get(lot.itemId).push(lot);
+      }
+    }
+
+    const rows = buildIsoRows(
+      items.map((it) => ({ ...it, lots: lotsByItem.get(it.id) || [] }))
+    );
+
+    const buffer = await fillIsoCountForm({ countDate: new Date(), rows });
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    // The Unicode name (Turkish chars like İ, ü) goes in the RFC 5987 filename*
+    // parameter. The plain filename= fallback must be ASCII only — HTTP header
+    // values are Latin-1, and chars such as İ (U+0130) throw ERR_INVALID_CHAR.
+    const safeDept = department.replace(/[^\p{L}\p{N}_-]+/gu, '_');
+    const filename = `Malzeme_Sayim_LY-F064_${safeDept}_${dateStr}.xlsx`;
+    const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, '');
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+    );
+    res.send(Buffer.from(buffer));
+  } catch (error) {
+    console.error('[/api/iso-count-form] ERROR:', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
   }
 });

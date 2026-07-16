@@ -25,6 +25,7 @@ const buildUnitCorrectionValues = (input = {}) => {
   const idealStock = toNullableNumber(input.idealStock, 'idealStock');
   const maxStock = toNullableNumber(input.maxStock, 'maxStock');
   const cepUnitQty = toNullableNumber(input.cepUnitQty, 'cepUnitQty');
+  const storageLocation = normalizeText(input.storageLocation);
 
   if (!['PACK', 'UNIT', 'TEST'].includes(consumptionUnitType)) {
     throw new Error('consumptionUnitType must be PACK, UNIT, or TEST');
@@ -46,6 +47,7 @@ const buildUnitCorrectionValues = (input = {}) => {
     idealStock,
     maxStock,
     cepUnitQty,
+    storageLocation,
     cepPackQty: consumptionUnitType === 'PACK'
       ? cepUnitQty
       : (cepUnitQty == null ? null : roundQuantity(cepUnitQty / unitsPerPackage))

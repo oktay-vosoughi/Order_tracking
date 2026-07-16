@@ -21,6 +21,8 @@ server/.env.*
 
 # Local artifacts
 *.xlsx
+# ...except controlled ISO form templates served by the backend
+!server/templates/*.xlsx
 *.bak
 *.sqlite
 
