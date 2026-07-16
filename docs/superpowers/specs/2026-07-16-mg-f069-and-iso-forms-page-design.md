@@ -28,8 +28,13 @@ ISO form exports.
   - **MG-F069 – Malzeme Takip Listesi** (new), plus a **year** selector
     (default: current year).
 - New endpoint `GET /api/mg-tracking-form?department=<name>&year=<yyyy>` streams a
-  clean single-sheet `.xlsx` titled "MALZEME TAKİP LİSTESİ" with the 15 MG-F069
-  columns, filled from live data, scoped to one department + year.
+  clean **two-sheet** `.xlsx`, scoped to one department + year:
+  - **Sheet 1 "Malzeme Takip Listesi":** one row per talep (purchase request) with
+    its request→receive lifecycle columns **plus a Durum (status) column**, so
+    every request appears with its stage — not only received ones.
+  - **Sheet 2 "Dağıtım Listesi":** one row per CEP DEPO distribution (dağıt) —
+    date, material, quantity in the stock unit, dağıtan, recipient technician,
+    linked talep, notes.
 - The LY-F064 controls no longer appear in the Stok toolbar.
 - No DB migration.
 
@@ -61,53 +66,50 @@ traceable, rather than inventing the hand-written initials the paper form used.
 - `year` optional integer; defaults to the current calendar year. Filters on
   `YEAR(requestedAt) = ?`.
 
-### 4.2 Query
-Follow real foreign keys (no lot-number text matching), so a reused lot number
-can never over-match across purchases:
+### 4.2 Queries (two sheets)
 
+**Sheet 1 — tracking list (one row per talep):**
 ```
-purchases p
-LEFT JOIN lots l              ON l.purchaseId = p.id
-LEFT JOIN distribution_lots dl ON dl.lotId = l.id
-LEFT JOIN distributions d      ON d.id = dl.distributionId
-WHERE p.department = ? AND YEAR(p.requestedAt) = ?
-ORDER BY p.requestedAt, p.requestNumber, l.receivedDate, d.distributedDate
+SELECT requestNumber, itemCode, itemName, requestedQty, requestedAt,
+       receivedDate, receivedQtyTotal, expiryDate, lotNo, supplierName,
+       receivedBy, approvedBy, status
+FROM purchases
+WHERE department = ? AND YEAR(requestedAt) = ?
+ORDER BY requestedAt, requestNumber
 ```
+No distribution join — so there is no lot-number matching to get wrong.
 
-Result: **one row per distribution event**; a purchase with received-but-
-undistributed lots yields one row per lot (blank L/M/N); a purchase with no
-linked lot yields one row falling back to its own receipt fields. Each join is
-to a primary/foreign key, so fan-out is exactly the legitimate one-row-per-
-distribution — no ambiguity.
+**Sheet 2 — distribution list (one row per CEP DEPO dağıt):**
+```
+SELECT cd.distributedAt, i.code, i.name, cd.packQty,
+       COALESCE(i.packageUnit, i.unit) AS unit, cd.distributedBy,
+       cd.labTechnicianUsername AS recipient, p.requestNumber, cd.notes
+FROM cep_depo_distributions cd
+LEFT JOIN item_definitions i ON i.id = cd.itemId
+LEFT JOIN purchases p        ON p.id = cd.purchaseId
+WHERE cd.department = ? AND YEAR(cd.distributedAt) = ?
+ORDER BY cd.distributedAt
+```
+The talep link uses the real `cd.purchaseId` foreign key (no heuristic). The
+earlier lot-number over-match risk is gone: neither sheet matches on lot text.
 
-Receipt columns use `COALESCE(lot, purchase)` (see 4.3) so legacy lots that
-predate the `lots.purchaseId` link still show the purchase's own recorded
-receipt data instead of going blank.
+### 4.3 Column mapping (each sheet: title row 1, headers row 2, data row 3+)
 
-### 4.3 Column mapping (MG-F069, title row 1, headers row 2, data row 3+)
+**Sheet 1 — Malzeme Takip Listesi** (13 columns):
+A Talep Numarası=`requestNumber`, B Malzeme Kodu=`itemCode`, C Malzeme
+Tanımı=`itemName`, D Talep Miktarı=`requestedQty`, E Talep Tarihi=`requestedAt`,
+F Geliş Tarihi=`receivedDate`, G Gelen Miktar=`receivedQtyTotal`, H Son Kullanma
+Tarihi=`expiryDate`, I Lot No=`lotNo`, J Dağıtımcı Firma=`supplierName`,
+K Depoya Teslim Alan=`receivedBy`, L Onay=`approvedBy`, **M Durum**=`status`
+mapped to a Turkish label (TALEP_EDILDI→"Talep Edildi", ONAYLANDI→"Onaylandı",
+SIPARIS_VERILDI→"Sipariş Verildi", KISMI_TESLIM→"Kısmi Teslim",
+TESLIM_ALINDI→"Teslim Alındı", REDDEDILDI→"Reddedildi", IPTAL→"İptal").
 
-| Col | Header | Source |
-|-----|--------|--------|
-| A | Talep Numarası | `purchases.requestNumber` |
-| B | Malzeme Kodu | `purchases.itemCode` |
-| C | Malzeme Tanımı | `purchases.itemName` |
-| D | Talep Miktarı | `requestedQty` |
-| E | Talep Tarihi | `requestedAt` (DD.MM.YYYY) |
-| F | Geliş Tarihi | `receivedDate` (DD.MM.YYYY) |
-| G | Gelen Miktar | `receivedQtyTotal` |
-| H | Son Kullanma Tarihi | `expiryDate` (DD.MM.YYYY) |
-| I | Lot No | `lotNo` |
-| J | Dağıtımcı Firma | `supplierName` |
-| K | Depoya Teslim Alan | `COALESCE(lots.createdBy, purchases.receivedBy)` (username) |
-| L | Depodan Çıkış Tarihi | `distributions.distributedDate` (DD.MM.YYYY) |
-| M | Kullanım İçin Alan | `distributions.receivedBy` (username) |
-| N | Bittiği Tarih | `distributions.completedDate` (DD.MM.YYYY) |
-| O | Onay | `purchases.approvedBy` (username) |
-
-Columns F/G/H/I/K use `COALESCE(lot-level, purchase-level)`: F
-`COALESCE(l.receivedDate, p.receivedDate)`, G `COALESCE(l.initialQuantity,
-p.receivedQtyTotal)`, H `COALESCE(l.expiryDate, p.expiryDate)`, I
-`COALESCE(l.lotNumber, p.lotNo)`.
+**Sheet 2 — Dağıtım Listesi** (9 columns):
+A Dağıtım Tarihi=`distributedAt`, B Malzeme Kodu=item code, C Malzeme Tanımı=item
+name, D Miktar (Stok Birim)=`packQty`, E Birim=`COALESCE(packageUnit, unit)`,
+F Dağıtan=`distributedBy`, G Alan Teknisyen=`labTechnicianUsername`, H Bağlı
+Talep No=linked `requestNumber`, I Not=`notes`. Dates `DD.MM.YYYY`.
 
 ### 4.4 Rendering
 New module `server/mgTrackingForm.cjs`:

@@ -2,10 +2,18 @@
 
 ## Summary
 
-Adds the ISO **Malzeme Takip Listesi (MG-F069)** export — the
-request→approve→receive→dispatch purchase-lifecycle log, one row per
-distribution event, scoped to one department + year — and introduces a dedicated
-left-nav page **"ISO Formları"** that collects the ISO exports. The existing
+Adds the ISO **Malzeme Takip Listesi (MG-F069)** export — a two-sheet `.xlsx`
+scoped to one department + year — and introduces a dedicated left-nav page
+**"ISO Formları"** that collects the ISO exports.
+
+- **Sheet 1 "Malzeme Takip Listesi":** one row per talep (purchase request) for
+  the department + year, showing its request→receive lifecycle columns plus a
+  **Durum** (status) column, so *every* request appears with its stage (Talep
+  Edildi / Onaylandı / Sipariş Verildi / Kısmi Teslim / Teslim Alındı /
+  Reddedildi / İptal), not just received ones.
+- **Sheet 2 "Dağıtım Listesi":** one row per CEP DEPO distribution (dağıt) for
+  the department + year — date, material, quantity in the stock unit, who
+  distributed, recipient technician, linked talep number, notes. The existing
 LY-F064 (Malzeme Sayım Formu) controls move off the Stok top toolbar into this
 page. Implements
 `docs/superpowers/specs/2026-07-16-mg-f069-and-iso-forms-page-design.md`.
@@ -31,61 +39,53 @@ username of the recorded person.
 
 None. Read-only queries against `purchases` + `distributions`.
 
-## Data mapping (MG-F069, title row 1, headers row 2, data row 3+)
+## Data mapping (each sheet: title row 1, headers row 2, data row 3+)
 
-Base: `purchases` for the department + `YEAR(requestedAt) = year`, joined by
-**foreign keys** (no lot-number text matching):
-`purchases → lots (lots.purchaseId) → distribution_lots (dl.lotId) →
-distributions (d.id = dl.distributionId)`. One row per distribution event; a
-purchase with received-but-undistributed lots → one row per lot (dispatch
-columns blank); a purchase with no linked lot → one row falling back to its own
-receipt fields.
-
+**Sheet 1 (Malzeme Takip Listesi)** — one row per talep, straight from
+`purchases WHERE department = ? AND YEAR(requestedAt) = ?` (no distribution join,
+so no lot-number matching to get wrong):
 A=requestNumber, B=itemCode, C=itemName, D=requestedQty, E=requestedAt,
-F=`COALESCE(lot.receivedDate, p.receivedDate)`, G=`COALESCE(lot.initialQuantity,
-p.receivedQtyTotal)`, H=`COALESCE(lot.expiryDate, p.expiryDate)`,
-I=`COALESCE(lot.lotNumber, p.lotNo)`, J=supplierName,
-K=`COALESCE(lot.createdBy, p.receivedBy)`, L=distributions.distributedDate,
-M=distributions.receivedBy, N=distributions.completedDate, O=approvedBy.
-Dates `DD.MM.YYYY`.
+F=receivedDate, G=receivedQtyTotal, H=expiryDate, I=lotNo, J=supplierName,
+K=receivedBy, L=approvedBy, M=Durum (status → Turkish label). Dates `DD.MM.YYYY`.
 
-**Correctness note:** the join walks primary/foreign keys only, so a distribution
-attaches to exactly one lot and a lot to exactly one purchase — a reused lot
-number cannot over-match across purchases. (`lots` also enforces a unique
-`(itemId, lotNumber)` constraint.) The `COALESCE(lot, purchase)` fallback keeps
-receipt columns populated for legacy lots created before the `purchaseId` link
-existed.
+**Sheet 2 (Dağıtım Listesi)** — one row per CEP DEPO dağıt:
+`cep_depo_distributions cd LEFT JOIN item_definitions i ON i.id = cd.itemId
+LEFT JOIN purchases p ON p.id = cd.purchaseId WHERE cd.department = ? AND
+YEAR(cd.distributedAt) = ?`:
+A=distributedAt, B=item code, C=item name, D=packQty (Miktar, stock unit),
+E=`COALESCE(packageUnit, unit)`, F=distributedBy, G=recipient technician,
+H=linked requestNumber (via the real `purchaseId` FK), I=notes.
+
+**Correctness note:** sheet 1 no longer joins distributions at all, and sheet 2
+resolves the talep via the `cep_depo_distributions.purchaseId` foreign key — so
+the earlier lot-number over-match risk is gone entirely (no text matching on
+either sheet).
 
 ## Test steps / verification (against local test DB)
 
-- Unit: `node --test server/mgTrackingForm.test.cjs` → 5/5. Full suite
-  `node --test server/*.test.cjs` → 35/35. `npm run build` clean.
+- Unit: `node --test server/mgTrackingForm.test.cjs` → 6/6 (tracking rows,
+  distribution rows, status labels, empty input). Full suite
+  `node --test server/*.test.cjs` → 36/36. `npm run build` clean.
 - Live role/param matrix: ADMIN+dept → 200; SATINAL → 403; missing dept → 400;
   no auth → 401.
-- Seeded 1 purchase + 2 distributions (via `lots.purchaseId` +
-  `distribution_lots`) for "Moleküler Genetik", downloaded the form, confirmed:
-  one row per distribution, purchase/approval columns repeated, dispatch columns
-  differing per distribution, usernames shown, dates `DD.MM.YYYY`, Turkish
-  filename handled.
-- **Over-match regression check:** seeded two purchases of the same item both
-  carrying `lotNo = 'MG-LOT-A'` (the field the old heuristic matched on), with
-  only the first purchase's lot actually distributed. The distribution attached
-  to that purchase only; the second showed blank dispatch columns — confirming
-  the FK join cannot leak across purchases. Seed data removed afterward.
+- Live two-sheet check ("Moleküler Mikro", 2026): seeded a TALEP_EDILDI and a
+  TESLIM_ALINDI purchase → sheet 1 showed both with correct Durum ("Talep Edildi"
+  / "Teslim Alındı") and blank receipt cols for the request-only one. Sheet 2
+  listed the 21 real CEP DEPO distributions; rows whose item resolves show code /
+  name / packQty / stock unit / dağıtan / recipient. Seed removed afterward.
+- Note: in the local copy some CEP DEPO rows reference deleted items/purchases
+  (12/21 items, 2/21 purchases resolve) → those cells are blank via LEFT JOIN;
+  correct behavior, populated in production where the rows exist.
 
 ## Risks
 
-- v1 covers the year-based material tracking list only. Out of scope:
-  CIHAZ-HIZMET (device/service) sheets, İhale (tender) sheet, NOTLAR legend.
-- Dispatch columns (L/M/N) come from the `distributions` table. CEP DEPO
-  consumption (`cep_depo_*`) is not reflected — a possible future enhancement.
-- A purchase's distributions only appear once its lots carry `purchaseId` (set by
-  the receive-goods flow). Legacy/manually-created lots without that link still
-  show correct request+receipt data via the `COALESCE` fallback, but their
-  distributions won't be attributed (by design — attributing them would require
-  the very lot-number guessing this change removed).
-- Local test data for purchases/distributions is sparse; production has the real
-  volume.
+- v1 covers the year-based lists only. Out of scope: CIHAZ-HIZMET (device/service)
+  sheets, İhale (tender) sheet, NOTLAR legend.
+- Sheet 2 draws from `cep_depo_distributions` (the active dağıt path). The classic
+  `distributions` table is not included (it is empty in practice).
+- Sheet 2's item/talep columns depend on the referenced `item_definitions` /
+  `purchases` rows still existing; deleted references render blank (LEFT JOIN).
+- Local test data for purchases is sparse; production has the real volume.
 
 ## Rollback
 

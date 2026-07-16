@@ -1,79 +1,97 @@
 // server/mgTrackingForm.test.cjs
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildMgRows, HEADERS, COL_COUNT } = require('./mgTrackingForm.cjs');
+const {
+  buildTrackingRows,
+  buildDistributionRows,
+  statusLabel,
+  TRACKING_HEADERS,
+  DIST_HEADERS,
+} = require('./mgTrackingForm.cjs');
 
-test('HEADERS has the 15 MG-F069 columns A..O', () => {
-  assert.equal(COL_COUNT, 15);
-  assert.equal(HEADERS[0], 'Talep Numarası');
-  assert.equal(HEADERS[14], 'Onay');
+test('tracking headers end with Onay + Durum', () => {
+  assert.equal(TRACKING_HEADERS.length, 13);
+  assert.equal(TRACKING_HEADERS[0], 'Talep Numarası');
+  assert.equal(TRACKING_HEADERS[11], 'Onay');
+  assert.equal(TRACKING_HEADERS[12], 'Durum');
 });
 
-test('buildMgRows maps a fully-populated distribution row to columns A..O', () => {
-  const rows = buildMgRows([
+test('statusLabel maps Turkish enums to readable labels, passes through unknown', () => {
+  assert.equal(statusLabel('TALEP_EDILDI'), 'Talep Edildi');
+  assert.equal(statusLabel('ONAYLANDI'), 'Onaylandı');
+  assert.equal(statusLabel('TESLIM_ALINDI'), 'Teslim Alındı');
+  assert.equal(statusLabel('SOMETHING_NEW'), 'SOMETHING_NEW');
+  assert.equal(statusLabel(null), '');
+});
+
+test('buildTrackingRows maps a received talep to columns A..M incl Durum', () => {
+  const rows = buildTrackingRows([
     {
-      requestNumber: '260109-M22257660',
+      requestNumber: 'REQ-1',
       itemCode: '951054',
-      itemName: 'EZ1-2 DNA Blood 350 ul Kit (48)',
+      itemName: 'EZ1 Kit',
       requestedQty: 1,
       requestedAt: '2026-01-09',
       receivedDate: '2026-02-05',
       receivedQtyTotal: 1,
       expiryDate: '2026-06-22',
-      lotNo: '181035855',
+      lotNo: 'L1',
       supplierName: 'Monogenx',
       receivedBy: 'Mehtap',
-      distributedDate: '2026-02-10',
-      distributionReceivedBy: 'serdal',
-      distributionCompletedDate: '2026-02-16',
       approvedBy: 'Nilgun',
+      status: 'TESLIM_ALINDI',
     },
   ]);
-
   assert.deepEqual(rows[0], [
-    '260109-M22257660', '951054', 'EZ1-2 DNA Blood 350 ul Kit (48)', 1,
-    '09.01.2026', '05.02.2026', 1, '22.06.2026', '181035855', 'Monogenx',
-    'Mehtap', '10.02.2026', 'serdal', '16.02.2026', 'Nilgun',
+    'REQ-1', '951054', 'EZ1 Kit', 1, '09.01.2026', '05.02.2026', 1, '22.06.2026',
+    'L1', 'Monogenx', 'Mehtap', 'Nilgun', 'Teslim Alındı',
   ]);
 });
 
-test('buildMgRows leaves dispatch columns (L/M/N) blank when there is no distribution', () => {
-  const rows = buildMgRows([
+test('buildTrackingRows shows a request-only talep with blank receipt cols and its status', () => {
+  const rows = buildTrackingRows([
     {
-      requestNumber: 'REQ-1',
+      requestNumber: 'REQ-2',
       itemCode: 'ABC',
       itemName: 'Item',
-      requestedQty: 2,
+      requestedQty: 3,
       requestedAt: '2026-03-01',
-      receivedDate: '2026-03-10',
-      receivedQtyTotal: 2,
+      receivedDate: null,
+      receivedQtyTotal: null,
       expiryDate: null,
-      lotNo: 'L1',
-      supplierName: 'Firma',
-      receivedBy: 'Mehtap',
-      distributedDate: null,
-      distributionReceivedBy: null,
-      distributionCompletedDate: null,
-      approvedBy: 'Oktay',
+      lotNo: null,
+      supplierName: '',
+      receivedBy: null,
+      approvedBy: null,
+      status: 'TALEP_EDILDI',
     },
   ]);
-
-  // L (11), M (12), N (13) are blank; expiry (H, index 7) blank; rest filled.
   assert.deepEqual(rows[0], [
-    'REQ-1', 'ABC', 'Item', 2, '01.03.2026', '10.03.2026', 2, '', 'L1', 'Firma',
-    'Mehtap', '', '', '', 'Oktay',
+    'REQ-2', 'ABC', 'Item', 3, '01.03.2026', '', '', '', '', '', '', '', 'Talep Edildi',
   ]);
 });
 
-test('buildMgRows returns no rows for empty input', () => {
-  assert.deepEqual(buildMgRows([]), []);
-  assert.deepEqual(buildMgRows(undefined), []);
+test('buildDistributionRows maps a CEP DEPO dağıt event to columns A..I', () => {
+  const rows = buildDistributionRows([
+    {
+      distributedAt: '2026-02-10',
+      itemCode: '951054',
+      itemName: 'EZ1 Kit',
+      packQty: 2,
+      unit: 'kutu',
+      distributedBy: 'admin',
+      recipient: 'serdal',
+      requestNumber: 'REQ-1',
+      notes: 'rutin',
+    },
+  ]);
+  assert.deepEqual(rows[0], [
+    '10.02.2026', '951054', 'EZ1 Kit', 2, 'kutu', 'admin', 'serdal', 'REQ-1', 'rutin',
+  ]);
 });
 
-test('buildMgRows renders qty 0 (not blank) but null qty as blank', () => {
-  const rows = buildMgRows([
-    { requestNumber: 'R', requestedQty: 0, receivedQtyTotal: null },
-  ]);
-  assert.equal(rows[0][3], 0); // D: requestedQty 0 stays 0
-  assert.equal(rows[0][6], ''); // G: null receivedQtyTotal -> blank
+test('build*Rows return no rows for empty/undefined input', () => {
+  assert.deepEqual(buildTrackingRows([]), []);
+  assert.deepEqual(buildTrackingRows(undefined), []);
+  assert.deepEqual(buildDistributionRows([]), []);
 });

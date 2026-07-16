@@ -11,7 +11,7 @@ const { buildUnitCorrectionValues } = require('./unitCorrection.cjs');
 const { validateLotSplit } = require('./lotSplit.cjs');
 const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause } = require('./departmentScope.cjs');
 const { buildIsoRows, fillIsoCountForm } = require('./isoCountForm.cjs');
-const { buildMgRows, buildMgWorkbook } = require('./mgTrackingForm.cjs');
+const { buildTrackingRows, buildDistributionRows, buildMgWorkbook } = require('./mgTrackingForm.cjs');
 
 const PORT = process.env.PORT || 4000;
 
@@ -1856,43 +1856,48 @@ app.get('/api/mg-tracking-form', authRequired, canExportIsoForm, async (req, res
       return res.status(403).json({ error: 'DEPARTMENT_FORBIDDEN' });
     }
 
-    // Follow real foreign keys, not lot-number text, so a reused lot number can
-    // never over-match across purchases:
-    //   purchases.id <- lots.purchaseId
-    //   lots.id      <- distribution_lots.lotId  -> distributions.id
-    // One row per distribution event; a purchase with received-but-undistributed
-    // lots yields one row per lot (blank L/M/N); a purchase with no linked lot
-    // yields one row falling back to its own recorded receipt fields.
-    // Receipt columns COALESCE(lot, purchase) so legacy lots that predate the
-    // purchaseId link still show the purchase's own receipt data.
-    const records = await all(pool, `
+    // Sheet 1 — every talep (purchase request) for the department + year, one
+    // row each, with its current status. No distribution join here (that detail
+    // is on sheet 2), so there is no lot-number matching to get wrong.
+    const trackingRecords = await all(pool, `
       SELECT
-        p.requestNumber,
-        p.itemCode,
-        p.itemName,
-        p.requestedQty,
-        p.requestedAt,
-        COALESCE(l.receivedDate, p.receivedDate) AS receivedDate,
-        COALESCE(l.initialQuantity, p.receivedQtyTotal) AS receivedQtyTotal,
-        COALESCE(l.expiryDate, p.expiryDate) AS expiryDate,
-        COALESCE(l.lotNumber, p.lotNo) AS lotNo,
-        p.supplierName,
-        COALESCE(l.createdBy, p.receivedBy) AS receivedBy,
-        p.approvedBy,
-        d.distributedDate,
-        d.receivedBy AS distributionReceivedBy,
-        d.completedDate AS distributionCompletedDate
-      FROM purchases p
-      LEFT JOIN lots l ON l.purchaseId = p.id
-      LEFT JOIN distribution_lots dl ON dl.lotId = l.id
-      LEFT JOIN distributions d ON d.id = dl.distributionId
-      WHERE p.department = ?
-        AND YEAR(p.requestedAt) = ?
-      ORDER BY p.requestedAt ASC, p.requestNumber ASC, l.receivedDate ASC, d.distributedDate ASC
+        requestNumber, itemCode, itemName, requestedQty, requestedAt,
+        receivedDate, receivedQtyTotal, expiryDate, lotNo, supplierName,
+        receivedBy, approvedBy, status
+      FROM purchases
+      WHERE department = ?
+        AND YEAR(requestedAt) = ?
+      ORDER BY requestedAt ASC, requestNumber ASC
     `, [department, filterYear]);
 
-    const rows = buildMgRows(records);
-    const buffer = await buildMgWorkbook({ department, year: filterYear, rows });
+    // Sheet 2 — every CEP DEPO distribution (dağıt) for the department + year.
+    // Quantity is packQty (the stock unit that leaves the depot). The linked
+    // talep is resolved via the real purchaseId FK (no heuristic).
+    const distributionRecords = await all(pool, `
+      SELECT
+        cd.distributedAt,
+        i.code AS itemCode,
+        i.name AS itemName,
+        cd.packQty,
+        COALESCE(i.packageUnit, i.unit) AS unit,
+        cd.distributedBy,
+        cd.labTechnicianUsername AS recipient,
+        p.requestNumber,
+        cd.notes
+      FROM cep_depo_distributions cd
+      LEFT JOIN item_definitions i ON i.id = cd.itemId
+      LEFT JOIN purchases p ON p.id = cd.purchaseId
+      WHERE cd.department = ?
+        AND YEAR(cd.distributedAt) = ?
+      ORDER BY cd.distributedAt ASC
+    `, [department, filterYear]);
+
+    const buffer = await buildMgWorkbook({
+      department,
+      year: filterYear,
+      trackingRows: buildTrackingRows(trackingRecords),
+      distributionRows: buildDistributionRows(distributionRecords),
+    });
 
     const safeDept = department.replace(/[^\p{L}\p{N}_-]+/gu, '_');
     const filename = `Malzeme_Takip_MG-F069_${safeDept}_${filterYear}.xlsx`;
