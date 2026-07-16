@@ -11,6 +11,7 @@ const { buildUnitCorrectionValues } = require('./unitCorrection.cjs');
 const { validateLotSplit } = require('./lotSplit.cjs');
 const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause } = require('./departmentScope.cjs');
 const { buildIsoRows, fillIsoCountForm } = require('./isoCountForm.cjs');
+const { buildMgRows, buildMgWorkbook } = require('./mgTrackingForm.cjs');
 
 const PORT = process.env.PORT || 4000;
 
@@ -1832,6 +1833,76 @@ app.get('/api/iso-count-form', authRequired, canExportIsoForm, async (req, res) 
     res.send(Buffer.from(buffer));
   } catch (error) {
     console.error('[/api/iso-count-form] ERROR:', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// ============================================================
+// ISO MALZEME TAKİP LİSTESİ (MG-F069) — purchase lifecycle export
+// ============================================================
+// One row per distribution event across the request→approve→receive→dispatch
+// lifecycle, scoped to one department + year. ADMIN / SATINAL_LOJISTIK only.
+app.get('/api/mg-tracking-form', authRequired, canExportIsoForm, async (req, res) => {
+  try {
+    const department = typeof req.query.department === 'string' ? req.query.department.trim() : '';
+    if (!department) {
+      return res.status(400).json({ error: 'DEPARTMENT_REQUIRED' });
+    }
+    const year = Number.parseInt(req.query.year, 10);
+    const filterYear = Number.isInteger(year) ? year : new Date().getFullYear();
+
+    const userDepartments = await getUserDepartments(req.user.id, req.user.role);
+    if (userDepartments !== null && !userDepartments.includes(department)) {
+      return res.status(403).json({ error: 'DEPARTMENT_FORBIDDEN' });
+    }
+
+    // Base on purchases (the request lifecycle); LEFT JOIN distributions on
+    // item + lot (distributions have no FK to purchases). One row per matching
+    // distribution; a purchase with none yields a single row with blank L/M/N.
+    const records = await all(pool, `
+      SELECT
+        p.requestNumber,
+        p.itemCode,
+        p.itemName,
+        p.requestedQty,
+        p.requestedAt,
+        p.receivedDate,
+        p.receivedQtyTotal,
+        p.expiryDate,
+        p.lotNo,
+        p.supplierName,
+        p.receivedBy,
+        p.approvedBy,
+        d.distributedDate,
+        d.receivedBy AS distributionReceivedBy,
+        d.completedDate AS distributionCompletedDate
+      FROM purchases p
+      LEFT JOIN distributions d
+        ON d.itemId = p.itemId
+       AND p.lotNo IS NOT NULL AND p.lotNo <> ''
+       AND d.lotNumber = p.lotNo
+      WHERE p.department = ?
+        AND YEAR(p.requestedAt) = ?
+      ORDER BY p.requestedAt ASC, p.requestNumber ASC, d.distributedDate ASC
+    `, [department, filterYear]);
+
+    const rows = buildMgRows(records);
+    const buffer = await buildMgWorkbook({ department, year: filterYear, rows });
+
+    const safeDept = department.replace(/[^\p{L}\p{N}_-]+/gu, '_');
+    const filename = `Malzeme_Takip_MG-F069_${safeDept}_${filterYear}.xlsx`;
+    const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, '');
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+    );
+    res.send(Buffer.from(buffer));
+  } catch (error) {
+    console.error('[/api/mg-tracking-form] ERROR:', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
   }
 });

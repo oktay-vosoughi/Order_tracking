@@ -82,6 +82,40 @@ export async function downloadIsoCountForm(department) {
   URL.revokeObjectURL(url);
 }
 
+// Downloads the ISO Malzeme Takip Listesi (MG-F069) for one department + year.
+// Same authenticated-blob pattern as downloadIsoCountForm.
+export async function downloadMgTrackingForm(department, year) {
+  const token = getAuthToken();
+  const params = new URLSearchParams({ department });
+  if (year) params.set('year', String(year));
+  const response = await fetch(`${API_BASE}/mg-tracking-form?${params.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}
+  });
+
+  if (!response.ok) {
+    let payload = null;
+    try { payload = await response.json(); } catch { payload = null; }
+    const err = new Error(payload?.error || 'REQUEST_FAILED');
+    err.status = response.status;
+    err.payload = payload;
+    throw err;
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename\*=UTF-8''([^;]+)/i) || disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match ? decodeURIComponent(match[1]) : 'Malzeme_Takip_MG-F069.xlsx';
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function login(username, password) {
   const result = await apiFetch('/auth/login', {
     method: 'POST',
