@@ -1856,9 +1856,15 @@ app.get('/api/mg-tracking-form', authRequired, canExportIsoForm, async (req, res
       return res.status(403).json({ error: 'DEPARTMENT_FORBIDDEN' });
     }
 
-    // Base on purchases (the request lifecycle); LEFT JOIN distributions on
-    // item + lot (distributions have no FK to purchases). One row per matching
-    // distribution; a purchase with none yields a single row with blank L/M/N.
+    // Follow real foreign keys, not lot-number text, so a reused lot number can
+    // never over-match across purchases:
+    //   purchases.id <- lots.purchaseId
+    //   lots.id      <- distribution_lots.lotId  -> distributions.id
+    // One row per distribution event; a purchase with received-but-undistributed
+    // lots yields one row per lot (blank L/M/N); a purchase with no linked lot
+    // yields one row falling back to its own recorded receipt fields.
+    // Receipt columns COALESCE(lot, purchase) so legacy lots that predate the
+    // purchaseId link still show the purchase's own receipt data.
     const records = await all(pool, `
       SELECT
         p.requestNumber,
@@ -1866,24 +1872,23 @@ app.get('/api/mg-tracking-form', authRequired, canExportIsoForm, async (req, res
         p.itemName,
         p.requestedQty,
         p.requestedAt,
-        p.receivedDate,
-        p.receivedQtyTotal,
-        p.expiryDate,
-        p.lotNo,
+        COALESCE(l.receivedDate, p.receivedDate) AS receivedDate,
+        COALESCE(l.initialQuantity, p.receivedQtyTotal) AS receivedQtyTotal,
+        COALESCE(l.expiryDate, p.expiryDate) AS expiryDate,
+        COALESCE(l.lotNumber, p.lotNo) AS lotNo,
         p.supplierName,
-        p.receivedBy,
+        COALESCE(l.createdBy, p.receivedBy) AS receivedBy,
         p.approvedBy,
         d.distributedDate,
         d.receivedBy AS distributionReceivedBy,
         d.completedDate AS distributionCompletedDate
       FROM purchases p
-      LEFT JOIN distributions d
-        ON d.itemId = p.itemId
-       AND p.lotNo IS NOT NULL AND p.lotNo <> ''
-       AND d.lotNumber = p.lotNo
+      LEFT JOIN lots l ON l.purchaseId = p.id
+      LEFT JOIN distribution_lots dl ON dl.lotId = l.id
+      LEFT JOIN distributions d ON d.id = dl.distributionId
       WHERE p.department = ?
         AND YEAR(p.requestedAt) = ?
-      ORDER BY p.requestedAt ASC, p.requestNumber ASC, d.distributedDate ASC
+      ORDER BY p.requestedAt ASC, p.requestNumber ASC, l.receivedDate ASC, d.distributedDate ASC
     `, [department, filterYear]);
 
     const rows = buildMgRows(records);

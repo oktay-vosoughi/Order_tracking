@@ -33,18 +33,28 @@ None. Read-only queries against `purchases` + `distributions`.
 
 ## Data mapping (MG-F069, title row 1, headers row 2, data row 3+)
 
-Base: `purchases` for the department + `YEAR(requestedAt) = year`, `LEFT JOIN
-distributions ON itemId AND lotNumber = lotNo` (only when `lotNo` is non-empty).
-One row per matching distribution; a purchase with none → one row, dispatch
-columns blank.
+Base: `purchases` for the department + `YEAR(requestedAt) = year`, joined by
+**foreign keys** (no lot-number text matching):
+`purchases → lots (lots.purchaseId) → distribution_lots (dl.lotId) →
+distributions (d.id = dl.distributionId)`. One row per distribution event; a
+purchase with received-but-undistributed lots → one row per lot (dispatch
+columns blank); a purchase with no linked lot → one row falling back to its own
+receipt fields.
 
 A=requestNumber, B=itemCode, C=itemName, D=requestedQty, E=requestedAt,
-F=receivedDate, G=receivedQtyTotal, H=expiryDate, I=lotNo, J=supplierName,
-K=receivedBy, L=distributions.distributedDate, M=distributions.receivedBy,
-N=distributions.completedDate, O=approvedBy. Dates `DD.MM.YYYY`.
+F=`COALESCE(lot.receivedDate, p.receivedDate)`, G=`COALESCE(lot.initialQuantity,
+p.receivedQtyTotal)`, H=`COALESCE(lot.expiryDate, p.expiryDate)`,
+I=`COALESCE(lot.lotNumber, p.lotNo)`, J=supplierName,
+K=`COALESCE(lot.createdBy, p.receivedBy)`, L=distributions.distributedDate,
+M=distributions.receivedBy, N=distributions.completedDate, O=approvedBy.
+Dates `DD.MM.YYYY`.
 
-Note: distributions have no FK to purchases, so the join is heuristic on
-`itemId + lotNumber = lotNo`. Acceptable for v1 (the list is keyed by request).
+**Correctness note:** the join walks primary/foreign keys only, so a distribution
+attaches to exactly one lot and a lot to exactly one purchase — a reused lot
+number cannot over-match across purchases. (`lots` also enforces a unique
+`(itemId, lotNumber)` constraint.) The `COALESCE(lot, purchase)` fallback keeps
+receipt columns populated for legacy lots created before the `purchaseId` link
+existed.
 
 ## Test steps / verification (against local test DB)
 
@@ -52,17 +62,28 @@ Note: distributions have no FK to purchases, so the join is heuristic on
   `node --test server/*.test.cjs` → 35/35. `npm run build` clean.
 - Live role/param matrix: ADMIN+dept → 200; SATINAL → 403; missing dept → 400;
   no auth → 401.
-- Seeded 1 purchase + 2 distributions for "Moleküler Genetik", downloaded the
-  form, confirmed: 2 rows (one per distribution), purchase/approval columns
-  repeated, dispatch columns differing per distribution, usernames shown, dates
-  `DD.MM.YYYY`, Turkish filename handled. Seed data removed afterward.
+- Seeded 1 purchase + 2 distributions (via `lots.purchaseId` +
+  `distribution_lots`) for "Moleküler Genetik", downloaded the form, confirmed:
+  one row per distribution, purchase/approval columns repeated, dispatch columns
+  differing per distribution, usernames shown, dates `DD.MM.YYYY`, Turkish
+  filename handled.
+- **Over-match regression check:** seeded two purchases of the same item both
+  carrying `lotNo = 'MG-LOT-A'` (the field the old heuristic matched on), with
+  only the first purchase's lot actually distributed. The distribution attached
+  to that purchase only; the second showed blank dispatch columns — confirming
+  the FK join cannot leak across purchases. Seed data removed afterward.
 
 ## Risks
 
-- Heuristic distributions↔purchases join (item + lot). If a lot number is reused
-  across purchases, rows could over-match; unlikely in practice.
 - v1 covers the year-based material tracking list only. Out of scope:
   CIHAZ-HIZMET (device/service) sheets, İhale (tender) sheet, NOTLAR legend.
+- Dispatch columns (L/M/N) come from the `distributions` table. CEP DEPO
+  consumption (`cep_depo_*`) is not reflected — a possible future enhancement.
+- A purchase's distributions only appear once its lots carry `purchaseId` (set by
+  the receive-goods flow). Legacy/manually-created lots without that link still
+  show correct request+receipt data via the `COALESCE` fallback, but their
+  distributions won't be attributed (by design — attributing them would require
+  the very lot-number guessing this change removed).
 - Local test data for purchases/distributions is sparse; production has the real
   volume.
 

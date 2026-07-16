@@ -62,14 +62,27 @@ traceable, rather than inventing the hand-written initials the paper form used.
   `YEAR(requestedAt) = ?`.
 
 ### 4.2 Query
-Base on `purchases` for the department + year, `LEFT JOIN distributions d
-ON d.itemId = p.itemId AND d.lotNumber = p.lotNo` (only when `p.lotNo` is
-non-null). Result: **one row per matching distribution**; a purchase with no
-matching distribution yields **one row** with the dispatch/use columns blank.
-Order by `requestedAt`, then `requestNumber`, then `distributedDate`.
+Follow real foreign keys (no lot-number text matching), so a reused lot number
+can never over-match across purchases:
 
-Note: distributions carry no FK to purchases, so the join is heuristic on
-`itemId + lotNumber = lotNo`. Acceptable for v1 — the list is keyed by request.
+```
+purchases p
+LEFT JOIN lots l              ON l.purchaseId = p.id
+LEFT JOIN distribution_lots dl ON dl.lotId = l.id
+LEFT JOIN distributions d      ON d.id = dl.distributionId
+WHERE p.department = ? AND YEAR(p.requestedAt) = ?
+ORDER BY p.requestedAt, p.requestNumber, l.receivedDate, d.distributedDate
+```
+
+Result: **one row per distribution event**; a purchase with received-but-
+undistributed lots yields one row per lot (blank L/M/N); a purchase with no
+linked lot yields one row falling back to its own receipt fields. Each join is
+to a primary/foreign key, so fan-out is exactly the legitimate one-row-per-
+distribution — no ambiguity.
+
+Receipt columns use `COALESCE(lot, purchase)` (see 4.3) so legacy lots that
+predate the `lots.purchaseId` link still show the purchase's own recorded
+receipt data instead of going blank.
 
 ### 4.3 Column mapping (MG-F069, title row 1, headers row 2, data row 3+)
 
@@ -85,11 +98,16 @@ Note: distributions carry no FK to purchases, so the join is heuristic on
 | H | Son Kullanma Tarihi | `expiryDate` (DD.MM.YYYY) |
 | I | Lot No | `lotNo` |
 | J | Dağıtımcı Firma | `supplierName` |
-| K | Depoya Teslim Alan | `receivedBy` (username) |
+| K | Depoya Teslim Alan | `COALESCE(lots.createdBy, purchases.receivedBy)` (username) |
 | L | Depodan Çıkış Tarihi | `distributions.distributedDate` (DD.MM.YYYY) |
 | M | Kullanım İçin Alan | `distributions.receivedBy` (username) |
 | N | Bittiği Tarih | `distributions.completedDate` (DD.MM.YYYY) |
-| O | Onay | `approvedBy` (username) |
+| O | Onay | `purchases.approvedBy` (username) |
+
+Columns F/G/H/I/K use `COALESCE(lot-level, purchase-level)`: F
+`COALESCE(l.receivedDate, p.receivedDate)`, G `COALESCE(l.initialQuantity,
+p.receivedQtyTotal)`, H `COALESCE(l.expiryDate, p.expiryDate)`, I
+`COALESCE(l.lotNumber, p.lotNo)`.
 
 ### 4.4 Rendering
 New module `server/mgTrackingForm.cjs`:
@@ -123,7 +141,7 @@ ASCII `filename=` fallback + RFC 5987 `filename*` (Turkish-safe), filename
 ```
 [ISO Formları page] --(dept, year)--> api.downloadMgTrackingForm
   -> GET /api/mg-tracking-form?department=&year=  (auth + role + dept-access)
-     -> SQL: purchases (dept, year) LEFT JOIN distributions (item+lot)
+     -> SQL: purchases -> lots -> distribution_lots -> distributions (by FK)
      -> buildMgRows -> buildMgWorkbook (exceljs) -> Buffer
   <- browser downloads Malzeme_Takip_MG-F069_<dept>_<year>.xlsx
 ```
