@@ -1840,8 +1840,77 @@ app.get('/api/iso-count-form', authRequired, canExportIsoForm, async (req, res) 
 // ============================================================
 // ISO MALZEME TAKİP LİSTESİ (MG-F069) — purchase lifecycle export
 // ============================================================
-// One row per distribution event across the request→approve→receive→dispatch
-// lifecycle, scoped to one department + year. ADMIN / SATINAL_LOJISTIK only.
+// Two sheets per department (talep tracking + dağıtım), scoped to a year.
+// department=__ALL__ produces one workbook with a separate sheet-pair per
+// department. ADMIN / SATINAL_LOJISTIK only.
+const MG_ALL_DEPARTMENTS = '__ALL__';
+
+// Builds the tracking + distribution rows for one department + year.
+async function fetchMgGroup(department, filterYear) {
+  // Sheet 1 — every talep for the department + year, one row each, with status.
+  // No distribution join here (that detail is on sheet 2). Department resolves
+  // to the purchase's own department, falling back to its item's department
+  // when blank, so requests with an empty department are not dropped.
+  const trackingRecords = await all(pool, `
+    SELECT
+      p.requestNumber, p.itemCode, p.itemName, p.requestedQty, p.requestedAt,
+      p.receivedDate, p.receivedQtyTotal, p.expiryDate, p.lotNo, p.supplierName,
+      p.receivedBy, p.approvedBy, p.status
+    FROM purchases p
+    LEFT JOIN item_definitions i ON i.id = p.itemId
+    WHERE COALESCE(NULLIF(p.department, ''), i.department) = ?
+      AND YEAR(p.requestedAt) = ?
+    ORDER BY p.requestedAt ASC, p.requestNumber ASC
+  `, [department, filterYear]);
+
+  // Sheet 2 — every CEP DEPO distribution (dağıt) for the department + year.
+  // Quantity is packQty (the stock unit that leaves the depot). The linked
+  // talep is resolved via the real purchaseId FK (no heuristic).
+  const distributionRecords = await all(pool, `
+    SELECT
+      cd.distributedAt,
+      i.code AS itemCode,
+      i.name AS itemName,
+      cd.packQty,
+      COALESCE(i.packageUnit, i.unit) AS unit,
+      cd.distributedBy,
+      cd.labTechnicianUsername AS recipient,
+      p.requestNumber,
+      cd.notes
+    FROM cep_depo_distributions cd
+    LEFT JOIN item_definitions i ON i.id = cd.itemId
+    LEFT JOIN purchases p ON p.id = cd.purchaseId
+    WHERE cd.department = ?
+      AND YEAR(cd.distributedAt) = ?
+    ORDER BY cd.distributedAt ASC
+  `, [department, filterYear]);
+
+  return {
+    department,
+    trackingRows: buildTrackingRows(trackingRecords),
+    distributionRows: buildDistributionRows(distributionRecords),
+  };
+}
+
+// Distinct departments that have any talep or distribution in the given year,
+// resolving a purchase's department the same way fetchMgGroup does.
+async function listMgDepartments(filterYear) {
+  const rows = await all(pool, `
+    SELECT DISTINCT dept FROM (
+      SELECT COALESCE(NULLIF(p.department, ''), i.department) AS dept
+        FROM purchases p LEFT JOIN item_definitions i ON i.id = p.itemId
+        WHERE YEAR(p.requestedAt) = ?
+      UNION
+      SELECT department AS dept
+        FROM cep_depo_distributions
+        WHERE YEAR(distributedAt) = ?
+    ) t
+    WHERE dept IS NOT NULL AND dept <> ''
+    ORDER BY dept ASC
+  `, [filterYear, filterYear]);
+  return rows.map((r) => r.dept);
+}
+
 app.get('/api/mg-tracking-form', authRequired, canExportIsoForm, async (req, res) => {
   try {
     const department = typeof req.query.department === 'string' ? req.query.department.trim() : '';
@@ -1850,61 +1919,35 @@ app.get('/api/mg-tracking-form', authRequired, canExportIsoForm, async (req, res
     }
     const year = Number.parseInt(req.query.year, 10);
     const filterYear = Number.isInteger(year) ? year : new Date().getFullYear();
+    const isAll = department === MG_ALL_DEPARTMENTS;
 
     const userDepartments = await getUserDepartments(req.user.id, req.user.role);
-    if (userDepartments !== null && !userDepartments.includes(department)) {
-      return res.status(403).json({ error: 'DEPARTMENT_FORBIDDEN' });
+
+    // Resolve which departments to include.
+    let departments;
+    if (isAll) {
+      departments = await listMgDepartments(filterYear);
+      if (userDepartments !== null) {
+        departments = departments.filter((d) => userDepartments.includes(d));
+      }
+    } else {
+      if (userDepartments !== null && !userDepartments.includes(department)) {
+        return res.status(403).json({ error: 'DEPARTMENT_FORBIDDEN' });
+      }
+      departments = [department];
     }
 
-    // Sheet 1 — every talep (purchase request) for the department + year, one
-    // row each, with its current status. No distribution join here (that detail
-    // is on sheet 2), so there is no lot-number matching to get wrong.
-    // Department is resolved as the purchase's own department, falling back to
-    // its item's department when the purchase's is blank — otherwise requests
-    // saved with an empty department (but a valid item department) would be
-    // silently dropped from every export.
-    const trackingRecords = await all(pool, `
-      SELECT
-        p.requestNumber, p.itemCode, p.itemName, p.requestedQty, p.requestedAt,
-        p.receivedDate, p.receivedQtyTotal, p.expiryDate, p.lotNo, p.supplierName,
-        p.receivedBy, p.approvedBy, p.status
-      FROM purchases p
-      LEFT JOIN item_definitions i ON i.id = p.itemId
-      WHERE COALESCE(NULLIF(p.department, ''), i.department) = ?
-        AND YEAR(p.requestedAt) = ?
-      ORDER BY p.requestedAt ASC, p.requestNumber ASC
-    `, [department, filterYear]);
+    // Always emit at least one (possibly empty) group so the file is valid.
+    const targetDepartments = departments.length > 0 ? departments : [isAll ? 'Departman Yok' : department];
+    const groups = [];
+    for (const dept of targetDepartments) {
+      groups.push(await fetchMgGroup(dept, filterYear));
+    }
 
-    // Sheet 2 — every CEP DEPO distribution (dağıt) for the department + year.
-    // Quantity is packQty (the stock unit that leaves the depot). The linked
-    // talep is resolved via the real purchaseId FK (no heuristic).
-    const distributionRecords = await all(pool, `
-      SELECT
-        cd.distributedAt,
-        i.code AS itemCode,
-        i.name AS itemName,
-        cd.packQty,
-        COALESCE(i.packageUnit, i.unit) AS unit,
-        cd.distributedBy,
-        cd.labTechnicianUsername AS recipient,
-        p.requestNumber,
-        cd.notes
-      FROM cep_depo_distributions cd
-      LEFT JOIN item_definitions i ON i.id = cd.itemId
-      LEFT JOIN purchases p ON p.id = cd.purchaseId
-      WHERE cd.department = ?
-        AND YEAR(cd.distributedAt) = ?
-      ORDER BY cd.distributedAt ASC
-    `, [department, filterYear]);
+    const buffer = await buildMgWorkbook({ year: filterYear, groups });
 
-    const buffer = await buildMgWorkbook({
-      department,
-      year: filterYear,
-      trackingRows: buildTrackingRows(trackingRecords),
-      distributionRows: buildDistributionRows(distributionRecords),
-    });
-
-    const safeDept = department.replace(/[^\p{L}\p{N}_-]+/gu, '_');
+    const labelForFile = isAll ? 'Tum_Departmanlar' : department;
+    const safeDept = labelForFile.replace(/[^\p{L}\p{N}_-]+/gu, '_');
     const filename = `Malzeme_Takip_MG-F069_${safeDept}_${filterYear}.xlsx`;
     const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, '');
     res.setHeader(

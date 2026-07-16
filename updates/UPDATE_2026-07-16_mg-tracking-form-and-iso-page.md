@@ -16,7 +16,11 @@ scoped to one department + year — and introduces a dedicated left-nav page
   department) are no longer dropped.
 - **Sheet 2 "Dağıtım Listesi":** one row per CEP DEPO distribution (dağıt) for
   the department + year — date, material, quantity in the stock unit, who
-  distributed, recipient technician, linked talep number, notes. The existing
+  distributed, recipient technician, linked talep number, notes.
+- **"Tüm Departmanlar" option** (`department=__ALL__`): one workbook with a
+  separate sheet-pair (`Takip - <dept>` + `Dağıtım - <dept>`) for **each**
+  department, so every department is listed fully and separately in one file.
+  A single-department export keeps the plain sheet names. The existing
 LY-F064 (Malzeme Sayım Formu) controls move off the Stok top toolbar into this
 page. Implements
 `docs/superpowers/specs/2026-07-16-mg-f069-and-iso-forms-page-design.md`.

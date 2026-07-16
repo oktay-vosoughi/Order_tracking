@@ -35,6 +35,9 @@ ISO form exports.
   - **Sheet 2 "Dağıtım Listesi":** one row per CEP DEPO distribution (dağıt) —
     date, material, quantity in the stock unit, dağıtan, recipient technician,
     linked talep, notes.
+  - **"Tüm Departmanlar" (`department=__ALL__`):** one workbook with a separate
+    sheet-pair per department (`Takip - <dept>` / `Dağıtım - <dept>`), so each
+    department is listed fully and separately.
 - The LY-F064 controls no longer appear in the Stok toolbar.
 - No DB migration.
 

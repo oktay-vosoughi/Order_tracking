@@ -2096,6 +2096,7 @@ const LabEquipmentTracker = () => {
                       className="px-4 py-2 border rounded-lg min-w-52"
                     >
                       <option value="">Departman seç…</option>
+                      <option value="__ALL__">Tüm Departmanlar (her biri ayrı sayfada)</option>
                       {uniqueStockDepartments.map(dept => (
                         <option key={dept} value={dept}>{dept}</option>
                       ))}

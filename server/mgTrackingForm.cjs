@@ -146,23 +146,46 @@ function addSheet(workbook, { name, title, headers, widths, rows }) {
   return ws;
 }
 
-// Builds the two-sheet workbook and returns an .xlsx Buffer.
-async function buildMgWorkbook({ department, year, trackingRows, distributionRows }) {
+// Excel sheet names: max 31 chars, cannot contain : \ / ? * [ ]. Ensure unique.
+function safeSheetName(base, used) {
+  let name = String(base).replace(/[:\\/?*[\]]/g, ' ').trim().slice(0, 31) || 'Sheet';
+  let candidate = name;
+  let n = 2;
+  while (used.has(candidate)) {
+    const suffix = ` ${n}`;
+    candidate = `${name.slice(0, 31 - suffix.length)}${suffix}`;
+    n += 1;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+// Builds the workbook and returns an .xlsx Buffer.
+// groups: [{ department, trackingRows, distributionRows }]. With a single group
+// the sheets keep their plain names; with several (all-departments export) each
+// department gets its own pair of sheets, prefixed with the department name so
+// every department is listed separately.
+async function buildMgWorkbook({ year, groups }) {
   const workbook = new ExcelJS.Workbook();
-  addSheet(workbook, {
-    name: TRACKING_SHEET,
-    title: `MALZEME TAKİP LİSTESİ — ${department} (${year})`,
-    headers: TRACKING_HEADERS,
-    widths: TRACKING_WIDTHS,
-    rows: trackingRows,
-  });
-  addSheet(workbook, {
-    name: DIST_SHEET,
-    title: `DAĞITIM LİSTESİ — ${department} (${year})`,
-    headers: DIST_HEADERS,
-    widths: DIST_WIDTHS,
-    rows: distributionRows,
-  });
+  const single = groups.length === 1;
+  const used = new Set();
+
+  for (const g of groups) {
+    addSheet(workbook, {
+      name: safeSheetName(single ? TRACKING_SHEET : `Takip - ${g.department}`, used),
+      title: `MALZEME TAKİP LİSTESİ — ${g.department} (${year})`,
+      headers: TRACKING_HEADERS,
+      widths: TRACKING_WIDTHS,
+      rows: g.trackingRows,
+    });
+    addSheet(workbook, {
+      name: safeSheetName(single ? DIST_SHEET : `Dağıtım - ${g.department}`, used),
+      title: `DAĞITIM LİSTESİ — ${g.department} (${year})`,
+      headers: DIST_HEADERS,
+      widths: DIST_WIDTHS,
+      rows: g.distributionRows,
+    });
+  }
   return workbook.xlsx.writeBuffer();
 }
 
