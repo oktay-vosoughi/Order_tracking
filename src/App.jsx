@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -159,6 +159,9 @@ const LabEquipmentTracker = () => {
   const [stockDepartmentFilter, setStockDepartmentFilter] = useState('');
   const [isoFormDept, setIsoFormDept] = useState('');
   const [isoFormBusy, setIsoFormBusy] = useState(false);
+  const [mgFormDept, setMgFormDept] = useState('');
+  const [mgFormYear, setMgFormYear] = useState(new Date().getFullYear());
+  const [mgFormBusy, setMgFormBusy] = useState(false);
   const [cepFilterDept, setCepFilterDept] = useState('');
   const [cepFilterTech, setCepFilterTech] = useState('');
   const [showEbysModal, setShowEbysModal] = useState(false);
@@ -1572,6 +1575,24 @@ const LabEquipmentTracker = () => {
     }
   };
 
+  // MG-F069 Malzeme Takip Listesi — download the purchase-lifecycle tracking
+  // list for the chosen department + year. ADMIN / SATINAL_LOJISTIK only.
+  const handleMgTrackingExport = async () => {
+    if (!mgFormDept) {
+      alert('Lütfen Malzeme Takip Listesi için bir departman seçin.');
+      return;
+    }
+    setMgFormBusy(true);
+    try {
+      await downloadMgTrackingForm(mgFormDept, mgFormYear);
+    } catch (error) {
+      console.error('MG tracking form export error:', error);
+      alert('Malzeme Takip Listesi indirilemedi: ' + (error?.message || 'Bilinmeyen hata'));
+    } finally {
+      setMgFormBusy(false);
+    }
+  };
+
   const clearAllData = async () => {
     if (!confirm('TÜM VERİLERİ SİLMEK İSTEDİĞİNİZDEN EMİN MİSİNİZ?\n\nBu işlem geri alınamaz!')) return;
     
@@ -1793,7 +1814,7 @@ const LabEquipmentTracker = () => {
     stock: 'Stok', requests: 'Talepler', distributions: 'Dağıtım',
     orders: 'Siparişler', waste: 'Atık', total_stock: 'Genel Stok', lot_inventory: 'LOT Stok',
     cep_depo: 'CEP DEPO', users: 'Kullanıcılar', account: 'Hesabım',
-    prices: 'Fiyatlar & Kullanım'
+    prices: 'Fiyatlar & Kullanım', iso_forms: 'ISO Formları'
   };
   const userInitials = username.slice(0, 2).toUpperCase() || '??';
   const pendingCount = purchases.filter(p => p.status === 'TALEP_EDILDI').length;
@@ -1877,6 +1898,11 @@ const LabEquipmentTracker = () => {
         {canViewPrices && (
           <button className={`nv${activeTab === 'prices' ? ' on' : ''}`} onClick={() => navClick('prices')}>
             <BarChart2 size={15} /><span>Fiyatlar</span>
+          </button>
+        )}
+        {canExportIsoForm && (
+          <button className={`nv${activeTab === 'iso_forms' ? ' on' : ''}`} onClick={() => navClick('iso_forms')}>
+            <FileText size={15} /><span>ISO Formları</span>
           </button>
         )}
         {canManageUsers && (
@@ -1975,29 +2001,6 @@ const LabEquipmentTracker = () => {
                 <Download size={13} /> Excel
               </button>
             )}
-            {activeTab === 'stock' && canExportIsoForm && (
-              <>
-                <select
-                  value={isoFormDept}
-                  onChange={(e) => setIsoFormDept(e.target.value)}
-                  className="tbar-select"
-                  aria-label="ISO Sayım Formu departmanı"
-                >
-                  <option value="">ISO: Departman seç…</option>
-                  {uniqueStockDepartments.map(dept => (
-                    <option key={dept} value={dept}>{dept}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={handleIsoCountFormExport}
-                  disabled={!isoFormDept || isoFormBusy}
-                  className="tbar-btn"
-                  title="Seçili departman için ISO Malzeme Sayım Formu (LY-F064) indir"
-                >
-                  <Download size={13} /> {isoFormBusy ? 'Hazırlanıyor…' : 'ISO Sayım Formu'}
-                </button>
-              </>
-            )}
           </div>
         </div>
         <div className="cnt">
@@ -2032,6 +2035,96 @@ const LabEquipmentTracker = () => {
             items={items}
             onClose={() => setShowExpiryAlert(false)}
           />
+        )}
+
+        {activeTab === 'iso_forms' && canExportIsoForm && (
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div className="p-4 md:p-6 space-y-6">
+              <div>
+                <h2 className="text-xl font-bold mb-1">ISO Formları</h2>
+                <p className="text-sm text-gray-500">
+                  Kontrollü ISO formlarını canlı stok/satın alma verisinden departman bazında indirin.
+                </p>
+              </div>
+
+              {/* LY-F064 — Malzeme Sayım Formu */}
+              <div className="border rounded-xl p-4 md:p-6 bg-gray-50">
+                <h3 className="text-lg font-semibold mb-1 flex items-center gap-2 text-gray-800">
+                  <FileText size={18} /> LY-F064 — Malzeme Sayım Formu
+                </h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Seçili departman için güncel stok sayım formu (ayın 1'i ve 15'i için).
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Departman</label>
+                    <select
+                      value={isoFormDept}
+                      onChange={(e) => setIsoFormDept(e.target.value)}
+                      className="px-4 py-2 border rounded-lg min-w-52"
+                    >
+                      <option value="">Departman seç…</option>
+                      {uniqueStockDepartments.map(dept => (
+                        <option key={dept} value={dept}>{dept}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    onClick={handleIsoCountFormExport}
+                    disabled={!isoFormDept || isoFormBusy}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <Download size={15} /> {isoFormBusy ? 'Hazırlanıyor…' : 'İndir'}
+                  </button>
+                </div>
+              </div>
+
+              {/* MG-F069 — Malzeme Takip Listesi */}
+              <div className="border rounded-xl p-4 md:p-6 bg-gray-50">
+                <h3 className="text-lg font-semibold mb-1 flex items-center gap-2 text-gray-800">
+                  <FileText size={18} /> MG-F069 — Malzeme Takip Listesi
+                </h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Seçili departman ve yıl için satın alma → teslim → dağıtım süreç takip listesi.
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Departman</label>
+                    <select
+                      value={mgFormDept}
+                      onChange={(e) => setMgFormDept(e.target.value)}
+                      className="px-4 py-2 border rounded-lg min-w-52"
+                    >
+                      <option value="">Departman seç…</option>
+                      <option value="__ALL__">Tüm Departmanlar (her biri ayrı sayfada)</option>
+                      {uniqueStockDepartments.map(dept => (
+                        <option key={dept} value={dept}>{dept}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Yıl</label>
+                    <input
+                      type="number"
+                      min="2020"
+                      max="2100"
+                      step="1"
+                      value={mgFormYear}
+                      onChange={(e) => setMgFormYear(Number(e.target.value))}
+                      className="px-4 py-2 border rounded-lg w-28"
+                    />
+                  </div>
+                  <button
+                    onClick={handleMgTrackingExport}
+                    disabled={!mgFormDept || mgFormBusy}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <Download size={15} /> {mgFormBusy ? 'Hazırlanıyor…' : 'İndir'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {activeTab === 'account' && currentUser && (

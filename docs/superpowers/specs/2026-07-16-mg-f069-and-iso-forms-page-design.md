@@ -1,0 +1,187 @@
+# Design: MG-F069 Malzeme Takip Listesi export + "ISO Formları" nav page
+
+**Date:** 2026-07-16
+**Author:** Oktay Vosoughi (with Claude)
+**Status:** Approved — implementing
+
+---
+
+## 1. Problem
+
+Medipol labs keep a controlled ISO **material tracking list** (`MG-F069 MALZEME
+TAKİP LİSTESİ`) tracking each purchase through its whole lifecycle: request →
+approval → receipt → depot dispatch → use → depletion. Today it is a hand-kept
+multi-sheet Excel. We want the system to export that list, pre-filled from live
+data, per department.
+
+Separately, the existing LY-F064 export controls currently live in the **Stok**
+top toolbar. As more ISO exports are added, they should move to a dedicated
+place. The user asked for a new left-nav page **"ISO Formları"** collecting all
+ISO form exports.
+
+## 2. Goal / Definition of Done
+
+- A new left-nav page **"ISO Formları"** (ADMIN + SATINAL_LOJISTIK only) with two
+  cards, each a department picker + download button:
+  - **LY-F064 – Malzeme Sayım Formu** (the existing export, moved here from the
+    Stok toolbar; backend unchanged).
+  - **MG-F069 – Malzeme Takip Listesi** (new), plus a **year** selector
+    (default: current year).
+- New endpoint `GET /api/mg-tracking-form?department=<name>&year=<yyyy>` streams a
+  clean **two-sheet** `.xlsx`, scoped to one department + year:
+  - **Sheet 1 "Malzeme Takip Listesi":** one row per talep (purchase request) with
+    its request→receive lifecycle columns **plus a Durum (status) column**, so
+    every request appears with its stage — not only received ones.
+  - **Sheet 2 "Dağıtım Listesi":** one row per CEP DEPO distribution (dağıt) —
+    date, material, quantity in the stock unit, dağıtan, recipient technician,
+    linked talep, notes.
+  - **"Tüm Departmanlar" (`department=__ALL__`):** one workbook with a separate
+    sheet-pair per department (`Takip - <dept>` / `Dağıtım - <dept>`), so each
+    department is listed fully and separately.
+- The LY-F064 controls no longer appear in the Stok toolbar.
+- No DB migration.
+
+**Explicitly out of scope (YAGNI):** the CIHAZ-HIZMET (device/service) sheets,
+the İhale (tender) sheet, the NOTLAR legend, multi-year-in-one-file, byte-faithful
+reproduction of the original 8-sheet workbook, and scheduling/email.
+
+## 3. Chosen approach
+
+**Clean single-sheet workbook built with `exceljs`** (already a dependency).
+Rejected byte-faithful template reproduction: the source is 8 sheets / multiple
+years / 2600+ rows / embedded images, and the format is a plain table — a fresh
+styled sheet is faithful enough for auditors and far more maintainable.
+
+The "who" columns (Depoya Teslim Alan / Kullanım İçin Alan / Onay) output the
+**stored username** of the recorded person (blank if none) — honest and
+traceable, rather than inventing the hand-written initials the paper form used.
+
+## 4. Backend
+
+### 4.1 Endpoint
+`GET /api/mg-tracking-form?department=<name>&year=<yyyy>`
+
+- Middleware: `authRequired` + the existing `canExportIsoForm`
+  (`requireRole([ADMIN, SATINAL_LOJISTIK])`).
+- `department` required (400 if missing/blank); must be in the caller's
+  accessible set (403 otherwise) — reuse `getUserDepartments`. Both allowed roles
+  are bypass roles, so this is defensive.
+- `year` optional integer; defaults to the current calendar year. Filters on
+  `YEAR(requestedAt) = ?`.
+
+### 4.2 Queries (two sheets)
+
+**Sheet 1 — tracking list (one row per talep):**
+```
+SELECT requestNumber, itemCode, itemName, requestedQty, requestedAt,
+       receivedDate, receivedQtyTotal, expiryDate, lotNo, supplierName,
+       receivedBy, approvedBy, status
+FROM purchases
+WHERE department = ? AND YEAR(requestedAt) = ?
+ORDER BY requestedAt, requestNumber
+```
+No distribution join — so there is no lot-number matching to get wrong.
+
+**Sheet 2 — distribution list (one row per CEP DEPO dağıt):**
+```
+SELECT cd.distributedAt, i.code, i.name, cd.packQty,
+       COALESCE(i.packageUnit, i.unit) AS unit, cd.distributedBy,
+       cd.labTechnicianUsername AS recipient, p.requestNumber, cd.notes
+FROM cep_depo_distributions cd
+LEFT JOIN item_definitions i ON i.id = cd.itemId
+LEFT JOIN purchases p        ON p.id = cd.purchaseId
+WHERE cd.department = ? AND YEAR(cd.distributedAt) = ?
+ORDER BY cd.distributedAt
+```
+The talep link uses the real `cd.purchaseId` foreign key (no heuristic). The
+earlier lot-number over-match risk is gone: neither sheet matches on lot text.
+
+### 4.3 Column mapping (each sheet: title row 1, headers row 2, data row 3+)
+
+**Sheet 1 — Malzeme Takip Listesi** (13 columns):
+A Talep Numarası=`requestNumber`, B Malzeme Kodu=`itemCode`, C Malzeme
+Tanımı=`itemName`, D Talep Miktarı=`requestedQty`, E Talep Tarihi=`requestedAt`,
+F Geliş Tarihi=`receivedDate`, G Gelen Miktar=`receivedQtyTotal`, H Son Kullanma
+Tarihi=`expiryDate`, I Lot No=`lotNo`, J Dağıtımcı Firma=`supplierName`,
+K Depoya Teslim Alan=`receivedBy`, L Onay=`approvedBy`, **M Durum**=`status`
+mapped to a Turkish label (TALEP_EDILDI→"Talep Edildi", ONAYLANDI→"Onaylandı",
+SIPARIS_VERILDI→"Sipariş Verildi", KISMI_TESLIM→"Kısmi Teslim",
+TESLIM_ALINDI→"Teslim Alındı", REDDEDILDI→"Reddedildi", IPTAL→"İptal").
+
+**Sheet 2 — Dağıtım Listesi** (9 columns):
+A Dağıtım Tarihi=`distributedAt`, B Malzeme Kodu=item code, C Malzeme Tanımı=item
+name, D Miktar (Stok Birim)=`packQty`, E Birim=`COALESCE(packageUnit, unit)`,
+F Dağıtan=`distributedBy`, G Alan Teknisyen=`labTechnicianUsername`, H Bağlı
+Talep No=linked `requestNumber`, I Not=`notes`. Dates `DD.MM.YYYY`.
+
+### 4.4 Rendering
+New module `server/mgTrackingForm.cjs`:
+- `buildMgRows(records)` — pure: maps joined rows → 15-column arrays, formats
+  dates `DD.MM.YYYY`, empty → `''`.
+- `buildMgWorkbook({ department, year, rows })` — exceljs: title row (merged A–O,
+  bold), header row (bold, bordered, grey fill), data rows (bordered), reasonable
+  column widths; returns a Buffer.
+- `formatDateTR` reused from `isoCountForm.cjs` (export/share it).
+
+Response headers mirror LY-F064: spreadsheet MIME, `Content-Disposition` with an
+ASCII `filename=` fallback + RFC 5987 `filename*` (Turkish-safe), filename
+`Malzeme_Takip_MG-F069_<dept>_<year>.xlsx`.
+
+## 5. Frontend
+
+- `src/api.js`: `downloadMgTrackingForm(department, year)` — authenticated blob
+  download (same shape as `downloadIsoCountForm`).
+- `src/App.jsx`:
+  - New nav button **"ISO Formları"** (`activeTab === 'iso_forms'`), rendered only
+    for ADMIN / SATINAL_LOJISTIK, icon `FileText`.
+  - New page section: two cards. LY-F064 card reuses the existing
+    `isoFormDept` state + `handleIsoCountFormExport`. MG-F069 card adds
+    `mgFormDept` + `mgFormYear` state and a `handleMgTrackingExport` handler.
+  - Remove the LY-F064 dropdown+button block from the Stok toolbar
+    (`activeTab === 'stock' && canExportIsoForm`).
+  - Department options: `uniqueStockDepartments` (already computed).
+
+## 6. Data flow
+
+```
+[ISO Formları page] --(dept, year)--> api.downloadMgTrackingForm
+  -> GET /api/mg-tracking-form?department=&year=  (auth + role + dept-access)
+     -> SQL: purchases -> lots -> distribution_lots -> distributions (by FK)
+     -> buildMgRows -> buildMgWorkbook (exceljs) -> Buffer
+  <- browser downloads Malzeme_Takip_MG-F069_<dept>_<year>.xlsx
+```
+
+## 7. Error handling
+
+- Missing/blank `department` → **400**.
+- Department not in caller's accessible set → **403** (defensive; both allowed
+  roles are bypass roles today).
+- No matching purchases → **200** with a valid sheet: title + headers + zero data
+  rows (still a usable ISO artifact).
+- Non-Latin-1 chars in department (e.g. `İ`) handled by the ASCII filename
+  fallback + `filename*` (the bug already fixed for LY-F064).
+
+## 8. Testing / verification
+
+- Unit (`server/mgTrackingForm.test.cjs`): date formatting; one row per
+  distribution; blank dispatch columns when no distribution; username passthrough;
+  empty input → no rows.
+- Live (local DB): role/param matrix (200 / 403 / 400); open generated file with
+  exceljs and confirm headers + rows. Local data is sparse (2 purchases, no
+  distributions), so a temporary purchase + distribution will be seeded for a
+  known department to verify the join and row rendering, then removed.
+
+## 9. Files touched
+
+- **New:** `server/mgTrackingForm.cjs`, `server/mgTrackingForm.test.cjs`.
+- **Edit:** `server/index.js` (route; reuse `canExportIsoForm`).
+- **Edit:** `server/isoCountForm.cjs` (export `formatDateTR` for reuse).
+- **Edit:** `src/api.js` (`downloadMgTrackingForm`).
+- **Edit:** `src/App.jsx` (new nav item + page; move LY-F064 controls off Stok
+  toolbar).
+- **New:** `updates/UPDATE_2026-07-16_mg-tracking-form-and-iso-page.md`.
+
+## 10. Rollback
+
+Code-only, no DB migration. Revert the commits. No exceljs change (already a
+dependency).
