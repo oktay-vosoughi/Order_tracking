@@ -240,13 +240,14 @@ const LabEquipmentTracker = () => {
   const canDistribute = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
   const canViewPrices = isAdmin || isKurumsal || isKalite || !!currentUser?.canViewPrices;
 
-  // Fetch + cache ONLY distributable lots for an item (ACTIVE, qty > 0, not expired).
+  // Fetch + cache distributable lots for an item (ACTIVE, qty > 0). Expired lots
+  // are included on purpose — dağıtım of expired stock is allowed, just flagged.
   const loadItemLots2 = async (itemId) => {
     if (!itemId) return;
     try {
       const res = await fetchItemLots(itemId);
       const distributable = (res?.lots || []).filter(
-        (l) => l.status === 'ACTIVE' && Number(l.currentQuantity) > 0 && l.expiryStatus !== 'EXPIRED'
+        (l) => l.status === 'ACTIVE' && Number(l.currentQuantity) > 0
       );
       setItemLotsCache((prev) => ({ ...prev, [itemId]: distributable }));
     } catch (error) {
@@ -255,10 +256,11 @@ const LabEquipmentTracker = () => {
     }
   };
 
-  // Human-readable option label: "Parti X · SKT 01.01.2027 · 5 koli mevcut"
+  // Human-readable option label: "Parti X · SKT 01.01.2027 · 5 koli mevcut" (+ SKT GEÇMİŞ warning)
   const distributableLotLabel = (lot, unit) => {
     const skt = lot.expiryDate ? new Date(lot.expiryDate).toLocaleDateString('tr-TR') : 'SKT yok';
-    return `Parti ${lot.lotNumber} · SKT ${skt} · ${lot.currentQuantity} ${unit || 'koli'} mevcut`;
+    const warning = lot.expiryStatus === 'EXPIRED' ? ' · ⚠ SKT GEÇMİŞ' : '';
+    return `Parti ${lot.lotNumber} · SKT ${skt} · ${lot.currentQuantity} ${unit || 'koli'} mevcut${warning}`;
   };
 
   // Pending CEP DEPO lab-tech requests grouped by itemId.

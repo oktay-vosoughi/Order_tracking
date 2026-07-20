@@ -2145,10 +2145,10 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
           const rowQty = Number(row.qty);
           if (!row.lotId || !(rowQty > 0)) throw { status: 400, error: 'INVALID_LOT_ROW', message: 'Her satır için geçerli parti ve miktar gerekli.' };
           const lotRow = await all(conn,
-            "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' AND (expiryDate IS NULL OR expiryDate >= CURDATE()) FOR UPDATE",
+            "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' FOR UPDATE",
             [row.lotId, itemId]);
           const lot = lotRow?.[0];
-          if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Parti bulunamadı veya aktif/süresi geçmiş değil.' };
+          if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Parti bulunamadı veya aktif değil.' };
           if (Number(lot.currentQuantity) < rowQty) throw { status: 400, error: 'INSUFFICIENT_LOT_STOCK', message: `Parti ${lot.lotNumber}: mevcut ${lot.currentQuantity}, istenen ${rowQty}.` };
           const newQty = Number(lot.currentQuantity) - rowQty;
           await run(conn, 'UPDATE lots SET currentQuantity = ?, status = ?, updatedBy = ? WHERE id = ?',
@@ -2168,7 +2168,7 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
         let otherLots = [];
         if (remaining > 0) {
           otherLots = await all(conn,
-            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND status = 'ACTIVE' AND currentQuantity > 0 AND (expiryDate IS NULL OR expiryDate >= CURDATE()) ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
+            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND status = 'ACTIVE' AND currentQuantity > 0 ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
             [itemId, lotId]);
           const otherAvailable = otherLots.reduce((s, l) => s + Number(l.currentQuantity), 0);
           if (takeFromSelected + otherAvailable < quantity) {
@@ -2193,11 +2193,11 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
       } else {
         // FEFO auto-selection
         const availableLots = await all(conn, `
-          SELECT * FROM lots 
-          WHERE itemId = ? AND status = 'ACTIVE' AND currentQuantity > 0 AND (expiryDate IS NULL OR expiryDate >= CURDATE())
-          ORDER BY 
+          SELECT * FROM lots
+          WHERE itemId = ? AND status = 'ACTIVE' AND currentQuantity > 0
+          ORDER BY
             CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END,
-            expiryDate ASC, 
+            expiryDate ASC,
             receivedDate ASC
           FOR UPDATE
         `, [itemId]);
@@ -3785,10 +3785,10 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
           const rowQty = Number(row.qty);
           if (!row.lotId || !(rowQty > 0)) throw { status: 400, error: 'INVALID_LOT_ROW', message: 'Her satır için geçerli parti ve miktar gerekli.' };
           const lotRow = await all(conn,
-            "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' AND (expiryDate IS NULL OR expiryDate >= CURDATE()) FOR UPDATE",
+            "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' FOR UPDATE",
             [row.lotId, itemId]);
           const lot = lotRow?.[0];
-          if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Parti bulunamadı veya aktif/süresi geçmiş değil.' };
+          if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Parti bulunamadı veya aktif değil.' };
           if (Number(lot.currentQuantity) < rowQty) throw { status: 409, error: 'INSUFFICIENT_LOT_STOCK', message: `Parti ${lot.lotNumber}: mevcut ${lot.currentQuantity}, istenen ${rowQty}.` };
           const factor = resolveUnitFactor(item, lot);
           const takeUnits = rowQty * factor;
@@ -3805,10 +3805,10 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
         // Manual primary-lot selection: take from chosen lot first, then spill
         // into other active lots (FEFO order) for any remaining quantity.
         const lotRows = await all(conn,
-          "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' AND (expiryDate IS NULL OR expiryDate >= CURDATE()) FOR UPDATE",
+          "SELECT * FROM lots WHERE id = ? AND itemId = ? AND status = 'ACTIVE' FOR UPDATE",
           [lotId, itemId]);
         const lot = lotRows?.[0];
-        if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Seçilen parti bulunamadı, aktif değil veya süresi geçmiş.' };
+        if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Seçilen parti bulunamadı veya aktif değil.' };
 
         const takeFromSelected = Math.min(Number(lot.currentQuantity), packQtyNum);
         let remaining = packQtyNum - takeFromSelected;
@@ -3817,7 +3817,7 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
         let otherLots = [];
         if (remaining > 0) {
           otherLots = await all(conn,
-            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND status = 'ACTIVE' AND currentQuantity > 0 AND (expiryDate IS NULL OR expiryDate >= CURDATE()) ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
+            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND status = 'ACTIVE' AND currentQuantity > 0 ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
             [itemId, lotId]);
           const otherAvailable = otherLots.reduce((s, l) => s + Number(l.currentQuantity), 0);
           if (takeFromSelected + otherAvailable < packQtyNum) {
