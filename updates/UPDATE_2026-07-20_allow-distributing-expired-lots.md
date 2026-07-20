@@ -29,6 +29,12 @@ a `⚠ SKT GEÇMİŞ` warning in the lot picker label so staff make an informed 
     DEPO Lab Teknisyen Talepleri approval row).
   - `distributableLotLabel` — appends `· ⚠ SKT GEÇMİŞ` to the option text when
     `lot.expiryStatus === 'EXPIRED'`.
+  - `distributeItem` (main Dağıt modal submit) — now blocks on a `window.confirm`
+    with an explicit `⚠ DİKKAT` warning + per-lot breakdown whenever any selected
+    lot is expired; previously this path had no confirmation dialog at all.
+  - `approveAndDistributeCepRequest` (Onayla & Dağıt submit) — its existing
+    confirm dialog now prepends the same `⚠ DİKKAT` warning and flags expired
+    lots inline in the breakdown when applicable.
 
 ## DB changes
 None. No migration required.
@@ -48,10 +54,10 @@ Revert this commit. No data was migrated or backfilled.
    `/api/cep-depo/distribute` (Onayla & Dağıt flow) to cover both code paths.
 
 ## Risks
-- Staff can now hand out expired reagents/materials without any system-level
-  block — the warning label is advisory only, not a confirmation gate. If a hard
-  stop (e.g. a confirm dialog) is wanted later, that's a follow-up UI change, not
-  covered here.
+- Staff can now hand out expired reagents/materials — the system only blocks with
+  a `window.confirm` speed bump (label + explicit "yine de dağıt?" prompt) before
+  submitting; there is no server-side hard stop, so a scripted/API caller could
+  still bypass the warning entirely.
 - `totalStock` / `availableStock` reporting queries in `/api/unified-stock` and
   the stock reports were intentionally left unchanged — they still distinguish
   expired vs non-expired for stock-health purposes; only the distribution path

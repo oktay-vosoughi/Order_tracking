@@ -1165,12 +1165,18 @@ const LabEquipmentTracker = () => {
       return;
     }
     const lots = completeRows.map((r) => ({ lotId: r.lotId, qty: Number(r.qty) }));
+    const lotCache = itemLotsCache[item.id] || [];
+    const expiredCount = lots.filter((r) => lotCache.find((l) => l.id === r.lotId)?.expiryStatus === 'EXPIRED').length;
     const breakdown = lots.map((r) => {
-      const l = (itemLotsCache[item.id] || []).find((x) => x.id === r.lotId);
-      return `  · ${l ? `Parti ${l.lotNumber}` : r.lotId}: ${r.qty} ${item.packageUnit || 'koli'}`;
+      const l = lotCache.find((x) => x.id === r.lotId);
+      const warn = l?.expiryStatus === 'EXPIRED' ? ' ⚠ SKT GEÇMİŞ' : '';
+      return `  · ${l ? `Parti ${l.lotNumber}` : r.lotId}: ${r.qty} ${item.packageUnit || 'koli'}${warn}`;
     }).join('\n');
+    const expiredWarning = expiredCount > 0
+      ? `⚠ DİKKAT: Seçilen partilerden ${expiredCount} tanesinin SKT'si (son kullanma tarihi) geçmiş!\n\n`
+      : '';
     if (!window.confirm(
-      `${item.name} → ${tech.username}\nTalep: ${purchase.requestNumber || purchase.id.slice(0,8)}\n\nParti dağılımı:\n${breakdown}\n\nOnayla ve CEP DEPOya dağıt?`
+      `${expiredWarning}${item.name} → ${tech.username}\nTalep: ${purchase.requestNumber || purchase.id.slice(0,8)}\n\nParti dağılımı:\n${breakdown}\n\nOnayla ve CEP DEPOya dağıt?`
     )) return;
 
     try {
@@ -1238,6 +1244,18 @@ const LabEquipmentTracker = () => {
       return;
     }
     const lots = completeRows.map((r) => ({ lotId: r.lotId, qty: Number(r.qty) }));
+    const lotCache = itemLotsCache[item.id] || [];
+    const expiredCount = lots.filter((r) => lotCache.find((l) => l.id === r.lotId)?.expiryStatus === 'EXPIRED').length;
+    if (expiredCount > 0) {
+      const breakdown = lots.map((r) => {
+        const l = lotCache.find((x) => x.id === r.lotId);
+        const warn = l?.expiryStatus === 'EXPIRED' ? ' ⚠ SKT GEÇMİŞ' : '';
+        return `  · ${l ? `Parti ${l.lotNumber}` : r.lotId}: ${r.qty} ${item.packageUnit || 'koli'}${warn}`;
+      }).join('\n');
+      if (!window.confirm(
+        `⚠ DİKKAT: Seçilen partilerden ${expiredCount} tanesinin SKT'si (son kullanma tarihi) geçmiş!\n\n${breakdown}\n\nYine de dağıtmak istediğinize emin misiniz?`
+      )) return;
+    }
     try {
       await distribute({
         itemId: item.id,
