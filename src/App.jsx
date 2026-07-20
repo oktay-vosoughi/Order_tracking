@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import { 
   CHEMICAL_TYPES, 
@@ -197,9 +197,10 @@ const LabEquipmentTracker = () => {
     if (currentUser?.role === 'ADMIN') return 'role-chip role-chip--admin';
     if (currentUser?.role === 'OBSERVER') return 'role-chip role-chip--observer';
     if (currentUser?.role === 'LAB_TECHNICIAN') return 'role-chip role-chip--labtech';
+    if (currentUser?.role === 'KALITE') return 'role-chip role-chip--kalite';
     return 'role-chip';
   };
-  
+
   // Role-based capability helpers
   const userRole = currentUser?.role;
   const isAdmin = userRole === 'ADMIN';
@@ -208,26 +209,36 @@ const LabEquipmentTracker = () => {
   const isKurumsal = userRole === 'KURUMSAL';
   const isObserver = userRole === 'OBSERVER';
   const isLabTechnician = userRole === 'LAB_TECHNICIAN';
+  // Sees every section and every action button, but every write call is
+  // blocked centrally (src/api.js) and by the backend, which never grants
+  // KALITE any requireRole allowlist — buttons render, clicks no-op.
+  const isKalite = userRole === 'KALITE';
   const ROLE_LABELS = {
     ADMIN: 'ADMIN',
     SATINAL: 'SATINAL',
     SATINAL_LOJISTIK: 'SATINAL_LOJISTIK',
     KURUMSAL: 'KURUMSAL',
     OBSERVER: 'OBSERVER',
-    LAB_TECHNICIAN: 'LAB_TECHNICIAN'
+    LAB_TECHNICIAN: 'LAB_TECHNICIAN',
+    KALITE: 'KALITE'
   };
-  
+
+  // Keep api.js's write-guard in sync with whoever is signed in.
+  useEffect(() => {
+    setApiRole(currentUser?.role);
+  }, [currentUser?.role]);
+
   // Capability checks based on RBAC matrix
-  const canManageUsers = isAdmin;
+  const canManageUsers = isAdmin || isKalite;
   const canViewStock = true; // All roles can view stock
-  const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
-  const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isLabTechnician;
-  const canApprove = isAdmin || isSatinal || isKurumsal;
-  const canOrder = isAdmin || isSatinalLojistik;
-  const canReceive = isAdmin || isSatinalLojistik || !!currentUser?.canReceive;
-  const canExportIsoForm = isAdmin || isSatinalLojistik;
-  const canDistribute = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
-  const canViewPrices = isAdmin || isKurumsal || !!currentUser?.canViewPrices;
+  const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
+  const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isLabTechnician || isKalite;
+  const canApprove = isAdmin || isSatinal || isKurumsal || isKalite;
+  const canOrder = isAdmin || isSatinalLojistik || isKalite;
+  const canReceive = isAdmin || isSatinalLojistik || isKalite || !!currentUser?.canReceive;
+  const canExportIsoForm = isAdmin || isSatinalLojistik || isKalite;
+  const canDistribute = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
+  const canViewPrices = isAdmin || isKurumsal || isKalite || !!currentUser?.canViewPrices;
 
   // Fetch + cache ONLY distributable lots for an item (ACTIVE, qty > 0, not expired).
   const loadItemLots2 = async (itemId) => {
@@ -302,9 +313,9 @@ const LabEquipmentTracker = () => {
   }, [currentUser]);
 
   const canImportItems = canModifyInventory;
-  const canViewAllDagit = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
+  const canViewAllDagit = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
   const canViewDagit = true; // Tab visible to all; content filtered per role
-  const canViewTalep = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
+  const canViewTalep = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
   const canViewSiparis = canOrder;
   
   const username = currentUser?.username || '';
@@ -1982,7 +1993,7 @@ const LabEquipmentTracker = () => {
                 >
                   <Calendar size={13} /> FEFO {fefoMode ? 'Açık' : 'Kapalı'}
                 </button>
-                {isAdmin && (
+                {(isAdmin || isKalite) && (
                   <label className="tbar-btn" style={{ cursor: 'pointer' }}>
                     <Upload size={13} /> Excel Yükle
                     <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} style={{ display: 'none' }} />
@@ -2237,6 +2248,7 @@ const LabEquipmentTracker = () => {
                   <option value="KURUMSAL">KURUMSAL (Onayla + Dağıt + Fiyatlar)</option>
                   <option value="LAB_TECHNICIAN">LAB_TECHNICIAN (CEP DEPO sahibi)</option>
                   <option value="OBSERVER">OBSERVER (Sadece Görüntüleme)</option>
+                  <option value="KALITE">KALITE (Tüm Bölümleri Görür, Değişiklik Yapamaz)</option>
                   <option value="ADMIN">ADMIN (Tüm Yetkiler)</option>
                 </select>
                 <div className="px-4 py-2 border rounded-lg" title="Kullanıcının erişebileceği bölümler">
@@ -2347,7 +2359,7 @@ const LabEquipmentTracker = () => {
                       <tr key={u.id} className="hover:bg-gray-50">
                         <td className="px-3 py-2 font-medium">{u.username}</td>
                         <td className="px-3 py-2">
-                          <span className={`px-2 py-1 rounded text-xs ${u.role === 'ADMIN' ? 'bg-red-100 text-red-700' : u.role === 'SATINAL' ? 'bg-purple-100 text-purple-700' : u.role === 'SATINAL_LOJISTIK' ? 'bg-blue-100 text-blue-700' : u.role === 'LAB_TECHNICIAN' ? 'bg-green-100 text-green-700' : u.role === 'OBSERVER' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
+                          <span className={`px-2 py-1 rounded text-xs ${u.role === 'ADMIN' ? 'bg-red-100 text-red-700' : u.role === 'SATINAL' ? 'bg-purple-100 text-purple-700' : u.role === 'SATINAL_LOJISTIK' ? 'bg-blue-100 text-blue-700' : u.role === 'LAB_TECHNICIAN' ? 'bg-green-100 text-green-700' : u.role === 'OBSERVER' ? 'bg-yellow-100 text-yellow-700' : u.role === 'KALITE' ? 'bg-teal-100 text-teal-700' : 'bg-gray-100 text-gray-700'}`}>
                             {u.role}
                           </span>
                         </td>
@@ -3029,7 +3041,7 @@ const LabEquipmentTracker = () => {
                               Birim
                             </button>
                           )}
-                          {isAdmin && (
+                          {(isAdmin || isKalite) && (
                             <button
                               onClick={() => openUnitStockCorrection(item)}
                               className="status-action status-action--order"
@@ -3232,7 +3244,7 @@ const LabEquipmentTracker = () => {
                                 Birim
                               </button>
                             )}
-                            {isAdmin && (
+                            {(isAdmin || isKalite) && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -3621,7 +3633,7 @@ const LabEquipmentTracker = () => {
                                   <button onClick={() => rejectPurchaseRequest(purchase.id)} className="status-action status-action--reject">Reddet</button>
                                 </>
                               )}
-                              {isAdmin && (
+                              {(isAdmin || isKalite) && (
                                 <button onClick={() => deletePurchaseRequest(purchase.id)} className="status-action status-action--muted">Sil</button>
                               )}
                             </>
@@ -3714,7 +3726,7 @@ const LabEquipmentTracker = () => {
                                   <button onClick={() => rejectPurchaseRequest(purchase.id)} className="status-action status-action--reject">Reddet</button>
                                 </>
                               )}
-                              {isAdmin && (
+                              {(isAdmin || isKalite) && (
                                 <button onClick={() => deletePurchaseRequest(purchase.id)} className="status-action status-action--muted">Sil</button>
                               )}
                             </>
@@ -4390,7 +4402,7 @@ const LabEquipmentTracker = () => {
         {/* Deprecated bottom boxes removed */}
 
         <div className="mt-6 flex justify-center gap-4 flex-wrap">
-          {isAdmin && (
+          {(isAdmin || isKalite) && (
             <button onClick={clearAllData} className="flex items-center gap-2 px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600">
               <Trash2 size={20} />
               Tümünü Temizle
@@ -4401,7 +4413,7 @@ const LabEquipmentTracker = () => {
       </div>
 
       {/* Admin Birim/Stok Düzeltme Modal */}
-      {correctionItem && isAdmin && (
+      {correctionItem && (isAdmin || isKalite) && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-1">Birim ve Stok Düzelt</h3>

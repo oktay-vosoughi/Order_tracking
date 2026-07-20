@@ -8,11 +8,12 @@ const {
   buildDeptInClause,
 } = require('./departmentScope.cjs');
 
-test('isBypassRole returns true for ADMIN, SATINAL, SATINAL_LOJISTIK, KURUMSAL', () => {
+test('isBypassRole returns true for ADMIN, SATINAL, SATINAL_LOJISTIK, KURUMSAL, KALITE', () => {
   assert.equal(isBypassRole('ADMIN'), true);
   assert.equal(isBypassRole('SATINAL'), true);
   assert.equal(isBypassRole('SATINAL_LOJISTIK'), true);
   assert.equal(isBypassRole('KURUMSAL'), true);
+  assert.equal(isBypassRole('KALITE'), true);
 });
 
 test('isBypassRole returns false for LAB_TECHNICIAN and OBSERVER', () => {
@@ -20,10 +21,10 @@ test('isBypassRole returns false for LAB_TECHNICIAN and OBSERVER', () => {
   assert.equal(isBypassRole('OBSERVER'), false);
 });
 
-test('DEPARTMENT_BYPASS_ROLES contains exactly the four bypass roles', () => {
+test('DEPARTMENT_BYPASS_ROLES contains exactly the five bypass roles', () => {
   assert.deepEqual(
     [...DEPARTMENT_BYPASS_ROLES].sort(),
-    ['ADMIN', 'KURUMSAL', 'SATINAL', 'SATINAL_LOJISTIK'].sort()
+    ['ADMIN', 'KALITE', 'KURUMSAL', 'SATINAL', 'SATINAL_LOJISTIK'].sort()
   );
 });
 

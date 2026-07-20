@@ -15,7 +15,36 @@ export function clearAuthToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+// Mirrors the signed-in user's role so apiFetch can block writes client-side
+// (defense in depth — the server already rejects KALITE on every write route
+// since it's absent from every requireRole allowlist). Kept in sync by
+// App.jsx via setApiRole() whenever currentUser changes.
+let currentApiRole = null;
+
+export function setApiRole(role) {
+  currentApiRole = role || null;
+}
+
+export function getApiRole() {
+  return currentApiRole;
+}
+
+// KALITE sees every button in the UI, but none of them may mutate data —
+// short-circuit here so a click never reaches the network, regardless of
+// which component fired it.
+function assertWriteAllowed(method) {
+  if (currentApiRole === 'KALITE' && method !== 'GET') {
+    const message = 'KALITE rolü salt görüntüleme modundadır; bu işlem gerçekleştirilemez.';
+    const err = new Error(message);
+    err.status = 403;
+    err.payload = { error: 'READ_ONLY_ROLE', message };
+    throw err;
+  }
+}
+
 async function apiFetch(path, options = {}) {
+  assertWriteAllowed((options.method || 'GET').toUpperCase());
+
   const token = getAuthToken();
   const headers = {
     ...(options.headers || {})

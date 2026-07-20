@@ -2,7 +2,7 @@
 // Pure, DB-free logic for department-scoped visibility filtering.
 // See docs/superpowers/specs/2026-07-06-multi-department-visibility-design.md
 
-const DEPARTMENT_BYPASS_ROLES = ['ADMIN', 'SATINAL', 'SATINAL_LOJISTIK', 'KURUMSAL'];
+const DEPARTMENT_BYPASS_ROLES = ['ADMIN', 'SATINAL', 'SATINAL_LOJISTIK', 'KURUMSAL', 'KALITE'];
 
 function isBypassRole(role) {
   return DEPARTMENT_BYPASS_ROLES.includes(role);

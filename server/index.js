@@ -41,7 +41,12 @@ const ROLES = {
   SATINAL_LOJISTIK: 'SATINAL_LOJISTIK',
   KURUMSAL: 'KURUMSAL',
   OBSERVER: 'OBSERVER',
-  LAB_TECHNICIAN: 'LAB_TECHNICIAN'
+  LAB_TECHNICIAN: 'LAB_TECHNICIAN',
+  // Full read visibility everywhere, zero mutation rights. Deliberately not
+  // added to any requireRole()/adminRequired allowlist below — that absence
+  // is what makes every write route 403 for this role, so the frontend can
+  // safely render every action button for it (see App.jsx isKalite).
+  KALITE: 'KALITE'
 };
 
 const ALL_ROLES = [
@@ -50,7 +55,8 @@ const ALL_ROLES = [
   ROLES.SATINAL_LOJISTIK,
   ROLES.KURUMSAL,
   ROLES.OBSERVER,
-  ROLES.LAB_TECHNICIAN
+  ROLES.LAB_TECHNICIAN,
+  ROLES.KALITE
 ];
 
 const pool = mysql.createPool({
@@ -201,8 +207,10 @@ const canManageDepartmentMemberships = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
 // Who can export the controlled ISO count form (LY-F064). Restricted to
 // ADMIN and SATINAL_LOJISTIK only (NOT SATINAL) per the design decision.
+// KALITE is also allowed — it's a read-only export (GET, no mutation), so
+// the quality role gets real (not just cosmetic) access to it.
 const canExportIsoForm = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK, ROLES.KALITE])(req, res, next);
 const canViewPrices = (req, res, next) => {
   const u = req.user;
   if (u?.role === ROLES.ADMIN || u?.role === ROLES.KURUMSAL || u?.canViewPrices === true) return next();

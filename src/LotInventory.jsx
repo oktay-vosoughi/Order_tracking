@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { Package, Plus, Search, Layers, ArrowDownCircle, AlertTriangle, Calendar, Trash2, Eye, ChevronDown, ChevronUp, CheckCircle, XCircle, BarChart2, Clock, Building2, Upload, Download } from 'lucide-react';
 import { DEPARTMENTS, STORAGE_TEMPS, CHEMICAL_TYPES, formatDate, getExpiryColorClass, openAttachmentSafely } from './labUtils';
 import { buildLotImportPayload } from './utils/lotExcelImporter';
+import { getApiRole } from './api';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -12,6 +13,10 @@ const getAuthHeaders = () => {
 };
 
 const apiCall = async (endpoint, options = {}) => {
+  const method = (options.method || 'GET').toUpperCase();
+  if (getApiRole() === 'KALITE' && method !== 'GET') {
+    throw new Error('KALITE rolü salt görüntüleme modundadır; bu işlem gerçekleştirilemez.');
+  }
   const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers: getAuthHeaders() });
   if (!res.ok) { const error = await res.json().catch(() => ({ error: 'UNKNOWN_ERROR' })); throw new Error(error.message || error.error); }
   return res.json();
@@ -57,7 +62,7 @@ const LotInventory = ({ currentUser }) => {
   const [newLot, setNewLot] = useState({ lotNumber: '', manufacturer: '', catalogNo: '', expiryDate: '', receivedDate: new Date().toISOString().split('T')[0], initialQuantity: 0, department: '', location: '', storageLocation: '', invoiceNo: '', notes: '', attachmentUrl: '', attachmentName: '' });
   const [consumeForm, setConsumeForm] = useState({ quantity: 0, lotId: '', department: '', purpose: '', notes: '', useFefo: true, receivedBy: '' });
 
-  const canEditLotSkt = currentUser?.role === 'ADMIN' || currentUser?.role === 'SATINAL_LOJISTIK' || !!currentUser?.canReceive;
+  const canEditLotSkt = currentUser?.role === 'ADMIN' || currentUser?.role === 'SATINAL_LOJISTIK' || currentUser?.role === 'KALITE' || !!currentUser?.canReceive;
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => { if (activeView === 'reports') loadReports(); }, [activeView]);

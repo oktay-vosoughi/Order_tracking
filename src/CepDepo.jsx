@@ -30,7 +30,12 @@ export default function CepDepo({ currentUser }) {
   const isLabTech = role === 'LAB_TECHNICIAN';
   const isAdmin = role === 'ADMIN';
   const isSatinal = role === 'SATINAL';
-  const isPrivileged = isAdmin || isSatinal || role === 'SATINAL_LOJISTIK' || role === 'KURUMSAL';
+  const isKalite = role === 'KALITE';
+  const isPrivileged = isAdmin || isSatinal || role === 'SATINAL_LOJISTIK' || role === 'KURUMSAL' || isKalite;
+  // Narrower than isPrivileged: only ADMIN/SATINAL actually approve/reject/override
+  // CEP requests. KALITE gets the same buttons rendered (read-only role — every
+  // write call is blocked centrally in api.js and by the backend's role allowlist).
+  const canReviewCepRequests = isAdmin || isSatinal || isKalite;
   const showDeptColumn = !isLabTech || (Array.isArray(currentUser?.departments) && currentUser.departments.length > 1);
 
   const [balances, setBalances] = useState([]);
@@ -88,7 +93,7 @@ export default function CepDepo({ currentUser }) {
           ? fetchPurchasesFiltered({ forMe: true }).catch(() => ({ purchases: [] }))
           : Promise.resolve({ purchases: [] }),
         // Pending approvals — admin/satinal
-        (isAdmin || isSatinal)
+        canReviewCepRequests
           ? fetchPurchasesFiltered({ status: 'TALEP_EDILDI', scope: 'cep' }).catch(() => ({ purchases: [] }))
           : Promise.resolve({ purchases: [] }),
         // Ready for distribution — admin/satinal/lojistik
@@ -401,7 +406,7 @@ export default function CepDepo({ currentUser }) {
             </td>
             {showActions && (
               <td className="px-3 py-2">
-                {p.status === 'TALEP_EDILDI' && (isAdmin || isSatinal) && (
+                {p.status === 'TALEP_EDILDI' && canReviewCepRequests && (
                   <div className="flex gap-1">
                     <button onClick={() => handleApprove(p)} className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700">Onayla</button>
                     <button onClick={() => handleReject(p)} className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700">Reddet</button>
@@ -674,7 +679,7 @@ export default function CepDepo({ currentUser }) {
         </section>
       )}
 
-      {(isAdmin || isSatinal) && (
+      {canReviewCepRequests && (
         <section className="bg-white rounded-xl shadow p-4 border-2 border-amber-400">
           <h3 className="text-lg font-bold mb-1">Override Talep (Lab Teknisyeni Adına)</h3>
           <p className="text-sm text-gray-600 mb-2">CEP DEPO bakiyesi varken bile, gerekçeyle yeni talep oluştur. Sebep loglanır.</p>
@@ -694,7 +699,7 @@ export default function CepDepo({ currentUser }) {
         </section>
       )}
 
-      {(isAdmin || isSatinal) && (
+      {canReviewCepRequests && (
         <section className="bg-white rounded-xl shadow p-4 overflow-x-auto">
           <h3 className="text-lg font-bold mb-3">Onay Bekleyen Lab Teknisyeni Talepleri</h3>
           <p className="text-sm text-gray-500 mb-2">Onaylandığında "Dağıtım Bekleyen" listesine düşer.</p>

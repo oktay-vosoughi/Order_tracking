@@ -300,6 +300,7 @@ input, select, textarea { font-family: inherit; }
 .role-chip--admin { background: rgba(15,31,92,.18); color: var(--n); }
 .role-chip--observer { background: rgba(138,141,143,.22); color: var(--color-gray); }
 .role-chip--labtech { background: rgba(22,163,74,.18); color: #15803D; }
+.role-chip--kalite { background: rgba(13,148,136,.18); color: #0F766E; }
 
 /* ── Mobile classes (still used in tab content) ── */
 .mobile-field-label { display: block; margin-bottom: .35rem; font-size: .72rem; font-weight: 700; color: var(--color-gray); text-transform: uppercase; }
