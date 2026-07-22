@@ -3089,7 +3089,7 @@ const LabEquipmentTracker = () => {
                               Belge
                             </button>
                           )}
-                          {pending && <span className="mobile-inline-note">Talep var</span>}
+                          {pending && <span className="mobile-inline-note">EBYS beklemede</span>}
                         </div>
                       </div>
                     )}
@@ -3195,7 +3195,7 @@ const LabEquipmentTracker = () => {
                           ) : (
                             <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">STOKTA</span>
                           )}
-                          {pending && <div className="text-xs text-yellow-600 mt-1">Talep var</div>}
+                          {pending && <div className="text-xs text-yellow-600 mt-1">EBYS beklemede</div>}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex gap-1 flex-wrap">
