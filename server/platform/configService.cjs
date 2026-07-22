@@ -100,6 +100,7 @@ const loadCompanyConfig = async (pool, companyId) => {
     terminology: { ...DEFAULT_TERMINOLOGY, ...(settings.terminology || {}) },
     general: { ...DEFAULT_GENERAL_SETTINGS, ...(settings.general || {}) },
     fieldConfig: mergeFieldConfig(DEFAULT_FIELD_CONFIG, settings.fieldConfig || {}),
+    customFields: settings.customFields || {},
     options: settings.options || {},
     roles: Object.values(rolesByKey)
   };
@@ -111,6 +112,7 @@ const buildFallbackConfig = (companyId) => ({
   terminology: { ...DEFAULT_TERMINOLOGY },
   general: { ...DEFAULT_GENERAL_SETTINGS },
   fieldConfig: mergeFieldConfig(DEFAULT_FIELD_CONFIG, {}),
+  customFields: {},
   options: {},
   roles: SYSTEM_ROLES.map((r) => ({ id: null, key: r.key, name: r.name, isSystem: true, permissions: [...r.permissions] })),
   _fallback: true
@@ -168,6 +170,46 @@ const getUserPermissions = async (pool, user) => {
   return [...perms];
 };
 
+// Validate/coerce a customData payload against the company's custom field
+// definitions. Unknown keys are dropped; values are coerced by declared type;
+// invalid values are silently omitted (the frontend enforces required-ness).
+// Returns a plain object, or null when nothing remains.
+const sanitizeCustomData = (config, formKey, input) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const defs = (config?.customFields?.[formKey]) || [];
+  const out = {};
+  for (const def of defs) {
+    if (!(def.key in input)) continue;
+    const raw = input[def.key];
+    if (raw === null || raw === undefined || raw === '') continue;
+    switch (def.type) {
+      case 'number': {
+        const n = Number(raw);
+        if (Number.isFinite(n)) out[def.key] = n;
+        break;
+      }
+      case 'checkbox':
+        out[def.key] = raw === true || raw === 'true' || raw === 1 || raw === '1';
+        break;
+      case 'select': {
+        const v = String(raw).trim();
+        if ((def.options || []).includes(v)) out[def.key] = v;
+        break;
+      }
+      case 'date': {
+        const v = String(raw).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(v)) out[def.key] = v;
+        break;
+      }
+      default: {
+        const v = String(raw).trim();
+        if (v) out[def.key] = v.slice(0, 500);
+      }
+    }
+  }
+  return Object.keys(out).length ? out : null;
+};
+
 const isModuleEnabled = async (pool, companyId, moduleKey) => {
   const config = await getCompanyConfig(pool, companyId || DEFAULT_COMPANY_ID);
   const mod = config.modules.find((m) => m.key === moduleKey);
@@ -180,6 +222,7 @@ module.exports = {
   userHasPermission,
   getUserPermissions,
   isModuleEnabled,
+  sanitizeCustomData,
   PERMISSIONS,
   MODULES
 };

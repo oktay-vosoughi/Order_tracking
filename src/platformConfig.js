@@ -47,3 +47,20 @@ export function getGeneralSetting(key, fallback = null) {
   const v = config?.general?.[key];
   return v === undefined || v === null ? fallback : v;
 }
+
+// Custom field definitions for a form: [{ key, label, type, required, options? }]
+export function getCustomFields(formKey) {
+  return config?.customFields?.[formKey] || [];
+}
+
+// customData arrives as a parsed object or a JSON string depending on the
+// mysql2 JSON column handling — normalize to a plain object.
+export function parseCustomData(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}

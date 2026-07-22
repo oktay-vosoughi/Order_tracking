@@ -10,8 +10,9 @@ const jwt = require('jsonwebtoken');
 const { buildUnitCorrectionValues } = require('./unitCorrection.cjs');
 const { validateLotSplit } = require('./lotSplit.cjs');
 const { ensurePlatformSchema } = require('./platform/schema.cjs');
-const { getCompanyConfig, userHasPermission, isModuleEnabled } = require('./platform/configService.cjs');
+const { getCompanyConfig, userHasPermission, isModuleEnabled, sanitizeCustomData } = require('./platform/configService.cjs');
 const { registerPlatformRoutes, requirePermissionFactory, requireModuleFactory } = require('./platform/routes.cjs');
+const { createTenantPoolRouter } = require('./platform/tenantDb.cjs');
 
 const PORT = process.env.PORT || 4000;
 
@@ -53,15 +54,43 @@ const ALL_ROLES = [
   ROLES.LAB_TECHNICIAN
 ];
 
-const pool = mysql.createPool({
+const MYSQL_CONN_CONFIG = {
   host: MYSQL_HOST,
   port: MYSQL_PORT,
   user: MYSQL_USER,
-  password: MYSQL_PASSWORD,
+  password: MYSQL_PASSWORD
+};
+
+const centralPool = mysql.createPool({
+  ...MYSQL_CONN_CONFIG,
   database: MYSQL_DATABASE,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
+});
+
+// ---- Per-company database routing -------------------------------------------
+// Companies may have a dedicated database (companies.dbName, see platform/tenantDb.cjs).
+// A request-scoped AsyncLocalStorage holds the effective pool for the caller's
+// company; `pool` is a proxy that delegates to it, defaulting to the central pool.
+// This keeps every existing query/transaction call site unchanged: business tables
+// resolve inside the tenant DB, identity/config tables resolve through views that
+// point back at the central DB.
+const { AsyncLocalStorage } = require('node:async_hooks');
+const dbContext = new AsyncLocalStorage();
+
+const tenantRouter = createTenantPoolRouter({
+  centralPool,
+  centralDbName: MYSQL_DATABASE,
+  mysqlConfig: MYSQL_CONN_CONFIG
+});
+
+const pool = new Proxy(centralPool, {
+  get(target, prop) {
+    const active = dbContext.getStore() || target;
+    const value = active[prop];
+    return typeof value === 'function' ? value.bind(active) : value;
+  }
 });
 
 const all = async (connOrPool, sql, params = []) => {
@@ -179,8 +208,9 @@ const requireRole = (allowedRoles) => (req, res, next) => {
 // canReceive/canViewPrices flags are OR-ed in inside userHasPermission().
 // If the config tables are missing (un-migrated DB), checks fall back to the
 // legacy role matrix defined in platform/registry.cjs.
-const requirePermission = requirePermissionFactory(pool);
-const requireModule = requireModuleFactory(pool);
+// Permission/module checks read config tables, which always live centrally.
+const requirePermission = requirePermissionFactory(centralPool);
+const requireModule = requireModuleFactory(centralPool);
 
 const canApprove = requirePermission('purchases.approve');
 const canOrder = requirePermission('purchases.order');
@@ -206,7 +236,7 @@ const countUsers = async () => {
 // custom roles), falling back to the legacy list if config is unavailable.
 const isValidRoleForCompany = async (companyId, roleKey) => {
   try {
-    const config = await getCompanyConfig(pool, companyId || 1);
+    const config = await getCompanyConfig(centralPool, companyId || 1);
     return config.roles.some((r) => r.key === roleKey);
   } catch {
     return ALL_ROLES.includes(roleKey);
@@ -214,6 +244,14 @@ const isValidRoleForCompany = async (companyId, roleKey) => {
 };
 
 const companyIdOf = (req) => Number(req.user?.companyId) || 1;
+
+// Sanitized customData for the caller's company (unknown keys dropped, values
+// coerced by declared type). Returns null when nothing valid was sent.
+const customDataFor = async (req, formKey) => {
+  if (req.body?.customData === undefined) return null;
+  const config = await getCompanyConfig(centralPool, companyIdOf(req));
+  return sanitizeCustomData(config, formKey, req.body.customData);
+};
 
 const countAdmins = async () => {
   const rows = await all(pool, "SELECT COUNT(*) AS cnt FROM users WHERE role = 'ADMIN'");
@@ -293,6 +331,25 @@ if (IS_PRODUCTION && CORS_ORIGINS.length) {
 
 app.use(express.json({ limit: '5mb' }));
 
+// Enter the per-company database context for every API request. The token is
+// decoded best-effort only to pick the pool — authRequired still does the real
+// verification per route. No token / unknown company / lookup failure all fall
+// back to the central pool, so this middleware can never block a request.
+app.use('/api', async (req, _res, next) => {
+  let db = centralPool;
+  try {
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (token) {
+      const payload = jwt.verify(token, JWT_SECRET);
+      db = await tenantRouter.getDbForCompany(payload?.companyId);
+    }
+  } catch {
+    db = centralPool;
+  }
+  dbContext.run(db, next);
+});
+
 // Lightweight in-memory brute-force throttle for auth endpoints.
 // Not a substitute for a real rate limiter (resets on restart, per-process),
 // but stops trivial password-guessing without adding a dependency.
@@ -331,7 +388,21 @@ app.get('/api/health', (_req, res) => {
 });
 
 // Platform configuration API: /api/config + /api/admin/* (see server/platform/).
-registerPlatformRoutes(app, { pool, authRequired, bcrypt });
+// Config/identity always live in the central DB, so the platform routes get the
+// central pool explicitly (not the request-routed proxy).
+registerPlatformRoutes(app, {
+  pool: centralPool,
+  authRequired,
+  bcrypt,
+  tenantDb: {
+    centralDbName: MYSQL_DATABASE,
+    mysqlConfig: MYSQL_CONN_CONFIG,
+    onTenantCreated: async (dbName) => {
+      tenantRouter.invalidate();
+      await ensureBusinessSchema(tenantRouter.poolForDbName(dbName), { seedDepartments: false });
+    }
+  }
+});
 
 app.post('/api/auth/bootstrap', async (req, res) => {
   const { username, password } = req.body || {};
@@ -793,10 +864,11 @@ app.post('/api/item-definitions', authRequired, canManageItems, async (req, res)
 
   try {
     const id = generateId();
+    const customData = await customDataFor(req, 'itemForm');
     await run(pool, `
-      INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType, minReactionThreshold, status, createdBy)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
-    `, [id, code, name, category || '', department || '', unit || '', minStock || 0, ideal_stock || null, max_stock || null, supplier || '', catalogNo || '', brand || '', storageLocation || '', storageTemp || '', chemicalType || '', msdsUrl || '', notes || '', pkgUnit, conUnit, upp, cut, mrt, req.user.username]);
+      INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType, minReactionThreshold, customData, status, createdBy)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+    `, [id, code, name, category || '', department || '', unit || '', minStock || 0, ideal_stock || null, max_stock || null, supplier || '', catalogNo || '', brand || '', storageLocation || '', storageTemp || '', chemicalType || '', msdsUrl || '', notes || '', pkgUnit, conUnit, upp, cut, mrt, customData ? JSON.stringify(customData) : null, req.user.username]);
     
     const items = await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [id]);
     res.json({ item: items[0] });
@@ -878,9 +950,16 @@ app.put('/api/item-definitions/:id', authRequired, canManageItems, async (req, r
         unitsPerPackage = COALESCE(?, unitsPerPackage),
         consumptionUnitType = COALESCE(?, consumptionUnitType),
         minReactionThreshold = COALESCE(?, minReactionThreshold),
+        customData = COALESCE(?, customData),
         updatedBy = ?
       WHERE id = ?
-    `, [code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status, pkgUnit, conUnit, upp, cut, mrt, req.user.username, req.params.id]);
+    `, [code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status, pkgUnit, conUnit, upp, cut, mrt,
+        // customData omitted = keep as is; sent = replace whole object ({} clears all values)
+        req.body?.customData === undefined ? null : JSON.stringify((await customDataFor(req, 'itemForm')) || {}),
+        req.user.username, req.params.id]
+      // Omitted body fields arrive as undefined, which mysql2's execute() rejects;
+      // null is what the COALESCE "keep existing value" contract expects.
+      .map((p) => (p === undefined ? null : p)));
     
     const items = await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [req.params.id]);
     const updated = items[0];
@@ -1561,6 +1640,7 @@ app.get('/api/unified-stock', authRequired, async (_req, res) => {
         id.chemicalType,
         id.msdsUrl,
         id.notes,
+        id.customData,
         id.status AS itemStatus,
         id.createdAt,
         id.createdBy,
@@ -2127,21 +2207,23 @@ app.post('/api/purchases', authRequired, async (req, res) => {
     const purchaseId = generateId();
     const requestNumber = 'REQ-' + Date.now().toString().slice(-6);
 
+    const customData = await customDataFor(req, 'requestForm');
     await withTransaction(async (conn) => {
       await run(conn, `
         INSERT INTO purchases (
           id, requestNumber, itemId, itemCode, itemName, department,
           requestedQty, requestedBy, requestedFor, overrideReason, isCepDepoRequest,
           requestedAt, requestDate,
-          status, supplierName, orderedQty, notes, urgency
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), CURDATE(), 'TALEP_EDILDI', ?, ?, ?, ?)
+          status, supplierName, orderedQty, notes, urgency, customData
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), CURDATE(), 'TALEP_EDILDI', ?, ?, ?, ?, ?)
       `, [
         purchaseId, requestNumber, itemId, itemCode || '', itemName || '', department || '',
         requestedQty, requesterUsername,
         effectiveLabTechUsername || null,
         usedOverride ? String(overrideReason).trim() : null,
         cepFlag,
-        supplierName || '', requestedQty, notes || '', urgency || 'normal'
+        supplierName || '', requestedQty, notes || '', urgency || 'normal',
+        customData ? JSON.stringify(customData) : null
       ]);
 
       if (usedOverride) {
@@ -3139,15 +3221,17 @@ app.post('/api/clear-all', authRequired, requirePermission('system.admin'), asyn
 // See docs/audit/CEP_DEPO_DESIGN.md
 // ============================================================
 
-const ensureCepDepoTables = async () => {
+// Runs against the central DB at boot AND against each tenant DB (where the
+// identity tables are views, so their ensureColumn checks naturally no-op).
+const ensureCepDepoTables = async (db = centralPool, { seedDepartments = true } = {}) => {
   // item_definitions extensions
   const ensureColumn = async (table, column, ddl) => {
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       'SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
       [table, column]
     );
     if (Number(rows?.[0]?.cnt || 0) === 0) {
-      await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN ${ddl}`);
+      await db.query(`ALTER TABLE \`${table}\` ADD COLUMN ${ddl}`);
     }
   };
 
@@ -3170,7 +3254,7 @@ const ensureCepDepoTables = async () => {
     await ensureColumn('purchases', 'isCepDepoRequest', '`isCepDepoRequest` TINYINT(1) NOT NULL DEFAULT 0');
   } catch (e) { console.warn('[ensureCepDepo] purchases ALTER skipped:', e?.code || e?.message); }
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS cep_depo_balances (
+  await db.query(`CREATE TABLE IF NOT EXISTS cep_depo_balances (
     id VARCHAR(64) NOT NULL,
     labTechnicianId BIGINT UNSIGNED NOT NULL,
     labTechnicianUsername VARCHAR(100) NOT NULL,
@@ -3189,7 +3273,7 @@ const ensureCepDepoTables = async () => {
     INDEX idx_cep_balance_tech (labTechnicianId)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS cep_depo_distributions (
+  await db.query(`CREATE TABLE IF NOT EXISTS cep_depo_distributions (
     id VARCHAR(64) NOT NULL,
     labTechnicianId BIGINT UNSIGNED NOT NULL,
     labTechnicianUsername VARCHAR(100) NOT NULL,
@@ -3206,7 +3290,7 @@ const ensureCepDepoTables = async () => {
     INDEX idx_cep_dist_purchase (purchaseId)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS cep_depo_distribution_lots (
+  await db.query(`CREATE TABLE IF NOT EXISTS cep_depo_distribution_lots (
     id VARCHAR(64) NOT NULL,
     cepDistributionId VARCHAR(64) NOT NULL,
     lotId VARCHAR(64) NOT NULL,
@@ -3219,7 +3303,7 @@ const ensureCepDepoTables = async () => {
     INDEX idx_cep_distlot_lot (lotId)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS cep_depo_consumptions (
+  await db.query(`CREATE TABLE IF NOT EXISTS cep_depo_consumptions (
     id VARCHAR(64) NOT NULL,
     labTechnicianId BIGINT UNSIGNED NOT NULL,
     labTechnicianUsername VARCHAR(100) NOT NULL,
@@ -3236,7 +3320,7 @@ const ensureCepDepoTables = async () => {
     INDEX idx_cep_cons_item (itemId)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS stock_movements (
+  await db.query(`CREATE TABLE IF NOT EXISTS stock_movements (
     id VARCHAR(64) NOT NULL,
     movementType VARCHAR(32) NOT NULL,
     itemId VARCHAR(64) NOT NULL,
@@ -3259,15 +3343,18 @@ const ensureCepDepoTables = async () => {
     INDEX idx_sm_created (createdAt)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS departments (
-    id VARCHAR(64) NOT NULL,
-    name VARCHAR(150) NOT NULL,
-    active TINYINT(1) NOT NULL DEFAULT 1,
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uniq_department_name (name)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+  // In tenant DBs `departments` is a view onto the central table — never (re)create it there.
+  if (seedDepartments) {
+    await db.query(`CREATE TABLE IF NOT EXISTS departments (
+      id VARCHAR(64) NOT NULL,
+      name VARCHAR(150) NOT NULL,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_department_name (name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+  }
 
   // Upgrade path: ensure tracking columns exist on pre-existing cep_depo_balances tables.
   try {
@@ -3296,15 +3383,17 @@ const ensureCepDepoTables = async () => {
   } catch (e) { console.warn('[ensureCepDepo] cep department columns skipped:', e?.code || e?.message); }
 
   // Seed the department registry from the canonical list if empty (ADMIN can add more at runtime).
-  try {
-    const [seedRows] = await pool.query('SELECT COUNT(*) AS n FROM departments');
-    if (!seedRows?.[0]?.n) {
-      const seed = ['Cytogenetic', 'Molecular Micro', 'Molecular Genetic', 'Numune Kabul', 'Diğer'];
-      for (const name of seed) {
-        await pool.query('INSERT IGNORE INTO departments (id, name, active) VALUES (?, ?, 1)', [generateId(), name]);
+  if (seedDepartments) {
+    try {
+      const [seedRows] = await db.query('SELECT COUNT(*) AS n FROM departments');
+      if (!seedRows?.[0]?.n) {
+        const seed = ['Cytogenetic', 'Molecular Micro', 'Molecular Genetic', 'Numune Kabul', 'Diğer'];
+        for (const name of seed) {
+          await db.query('INSERT IGNORE INTO departments (id, name, active) VALUES (?, ?, 1)', [generateId(), name]);
+        }
       }
-    }
-  } catch (e) { console.warn('[ensureCepDepo] department seed skipped:', e?.code || e?.message); }
+    } catch (e) { console.warn('[ensureCepDepo] department seed skipped:', e?.code || e?.message); }
+  }
 };
 
 // Helper: resolve effective pack/unit factor (lot override > item default > 1)
@@ -4025,40 +4114,64 @@ app.get('*', (req, res) => {
   }
 });
 
+// Business-data schema self-heal, applied to the central DB and every tenant DB
+// (so schema evolution reaches dedicated company databases automatically).
+const ensureBusinessSchema = async (db, { seedDepartments = true } = {}) => {
+  // Fix any item_definitions rows with NULL status
+  try {
+    await db.query("UPDATE item_definitions SET status = 'ACTIVE' WHERE status IS NULL");
+  } catch (_) { /* ignore if table doesn't exist yet */ }
+  // Price tracking columns (idempotent)
+  await db.execute('ALTER TABLE receipts ADD COLUMN price DECIMAL(12,4) NULL').catch(() => {});
+  await db.execute('ALTER TABLE receipts ADD COLUMN supplierFirmName VARCHAR(255) NULL').catch(() => {});
+  await db.execute('ALTER TABLE purchases ADD COLUMN unitPrice DECIMAL(12,4) NULL').catch(() => {});
+  // Per-company custom fields store their values here (definitions live in
+  // company_settings('customFields'); see server/platform/registry.cjs).
+  await db.execute('ALTER TABLE item_definitions ADD COLUMN customData JSON NULL').catch(() => {});
+  await db.execute('ALTER TABLE purchases ADD COLUMN customData JSON NULL').catch(() => {});
+  // One-time migration: ONAYLANDI → SIPARIS_VERILDI (order step removed)
+  try {
+    const [migResult] = await db.query(
+      "UPDATE purchases SET status = 'SIPARIS_VERILDI', orderedBy = approvedBy, orderedAt = approvedAt, orderedDate = approvedDate WHERE status = 'ONAYLANDI'"
+    );
+    if (migResult.affectedRows > 0) {
+      console.log(`[migration] Converted ${migResult.affectedRows} ONAYLANDI → SIPARIS_VERILDI`);
+    }
+  } catch (e) { console.error('[migration] ONAYLANDI→SIPARIS_VERILDI failed:', e?.message); }
+  // CEP DEPO tables / columns
+  await ensureCepDepoTables(db, { seedDepartments });
+};
+
 const startServer = async () => {
   try {
     await ensureUsersTable();
-    await pool.query('SELECT 1');
+    await centralPool.query('SELECT 1');
     // Platform config tables (companies, modules, roles, permissions, settings)
     try {
-      await ensurePlatformSchema(pool);
+      await ensurePlatformSchema(centralPool);
       console.log('[platform] Configuration schema verified.');
     } catch (e) {
       console.error('[platform] Failed to ensure config schema (falling back to legacy role matrix):', e?.message || e);
     }
-    // Fix any item_definitions rows with NULL status
     try {
-      await pool.query("UPDATE item_definitions SET status = 'ACTIVE' WHERE status IS NULL");
-    } catch (_) { /* ignore if table doesn't exist yet */ }
-    // Price tracking columns (idempotent)
-    await pool.execute('ALTER TABLE receipts ADD COLUMN price DECIMAL(12,4) NULL').catch(() => {});
-    await pool.execute('ALTER TABLE receipts ADD COLUMN supplierFirmName VARCHAR(255) NULL').catch(() => {});
-    await pool.execute('ALTER TABLE purchases ADD COLUMN unitPrice DECIMAL(12,4) NULL').catch(() => {});
-    // One-time migration: ONAYLANDI → SIPARIS_VERILDI (order step removed)
-    try {
-      const [migResult] = await pool.query(
-        "UPDATE purchases SET status = 'SIPARIS_VERILDI', orderedBy = approvedBy, orderedAt = approvedAt, orderedDate = approvedDate WHERE status = 'ONAYLANDI'"
-      );
-      if (migResult.affectedRows > 0) {
-        console.log(`[migration] Converted ${migResult.affectedRows} ONAYLANDI → SIPARIS_VERILDI`);
-      }
-    } catch (e) { console.error('[migration] ONAYLANDI→SIPARIS_VERILDI failed:', e?.message); }
-    // CEP DEPO tables / columns
-    try {
-      await ensureCepDepoTables();
+      await ensureBusinessSchema(centralPool, { seedDepartments: true });
       console.log('[ensureCepDepo] CEP DEPO schema verified.');
     } catch (e) {
       console.error('[ensureCepDepo] Failed to ensure CEP DEPO schema:', e?.message || e);
+    }
+    // Dedicated company databases: keep their schema current too.
+    try {
+      const tenantDbNames = await tenantRouter.listTenantDbNames();
+      for (const dbName of tenantDbNames) {
+        try {
+          await ensureBusinessSchema(tenantRouter.poolForDbName(dbName), { seedDepartments: false });
+          console.log(`[platform] Tenant database verified: ${dbName}`);
+        } catch (e) {
+          console.error(`[platform] Tenant database ${dbName} self-heal failed:`, e?.message || e);
+        }
+      }
+    } catch (e) {
+      console.error('[platform] Tenant database scan failed:', e?.message || e);
     }
     console.log(`Connected to MySQL: ${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}`);
   } catch (error) {

@@ -11,7 +11,63 @@ import {
   getExpiringItems,
   getExpiredItems
 } from './labUtils';
-import { getFieldConfig, isModuleEnabled } from './platformConfig';
+import { getFieldConfig, isModuleEnabled, getCustomFields } from './platformConfig';
+
+// Company-defined custom fields (Ayarlar → Özel Alanlar) rendered by type.
+// `values` is the customData object; onChange(key, value) updates one entry.
+export const CustomFieldsInputs = ({ formKey, values, onChange }) => {
+  const defs = getCustomFields(formKey);
+  if (!defs.length) return null;
+  const val = values || {};
+  const cls = 'w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500';
+  return (
+    <>
+      {defs.map((f) => (
+        <div key={f.key}>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            {f.label}{f.required ? ' *' : ''}
+          </label>
+          {f.type === 'select' ? (
+            <select className={cls} value={val[f.key] ?? ''} onChange={(e) => onChange(f.key, e.target.value)}>
+              <option value="">Seçiniz</option>
+              {(f.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : f.type === 'checkbox' ? (
+            <label className="inline-flex items-center gap-2 px-1 py-2 text-sm text-gray-700">
+              <input type="checkbox" checked={val[f.key] === true} onChange={(e) => onChange(f.key, e.target.checked)} />
+              Evet
+            </label>
+          ) : (
+            <input
+              type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}
+              className={cls}
+              value={val[f.key] ?? ''}
+              onChange={(e) => onChange(f.key, e.target.value)}
+            />
+          )}
+        </div>
+      ))}
+    </>
+  );
+};
+
+// Read-only rendering of stored customData against the form's definitions.
+export const CustomFieldsDisplay = ({ formKey, data, className }) => {
+  const defs = getCustomFields(formKey);
+  const entries = defs
+    .filter((f) => data && data[f.key] !== undefined && data[f.key] !== null && data[f.key] !== '')
+    .map((f) => [f.label, f.type === 'checkbox' ? (data[f.key] ? 'Evet' : 'Hayır') : String(data[f.key])]);
+  if (!entries.length) return null;
+  return (
+    <div className={className || 'text-xs text-gray-600'}>
+      {entries.map(([label, value]) => (
+        <span key={label} className="inline-block mr-3">
+          <span className="text-gray-400">{label}:</span> <span className="font-medium">{value}</span>
+        </span>
+      ))}
+    </div>
+  );
+};
 
 // Add Item Form with Laboratory Fields.
 // Field visibility / required flags / labels come from the company's field
@@ -380,8 +436,15 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel, departmen
             />
           </div>
           )}
+
+          {/* Company-defined custom fields (Ayarlar → Özel Alanlar) */}
+          <CustomFieldsInputs
+            formKey="itemForm"
+            values={newItem.customData}
+            onChange={(key, value) => setNewItem({ ...newItem, customData: { ...(newItem.customData || {}), [key]: value } })}
+          />
         </div>
-        
+
         <div className="flex gap-3 mt-6">
           <button
             onClick={onAdd}

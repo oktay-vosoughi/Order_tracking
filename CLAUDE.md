@@ -95,7 +95,7 @@ Skills provide domain-specific protocols. Load the relevant one before starting 
 - `docs/05-database-model.md` is stale — does not document the 5 CEP DEPO tables (`cep_depo_balances`, `cep_depo_distributions`, `cep_depo_distribution_lots`, `cep_depo_consumptions`, `stock_movements`) or the `ideal_stock`/`max_stock`/CEP unit columns added by migrations.
 - `purchases.requestDate` display (App.jsx) may render "Invalid Date" for newer DB-backed records — use `requestedAt` instead.
 - Fresh-install migration order: `2026-07-01-shared-cep-depo.sql` requires the server to have booted once first (`ensureCepDepoTables` adds columns it depends on). Order: full dump → older migrations → boot server → shared-cep-depo.
-- Multi-company data isolation is phase 2: `server/migrations/2026-07-05-multi-company-data-scope.sql` is written but NOT applied — run it (with a backup) before onboarding a second company that needs separate data. Users/departments/config are already company-scoped.
+- Multi-company data isolation is phase 2: `server/migrations/2026-07-05-multi-company-data-scope.sql` is written but NOT applied — run it (with a backup) before onboarding a second company that needs separate data in the SHARED database. Users/departments/config are already company-scoped. Alternatively (since 2026-07-06) a company can be created with its own DEDICATED database (Ayarlar → Şirketler → "ayrı veritabanı oluştur"): business data is physically isolated in `companies.dbName`, identity/config stay central via cross-schema views (`server/platform/tenantDb.cjs`). E2E: `scripts/test-tenant-db.sh` against the isolated harness.
 
 ### Fixed in 2026-05-07 review
 - ~~`src/api.js` called `POST /admin/clear-all` but server route is `POST /api/clear-all`~~ — fixed.

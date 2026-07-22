@@ -81,6 +81,9 @@ const ensurePlatformSchema = async (pool) => {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
   );
 
+  // Optional dedicated database per company (NULL = shared central DB).
+  await pool.execute('ALTER TABLE companies ADD COLUMN dbName VARCHAR(64) NULL').catch(() => {});
+
   // Company scoping on identity roots. DEFAULT 1 backfills existing rows to the
   // default company, so single-company deployments keep working untouched.
   await pool.execute(`ALTER TABLE users ADD COLUMN companyId INT UNSIGNED NOT NULL DEFAULT ${DEFAULT_COMPANY_ID}`).catch(() => {});

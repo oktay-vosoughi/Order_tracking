@@ -19,7 +19,7 @@ import {
   getExpiryColorClass,
   openAttachmentSafely
 } from './labUtils';
-import { AddItemFormLab, WasteForm, ExpiryAlertDashboard, ExpiryBadge, MSDSLink } from './LabComponents';
+import { AddItemFormLab, WasteForm, ExpiryAlertDashboard, ExpiryBadge, MSDSLink, CustomFieldsInputs, CustomFieldsDisplay } from './LabComponents';
 import LotInventory from './LotInventory';
 import CepDepo from './CepDepo';
 import { buildLotImportPayload } from './utils/lotExcelImporter';
@@ -34,7 +34,7 @@ import {
 } from './mobileUi.mjs';
 import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget } from './stockDisplay.mjs';
 import { fetchPlatformConfig } from './api';
-import { setPlatformConfig, getPlatformConfig, can, isModuleEnabled, t, getRoles } from './platformConfig';
+import { setPlatformConfig, getPlatformConfig, can, isModuleEnabled, t, getRoles, getCustomFields, parseCustomData } from './platformConfig';
 import SettingsPanel from './SettingsPanel';
 import './theme.css';
 import logoIcon from './logos/icon.png';
@@ -334,6 +334,17 @@ const LabEquipmentTracker = () => {
     initAuth();
   }, []);
 
+  // If the open tab's module is (or becomes) disabled, bounce to Stok — a core
+  // module that can never be turned off. Prevents a blank/erroring tab when an
+  // admin deactivates the module the user is currently viewing.
+  useEffect(() => {
+    if (!platformCfg) return;
+    const moduleTabs = ['stock', 'requests', 'orders', 'distributions', 'waste', 'total_stock', 'lot_inventory', 'cep_depo', 'prices', 'users'];
+    if (moduleTabs.includes(activeTab) && !isModuleEnabled(activeTab)) {
+      setActiveTab('stock');
+    }
+  }, [platformCfg, activeTab]);
+
   useEffect(() => {
     if (currentUser) {
       loadPlatformConfig();
@@ -353,13 +364,17 @@ const LabEquipmentTracker = () => {
 
   const loadAllActionData = async () => {
     try {
+      // Each fetch degrades independently: a disabled module (403 MODULE_DISABLED)
+      // or a transient failure must never block the other tabs' data.
       const [purchasesRes, distributionsRes, wasteRes, techRes] = await Promise.all([
-        fetchPurchases(),
-        fetchDistributionsAPI(),
-        fetchWasteRecords(),
+        fetchPurchases().catch((e) => { console.warn('purchases load skipped:', e?.message); return { purchases: [] }; }),
+        fetchDistributionsAPI().catch((e) => { console.warn('distributions load skipped:', e?.message); return { distributions: [] }; }),
+        isModuleEnabled('waste')
+          ? fetchWasteRecords().catch((e) => { console.warn('waste load skipped:', e?.message); return { wasteRecords: [] }; })
+          : Promise.resolve({ wasteRecords: [] }),
         fetchLabTechnicians().catch(() => ({ users: [] }))
       ]);
-      
+
       setPurchases(purchasesRes?.purchases || []);
       setDistributions(distributionsRes?.distributions || []);
       setWasteRecords(wasteRes?.wasteRecords || []);
@@ -659,7 +674,8 @@ const LabEquipmentTracker = () => {
         packageUnit: unitEditForm.packageUnit || null,
         consumptionUnit: unitEditForm.consumptionUnit || null,
         unitsPerPackage: unitEditForm.unitsPerPackage === '' ? null : Number(unitEditForm.unitsPerPackage) || null,
-        consumptionUnitType: unitEditForm.consumptionUnitType || 'PACK'
+        consumptionUnitType: unitEditForm.consumptionUnitType || 'PACK',
+        ...(unitEditForm.customData !== undefined ? { customData: unitEditForm.customData } : {})
       });
       await loadUnifiedData();
       setUnitEditItem(null);
@@ -772,8 +788,21 @@ const LabEquipmentTracker = () => {
   const [newItem, setNewItem] = useState({
     code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: '',
     // CEP DEPO main/sub-unit fields
-    packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK', minReactionThreshold: 3
+    packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK', minReactionThreshold: 3,
+    customData: {}
   });
+
+  // Required-check for company-defined custom fields (Ayarlar → Özel Alanlar).
+  // Returns the first missing field's label, or null when all required are filled.
+  const missingRequiredCustomField = (formKey, values) => {
+    for (const f of getCustomFields(formKey)) {
+      const v = values?.[f.key];
+      if (f.required && (v === undefined || v === null || v === '' || (f.type === 'checkbox' && v !== true))) {
+        return f.label;
+      }
+    }
+    return null;
+  };
   
   const addItem = async () => {
     if (!newItem.name || !newItem.code) {
@@ -788,6 +817,11 @@ const LabEquipmentTracker = () => {
         alert(`"${cfg.label || fieldKey}" alanı bu şirket için zorunludur`);
         return;
       }
+    }
+    const missingCustom = missingRequiredCustomField('itemForm', newItem.customData);
+    if (missingCustom) {
+      alert(`"${missingCustom}" alanı bu şirket için zorunludur`);
+      return;
     }
 
     // Check chemical compatibility with existing items in same location
@@ -829,14 +863,16 @@ const LabEquipmentTracker = () => {
         consumptionUnit: newItem.consumptionUnit || null,
         unitsPerPackage: newItem.unitsPerPackage === '' ? null : Number(newItem.unitsPerPackage) || null,
         consumptionUnitType: newItem.consumptionUnitType || 'PACK',
-        minReactionThreshold: newItem.minReactionThreshold === '' ? 3 : Number(newItem.minReactionThreshold)
+        minReactionThreshold: newItem.minReactionThreshold === '' ? 3 : Number(newItem.minReactionThreshold),
+        customData: newItem.customData || {}
       });
 
       await loadUnifiedData();
 
       setNewItem({
         code: '', name: '', category: '', department: '', unit: '', minStock: 0, currentStock: 0, location: '', supplier: '', catalogNo: '', lotNo: '', brand: '', storageLocation: '', expiryDate: '', openingDate: '', storageTemp: '', chemicalType: '', msdsUrl: '', wasteStatus: '',
-        packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK', minReactionThreshold: 3
+        packageUnit: '', consumptionUnit: '', unitsPerPackage: '', consumptionUnitType: 'PACK', minReactionThreshold: 3,
+        customData: {}
       });
       setShowAddForm(false);
       alert('Malzeme başarıyla eklendi!');
@@ -895,15 +931,21 @@ const LabEquipmentTracker = () => {
     quantity: 0,
     notes: '',
     urgency: 'normal',
-    department: ''
+    department: '',
+    customData: {}
   });
-  
+
   const handleCreatePurchaseRequest = async (item) => {
     if (!requestForm.quantity || requestForm.quantity <= 0) {
       alert('Lütfen geçerli bir miktar girin');
       return;
     }
-    
+    const missingCustom = missingRequiredCustomField('requestForm', requestForm.customData);
+    if (missingCustom) {
+      alert(`"${missingCustom}" alanı bu şirket için zorunludur`);
+      return;
+    }
+
     try {
       if (isLabTechnician) {
         // Lab technicians: route to CEP DEPO request flow, not Satın Al/Lojistik
@@ -913,11 +955,12 @@ const LabEquipmentTracker = () => {
           itemName: item.name,
           requestedQty: parseInt(requestForm.quantity),
           notes: requestForm.notes,
-          urgency: requestForm.urgency
+          urgency: requestForm.urgency,
+          customData: requestForm.customData || {}
         });
         await loadAllActionData();
         setShowRequestForm(null);
-        setRequestForm({ quantity: 0, notes: '', urgency: 'normal', department: '' });
+        setRequestForm({ quantity: 0, notes: '', urgency: 'normal', department: '', customData: {} });
         alert('Talebiniz alındı! CEP DEPO üzerinden dağıtılacak.');
       } else {
         // Call API to create purchase request using imported function
@@ -929,14 +972,15 @@ const LabEquipmentTracker = () => {
           requestedQty: parseInt(requestForm.quantity),
           notes: requestForm.notes,
           urgency: requestForm.urgency,
-          supplierName: item.supplier || ''
+          supplierName: item.supplier || '',
+          customData: requestForm.customData || {}
         });
-        
+
         // Reload purchases from database
         await loadAllActionData();
-        
+
         setShowRequestForm(null);
-        setRequestForm({ quantity: 0, notes: '', urgency: 'normal', department: '' });
+        setRequestForm({ quantity: 0, notes: '', urgency: 'normal', department: '', customData: {} });
         alert('Talep oluşturuldu! Talep No: ' + result.purchase.requestNumber);
       }
     } catch (error) {
@@ -2295,6 +2339,13 @@ const LabEquipmentTracker = () => {
                 <option value="urgent">Acil</option>
               </select>
               <textarea placeholder="Not" value={requestForm.notes} onChange={(e) => setRequestForm({...requestForm, notes: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" rows="3"></textarea>
+              <div className="grid grid-cols-1 gap-3 mb-3">
+                <CustomFieldsInputs
+                  formKey="requestForm"
+                  values={requestForm.customData}
+                  onChange={(key, value) => setRequestForm({ ...requestForm, customData: { ...(requestForm.customData || {}), [key]: value } })}
+                />
+              </div>
               <div className="flex gap-3">
                 <button onClick={() => handleCreatePurchaseRequest(showRequestForm)} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg">Talep Oluştur</button>
                 <button onClick={() => setShowRequestForm(null)} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
@@ -2899,7 +2950,7 @@ const LabEquipmentTracker = () => {
                               Dağıt{pendingCepCount > 0 ? ` (${pendingCepCount})` : ''}
                             </button>
                           )}
-                          {canDistribute && (
+                          {canDistribute && isModuleEnabled('waste') && (
                             <button onClick={() => setShowWasteForm(item)} className="status-action status-action--muted">Atık</button>
                           )}
                           {canModifyInventory && (
@@ -2910,7 +2961,8 @@ const LabEquipmentTracker = () => {
                                   packageUnit: item.packageUnit || '',
                                   consumptionUnit: item.consumptionUnit || '',
                                   unitsPerPackage: item.unitsPerPackage ?? '',
-                                  consumptionUnitType: item.consumptionUnitType || 'PACK'
+                                  consumptionUnitType: item.consumptionUnitType || 'PACK',
+                                  customData: parseCustomData(item.customData)
                                 });
                               }}
                               className="status-action status-action--muted"
@@ -3073,7 +3125,7 @@ const LabEquipmentTracker = () => {
                                 </button>
                               );
                             })()}
-                            {canDistribute && (
+                            {canDistribute && isModuleEnabled('waste') && (
                               <button onClick={() => setShowWasteForm(item)} className="px-2 py-1 bg-orange-600 text-white rounded text-xs flex items-center gap-1">
                                 <Recycle size={12} />
                                 Atık
@@ -3107,7 +3159,8 @@ const LabEquipmentTracker = () => {
                                     packageUnit: item.packageUnit || '',
                                     consumptionUnit: item.consumptionUnit || '',
                                     unitsPerPackage: item.unitsPerPackage ?? '',
-                                    consumptionUnitType: item.consumptionUnitType || 'PACK'
+                                    consumptionUnitType: item.consumptionUnitType || 'PACK',
+                                    customData: parseCustomData(item.customData)
                                   });
                                 }}
                                 className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs"
@@ -3148,6 +3201,7 @@ const LabEquipmentTracker = () => {
                               <Package size={14} />
                               LOT Detayları - {item.name}
                             </div>
+                            <CustomFieldsDisplay formKey="itemForm" data={parseCustomData(item.customData)} className="text-xs text-gray-600 mb-2" />
                             {loadingLots ? (
                               <div className="text-center py-4 text-gray-500">Yükleniyor...</div>
                             ) : expandedMaterialLots.length === 0 ? (
@@ -3479,6 +3533,7 @@ const LabEquipmentTracker = () => {
                         <div className="font-medium">{purchase.itemName}</div>
                         <div className="text-xs text-gray-500">{purchase.department}</div>
                         {purchase.urgency === 'urgent' && <span className="text-red-600 font-bold text-xs">ACİL</span>}
+                        <CustomFieldsDisplay formKey="requestForm" data={parseCustomData(purchase.customData)} className="text-[11px] text-gray-500" />
                       </td>
                       <td className="px-3 py-2">{purchase.requestedQty}</td>
                       <td className="px-3 py-2">
@@ -3559,6 +3614,7 @@ const LabEquipmentTracker = () => {
                         <div className="text-xs font-semibold text-gray-500">{purchase.requestNumber}</div>
                         <div className="font-semibold text-gray-900 break-words">{purchase.itemName}</div>
                         <div className="text-xs text-gray-500">{purchase.department}</div>
+                        <CustomFieldsDisplay formKey="requestForm" data={parseCustomData(purchase.customData)} className="text-[11px] text-gray-500" />
                       </div>
                       <div className="mobile-card-side">
                         <span className={`status-pill shrink-0 ${statusBadge.className}`}>{statusBadge.label}</span>
@@ -4538,6 +4594,19 @@ const LabEquipmentTracker = () => {
                   <option value="TEST">TEST — test sayısı ile tüketilir</option>
                 </select>
               </div>
+
+              {getCustomFields('itemForm').length > 0 && (
+                <div className="pt-2 border-t">
+                  <p className="text-sm font-semibold text-gray-600 mb-2">Özel Alanlar</p>
+                  <div className="space-y-3">
+                    <CustomFieldsInputs
+                      formKey="itemForm"
+                      values={unitEditForm.customData}
+                      onChange={(key, value) => setUnitEditForm({ ...unitEditForm, customData: { ...(unitEditForm.customData || {}), [key]: value } })}
+                    />
+                  </div>
+                </div>
+              )}
 
               {unitEditForm.consumptionUnit && !unitEditForm.unitsPerPackage && (
                 <div className="bg-amber-50 border border-amber-300 text-amber-700 text-sm px-3 py-2 rounded">

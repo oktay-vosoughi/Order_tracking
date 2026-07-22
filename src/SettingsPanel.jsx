@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, Blocks, ShieldCheck, Type, ListChecks, Landmark, Plus, Trash2, Save, Check } from 'lucide-react';
+import { Building2, Blocks, ShieldCheck, Type, ListChecks, ListPlus, Landmark, Plus, Trash2, Save, Check } from 'lucide-react';
 import {
   updateCompanyProfile, setModuleEnabled, fetchAdminRoles, createRole, updateRole, deleteRole,
-  updateTerminology, updateFieldConfig, fetchCompanies, createCompany, updateCompany,
+  updateTerminology, updateFieldConfig, updateCustomFields, fetchCompanies, createCompany, updateCompany,
   createDepartment, updateDepartment
 } from './api';
 import { can } from './platformConfig';
@@ -17,6 +17,7 @@ const SECTION_DEFS = [
   { key: 'roles',       label: 'Roller & Yetkiler', icon: ShieldCheck },
   { key: 'terminology', label: 'Terminoloji',       icon: Type },
   { key: 'fields',      label: 'Form Alanları',     icon: ListChecks },
+  { key: 'customFields', label: 'Özel Alanlar',     icon: ListPlus },
   { key: 'departments', label: 'Departmanlar',      icon: Landmark },
   { key: 'companies',   label: 'Şirketler',         icon: Landmark, permission: 'platform.companies' }
 ];
@@ -78,6 +79,7 @@ export default function SettingsPanel({ currentUser, platformCfg, onConfigChange
         {section === 'roles' && <RolesSection onConfigChanged={onConfigChanged} />}
         {section === 'terminology' && <TerminologySection platformCfg={platformCfg} onConfigChanged={onConfigChanged} />}
         {section === 'fields' && <FieldsSection platformCfg={platformCfg} onConfigChanged={onConfigChanged} />}
+        {section === 'customFields' && <CustomFieldsSection platformCfg={platformCfg} onConfigChanged={onConfigChanged} />}
         {section === 'departments' && (
           <DepartmentsSection departments={departments} onDepartmentsChanged={onDepartmentsChanged} />
         )}
@@ -582,11 +584,181 @@ function DepartmentsSection({ departments, onDepartmentsChanged }) {
   );
 }
 
+// ---------------------------------------------------------------- Özel Alanlar
+const CUSTOM_FIELD_FORM_LABELS = { itemForm: 'Malzeme Formu', requestForm: 'Talep Formu' };
+const CUSTOM_FIELD_TYPE_LABELS = { text: 'Metin', number: 'Sayı', date: 'Tarih', select: 'Seçim Listesi', checkbox: 'Onay Kutusu' };
+
+// Auto-derive a stable field key from the Turkish label (used only at creation;
+// the key never changes afterwards so stored customData keeps matching).
+const deriveFieldKey = (label, existingKeys) => {
+  const tr = { ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u' };
+  let key = String(label).toLowerCase()
+    .replace(/[çğıöşü]/g, (c) => tr[c])
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 38);
+  if (!/^[a-z]/.test(key)) key = `f_${key}`;
+  if (key.length < 2) key = `${key}x`;
+  let unique = key;
+  let n = 2;
+  while (existingKeys.includes(unique)) unique = `${key}_${n++}`;
+  return unique;
+};
+
+function CustomFieldsSection({ platformCfg, onConfigChanged }) {
+  const [formKey, setFormKey] = useState('itemForm');
+  const [fieldsByForm, setFieldsByForm] = useState({
+    itemForm: platformCfg.customFields?.itemForm || [],
+    requestForm: platformCfg.customFields?.requestForm || []
+  });
+  const [newField, setNewField] = useState({ label: '', type: 'text', required: false, options: '' });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const fields = fieldsByForm[formKey];
+  const setFields = (next) => setFieldsByForm({ ...fieldsByForm, [formKey]: next });
+
+  const addField = () => {
+    const label = newField.label.trim();
+    if (!label) {
+      alert('Alan etiketi zorunludur');
+      return;
+    }
+    if (newField.type === 'select' && !newField.options.trim()) {
+      alert('Seçim listesi için seçenekleri virgülle ayırarak girin');
+      return;
+    }
+    const key = deriveFieldKey(label, fields.map((f) => f.key));
+    const field = { key, label, type: newField.type, required: newField.required };
+    if (newField.type === 'select') {
+      field.options = newField.options.split(',').map((o) => o.trim()).filter(Boolean);
+    }
+    setFields([...fields, field]);
+    setNewField({ label: '', type: 'text', required: false, options: '' });
+  };
+
+  const updateField = (key, patch) => {
+    setFields(fields.map((f) => (f.key === key ? { ...f, ...patch } : f)));
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await updateCustomFields(formKey, fields);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      onConfigChanged?.();
+    } catch (e) {
+      alert('Kaydedilemedi: ' + (e?.payload?.message || e?.message || 'HATA'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="max-w-3xl">
+      <p className="text-sm text-gray-500 mb-4">
+        Şirketinize özel ek alanlar tanımlayın (ör. proje kodu, bütçe kalemi, ISO no). Alanlar seçilen formda görünür,
+        değerleri kayıtla birlikte saklanır. Alan silmek eski kayıtlardaki değerleri silmez, sadece gizler.
+      </p>
+      <div className="flex gap-2 mb-4">
+        {Object.entries(CUSTOM_FIELD_FORM_LABELS).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setFormKey(k)}
+            className={`px-3 py-1.5 rounded-lg text-sm border ${formKey === k ? 'bg-indigo-600 text-white border-indigo-600' : 'hover:bg-gray-50'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="border rounded-lg divide-y mb-4">
+        {fields.length === 0 && (
+          <div className="px-3 py-4 text-sm text-gray-400 text-center">Bu form için özel alan tanımlanmadı.</div>
+        )}
+        {fields.map((f) => (
+          <div key={f.key} className="px-3 py-2 grid sm:grid-cols-[1fr_130px_110px_1fr_36px] gap-2 items-center">
+            <input
+              className={inputCls}
+              value={f.label}
+              onChange={(e) => updateField(f.key, { label: e.target.value })}
+              title={`Anahtar: ${f.key}`}
+            />
+            <select className={inputCls} value={f.type} onChange={(e) => updateField(f.key, { type: e.target.value })}>
+              {Object.entries(CUSTOM_FIELD_TYPE_LABELS).map(([k, label]) => (
+                <option key={k} value={k}>{label}</option>
+              ))}
+            </select>
+            <label className="inline-flex items-center gap-1.5 text-sm text-gray-600">
+              <input type="checkbox" checked={f.required === true} onChange={(e) => updateField(f.key, { required: e.target.checked })} />
+              Zorunlu
+            </label>
+            {f.type === 'select' ? (
+              <input
+                className={inputCls}
+                placeholder="Seçenekler (virgülle)"
+                value={(f.options || []).join(', ')}
+                onChange={(e) => updateField(f.key, { options: e.target.value.split(',').map((o) => o.trim()).filter(Boolean) })}
+              />
+            ) : <span className="text-xs text-gray-300 font-mono">{f.key}</span>}
+            <button
+              className="text-red-500 hover:bg-red-50 rounded p-1.5 justify-self-end"
+              onClick={() => setFields(fields.filter((x) => x.key !== f.key))}
+              title="Alanı kaldır"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <h3 className="text-sm font-semibold mb-2">Yeni Alan Ekle</h3>
+      <div className="grid sm:grid-cols-[1fr_130px_110px_1fr_auto] gap-2 items-center mb-4">
+        <input
+          className={inputCls}
+          placeholder="Alan etiketi (ör. Proje Kodu)"
+          value={newField.label}
+          onChange={(e) => setNewField({ ...newField, label: e.target.value })}
+        />
+        <select className={inputCls} value={newField.type} onChange={(e) => setNewField({ ...newField, type: e.target.value })}>
+          {Object.entries(CUSTOM_FIELD_TYPE_LABELS).map(([k, label]) => (
+            <option key={k} value={k}>{label}</option>
+          ))}
+        </select>
+        <label className="inline-flex items-center gap-1.5 text-sm text-gray-600">
+          <input type="checkbox" checked={newField.required} onChange={(e) => setNewField({ ...newField, required: e.target.checked })} />
+          Zorunlu
+        </label>
+        {newField.type === 'select' ? (
+          <input
+            className={inputCls}
+            placeholder="Seçenekler (virgülle)"
+            value={newField.options}
+            onChange={(e) => setNewField({ ...newField, options: e.target.value })}
+          />
+        ) : <span />}
+        <button className={btnGhost} onClick={addField}><Plus size={14} /> Ekle</button>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button className={btnPrimary} onClick={save} disabled={saving}>
+          <Save size={14} /> {CUSTOM_FIELD_FORM_LABELS[formKey]} Alanlarını Kaydet
+        </button>
+        <SavedFlash show={saved} />
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- Şirketler (platform)
 function CompaniesSection() {
   const [companies, setCompanies] = useState([]);
-  const [form, setForm] = useState({ name: '', slug: '', adminUsername: '', adminPassword: '' });
+  const [form, setForm] = useState({ name: '', slug: '', adminUsername: '', adminPassword: '', createDatabase: false, dbName: '' });
   const [busy, setBusy] = useState(false);
+
+  // Suggested tenant database name, mirroring the server-side default.
+  const suggestedDbName = `lims_${form.slug.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}`;
 
   const load = async () => {
     try {
@@ -605,10 +777,16 @@ function CompaniesSection() {
     }
     setBusy(true);
     try {
-      await createCompany(form);
-      setForm({ name: '', slug: '', adminUsername: '', adminPassword: '' });
+      const payload = { ...form };
+      if (payload.createDatabase && !payload.dbName.trim()) payload.dbName = suggestedDbName;
+      if (!payload.createDatabase) delete payload.dbName;
+      const created = await createCompany(payload);
+      setForm({ name: '', slug: '', adminUsername: '', adminPassword: '', createDatabase: false, dbName: '' });
       await load();
-      alert('Şirket oluşturuldu. Yeni şirketin yöneticisi belirtilen kullanıcıyla giriş yapabilir.');
+      alert(
+        'Şirket oluşturuldu. Yeni şirketin yöneticisi belirtilen kullanıcıyla giriş yapabilir.' +
+        (created?.dbName ? `\nAyrı veritabanı oluşturuldu: ${created.dbName}` : '')
+      );
     } catch (e) {
       alert('Oluşturulamadı: ' + (e?.payload?.message || e?.message || 'HATA'));
     } finally {
@@ -630,7 +808,7 @@ function CompaniesSection() {
       <p className="text-sm text-gray-500 mb-4">
         Platformdaki şirketleri yönetin. Her şirketin kendi kullanıcıları, rolleri, modülleri ve ayarları vardır.
         <br />
-        <span className="text-amber-600">Not: Tam veri izolasyonu için “multi-company-data-scope” migration’ının uygulanmış olması gerekir (bkz. docs/13).</span>
+        <span className="text-amber-600">Not: Ortak veritabanında tam veri izolasyonu için “multi-company-data-scope” migration’ı gerekir (bkz. docs/13). Ayrı veritabanı seçeneği ile veri fiziksel olarak izole edilir.</span>
       </p>
       <div className="border rounded-lg divide-y mb-6">
         {companies.map((c) => (
@@ -638,6 +816,15 @@ function CompaniesSection() {
             <div>
               <span className="text-sm font-medium">{c.name}</span>
               <span className="ml-2 text-xs text-gray-400 font-mono">#{c.id} · {c.slug}</span>
+              {c.dbName ? (
+                <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-mono" title="Bu şirket kendi veritabanını kullanıyor">
+                  DB: {c.dbName}
+                </span>
+              ) : (
+                <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-gray-50 text-gray-400" title="Ortak (merkezi) veritabanı">
+                  ortak DB
+                </span>
+              )}
             </div>
             <button
               className={`text-xs px-2 py-1 rounded ${c.active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}
@@ -657,6 +844,28 @@ function CompaniesSection() {
         <input className={inputCls} placeholder="Yönetici kullanıcı adı" value={form.adminUsername} onChange={(e) => setForm({ ...form, adminUsername: e.target.value })} />
         <input className={inputCls} type="password" placeholder="Yönetici şifresi (min 8)" value={form.adminPassword} onChange={(e) => setForm({ ...form, adminPassword: e.target.value })} />
       </div>
+      <label className="flex items-center gap-2 mt-3 text-sm">
+        <input
+          type="checkbox"
+          checked={form.createDatabase}
+          onChange={(e) => setForm({ ...form, createDatabase: e.target.checked })}
+        />
+        <span>Şirket için ayrı veritabanı oluştur (veri tamamen izole olur)</span>
+      </label>
+      {form.createDatabase && (
+        <div className="mt-2">
+          <input
+            className={`${inputCls} font-mono`}
+            placeholder={suggestedDbName || 'veritabani_adi'}
+            value={form.dbName}
+            onChange={(e) => setForm({ ...form, dbName: e.target.value })}
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            Boş bırakılırsa <span className="font-mono">{suggestedDbName || 'lims_<slug>'}</span> kullanılır.
+            Küçük harf, rakam ve alt çizgi; harfle başlamalı. Var olan bir veritabanı adı kabul edilmez.
+          </p>
+        </div>
+      )}
       <button className={`${btnPrimary} mt-3`} onClick={create} disabled={busy}>
         <Plus size={14} /> Şirket Oluştur
       </button>

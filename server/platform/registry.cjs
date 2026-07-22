@@ -151,6 +151,17 @@ const DEFAULT_FIELD_CONFIG = {
   }
 };
 
+// Custom free-form fields (per company, stored in company_settings('customFields')).
+// Values live in a customData JSON column on the target table — no schema drift.
+// Shape per form: [{ key, label, type, required, options? }]
+const CUSTOM_FIELD_FORMS = {
+  itemForm: 'item_definitions',
+  requestForm: 'purchases'
+};
+const CUSTOM_FIELD_TYPES = ['text', 'number', 'date', 'select', 'checkbox'];
+const CUSTOM_FIELD_KEY_PATTERN = /^[a-z][a-zA-Z0-9_]{1,39}$/;
+const CUSTOM_FIELDS_MAX_PER_FORM = 20;
+
 const DEFAULT_COMPANY_ID = 1;
 
 module.exports = {
@@ -161,5 +172,9 @@ module.exports = {
   DEFAULT_TERMINOLOGY,
   DEFAULT_GENERAL_SETTINGS,
   DEFAULT_FIELD_CONFIG,
-  DEFAULT_COMPANY_ID
+  DEFAULT_COMPANY_ID,
+  CUSTOM_FIELD_FORMS,
+  CUSTOM_FIELD_TYPES,
+  CUSTOM_FIELD_KEY_PATTERN,
+  CUSTOM_FIELDS_MAX_PER_FORM
 };

@@ -7,7 +7,11 @@ const {
   PERMISSIONS,
   ALL_PERMISSION_KEYS,
   DEFAULT_TERMINOLOGY,
-  DEFAULT_COMPANY_ID
+  DEFAULT_COMPANY_ID,
+  CUSTOM_FIELD_FORMS,
+  CUSTOM_FIELD_TYPES,
+  CUSTOM_FIELD_KEY_PATTERN,
+  CUSTOM_FIELDS_MAX_PER_FORM
 } = require('./registry.cjs');
 const {
   getCompanyConfig,
@@ -17,6 +21,7 @@ const {
   isModuleEnabled
 } = require('./configService.cjs');
 const { seedSystemRoles } = require('./schema.cjs');
+const { isSafeDbName, deriveDbName, provisionTenantDatabase } = require('./tenantDb.cjs');
 
 const requirePermissionFactory = (pool) => (permissionKey) => async (req, res, next) => {
   try {
@@ -49,7 +54,7 @@ const requireModuleFactory = (pool) => (moduleKey) => async (req, res, next) => 
 const ROLE_KEY_PATTERN = /^[A-Z][A-Z0-9_]{1,49}$/;
 
 const registerPlatformRoutes = (app, deps) => {
-  const { pool, authRequired, bcrypt } = deps;
+  const { pool, authRequired, bcrypt, tenantDb } = deps;
   const requirePermission = requirePermissionFactory(pool);
 
   const companyIdOf = (req) => Number(req.user?.companyId) || DEFAULT_COMPANY_ID;
@@ -85,6 +90,7 @@ const registerPlatformRoutes = (app, deps) => {
         terminologyDefaults: DEFAULT_TERMINOLOGY,
         general: config.general,
         fieldConfig: config.fieldConfig,
+        customFields: config.customFields,
         options: config.options,
         roles: config.roles.map(({ key, name, isSystem }) => ({ key, name, isSystem })),
         permissions
@@ -309,6 +315,58 @@ const registerPlatformRoutes = (app, deps) => {
     }
   });
 
+  // Custom free-form fields: definitions per form, values stored in the target
+  // table's customData JSON column. Replaces the whole field list for a form.
+  app.put('/api/admin/custom-fields', authRequired, requirePermission('system.admin'), async (req, res) => {
+    const { formKey, fields } = req.body || {};
+    if (!CUSTOM_FIELD_FORMS[formKey] || !Array.isArray(fields)) {
+      res.status(400).json({ error: 'INVALID_INPUT' });
+      return;
+    }
+    if (fields.length > CUSTOM_FIELDS_MAX_PER_FORM) {
+      res.status(400).json({ error: 'TOO_MANY_FIELDS', message: `En fazla ${CUSTOM_FIELDS_MAX_PER_FORM} özel alan tanımlanabilir` });
+      return;
+    }
+    const seen = new Set();
+    const clean = [];
+    for (const f of fields) {
+      const key = String(f?.key || '');
+      const label = String(f?.label || '').trim();
+      const type = String(f?.type || 'text');
+      if (!CUSTOM_FIELD_KEY_PATTERN.test(key) || seen.has(key)) {
+        res.status(400).json({ error: 'INVALID_FIELD_KEY', key, message: 'Alan anahtarı küçük harfle başlamalı (harf/rakam/alt çizgi) ve benzersiz olmalı' });
+        return;
+      }
+      if (!label) {
+        res.status(400).json({ error: 'INVALID_FIELD_LABEL', key, message: 'Alan etiketi zorunludur' });
+        return;
+      }
+      if (!CUSTOM_FIELD_TYPES.includes(type)) {
+        res.status(400).json({ error: 'INVALID_FIELD_TYPE', key, message: `Alan tipi şunlardan biri olmalı: ${CUSTOM_FIELD_TYPES.join(', ')}` });
+        return;
+      }
+      const options = type === 'select'
+        ? [...new Set((Array.isArray(f?.options) ? f.options : []).map((o) => String(o).trim()).filter(Boolean))]
+        : undefined;
+      if (type === 'select' && !options.length) {
+        res.status(400).json({ error: 'INVALID_FIELD_OPTIONS', key, message: 'Seçim listesi için en az bir seçenek gerekli' });
+        return;
+      }
+      seen.add(key);
+      clean.push({ key, label: label.slice(0, 100), type, required: f?.required === true, ...(options ? { options } : {}) });
+    }
+    try {
+      const companyId = companyIdOf(req);
+      const current = await readSetting(companyId, 'customFields');
+      current[formKey] = clean;
+      await writeSetting(companyId, 'customFields', current, req.user.username);
+      res.json({ status: 'OK', fields: clean });
+    } catch (error) {
+      console.error('Custom fields update error', error);
+      res.status(500).json({ error: 'SERVER_ERROR' });
+    }
+  });
+
   app.put('/api/admin/general', authRequired, requirePermission('system.admin'), async (req, res) => {
     const { settings } = req.body || {};
     if (!settings || typeof settings !== 'object') {
@@ -329,7 +387,7 @@ const registerPlatformRoutes = (app, deps) => {
   // ---- Companies (platform administration) ---------------------------------------
   app.get('/api/admin/companies', authRequired, requirePermission('platform.companies'), async (_req, res) => {
     try {
-      const [rows] = await pool.query('SELECT id, name, slug, active, createdAt FROM companies ORDER BY id ASC');
+      const [rows] = await pool.query('SELECT id, name, slug, active, dbName, createdAt FROM companies ORDER BY id ASC');
       res.json({ companies: rows });
     } catch (error) {
       console.error('Companies fetch error', error);
@@ -338,7 +396,7 @@ const registerPlatformRoutes = (app, deps) => {
   });
 
   app.post('/api/admin/companies', authRequired, requirePermission('platform.companies'), async (req, res) => {
-    const { name, slug, adminUsername, adminPassword } = req.body || {};
+    const { name, slug, adminUsername, adminPassword, createDatabase, dbName } = req.body || {};
     if (!name || !slug || !adminUsername || !adminPassword) {
       res.status(400).json({ error: 'INVALID_INPUT' });
       return;
@@ -347,22 +405,75 @@ const registerPlatformRoutes = (app, deps) => {
       res.status(400).json({ error: 'WEAK_PASSWORD', message: 'Şifre en az 8 karakter olmalı' });
       return;
     }
+    const cleanSlug = String(slug).toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    const wantsDb = createDatabase === true;
+    const tenantDbName = wantsDb ? String(dbName || deriveDbName(cleanSlug)).toLowerCase() : null;
+    if (wantsDb && !isSafeDbName(tenantDbName, tenantDb?.centralDbName)) {
+      res.status(400).json({
+        error: 'INVALID_DB_NAME',
+        message: 'Veritabanı adı küçük harf/rakam/alt çizgi olmalı (3-64 karakter, harfle başlamalı)'
+      });
+      return;
+    }
+    let companyId = null;
+    let dbProvisioned = false;
     try {
+      // Company row first (catches duplicate slugs before any database is created),
+      // dbName only after provisioning succeeds — so a failed provision never leaves
+      // a company pointing at a missing database.
       const [result] = await pool.execute(
         'INSERT INTO companies (name, slug) VALUES (?, ?)',
-        [String(name), String(slug).toLowerCase().replace(/[^a-z0-9-]/g, '-')]
+        [String(name), cleanSlug]
       );
-      const companyId = result.insertId;
+      companyId = result.insertId;
+
+      if (wantsDb) {
+        await provisionTenantDatabase({
+          centralPool: pool,
+          centralDbName: tenantDb.centralDbName,
+          mysqlConfig: tenantDb.mysqlConfig,
+          dbName: tenantDbName
+        });
+        dbProvisioned = true;
+        await pool.execute('UPDATE companies SET dbName = ? WHERE id = ?', [tenantDbName, companyId]);
+        // Bring the fresh database fully current (CEP DEPO tables etc. live outside the dump).
+        try {
+          await tenantDb.onTenantCreated(tenantDbName);
+        } catch (healError) {
+          console.error('Tenant schema self-heal failed (will retry at next boot):', healError);
+        }
+      }
+
       await seedSystemRoles(pool, companyId);
       const passwordHash = await bcrypt.hash(String(adminPassword), 10);
       await pool.execute(
         'INSERT INTO users (username, passwordHash, role, companyId, createdBy) VALUES (?, ?, ?, ?, ?)',
         [String(adminUsername), passwordHash, 'ADMIN', companyId, req.user.username]
       );
-      res.json({ status: 'OK', companyId });
+      res.json({ status: 'OK', companyId, dbName: tenantDbName });
     } catch (error) {
+      // Roll back the just-created company row so a failed attempt can be retried.
+      // The provisioned database is dropped only if THIS request created it —
+      // provisionTenantDatabase refuses names that already existed.
+      if (dbProvisioned) {
+        await pool.query(`DROP DATABASE IF EXISTS \`${tenantDbName}\``).catch(() => {});
+      }
+      if (companyId) {
+        await pool.execute('DELETE FROM role_permissions WHERE roleId IN (SELECT id FROM roles WHERE companyId = ?)', [companyId]).catch(() => {});
+        await pool.execute('DELETE FROM roles WHERE companyId = ?', [companyId]).catch(() => {});
+        await pool.execute('DELETE FROM companies WHERE id = ?', [companyId]).catch(() => {});
+        invalidateCompanyConfig(companyId);
+      }
       if (String(error?.code) === 'ER_DUP_ENTRY') {
         res.status(409).json({ error: 'DUPLICATE', message: 'Şirket kısa adı veya kullanıcı adı zaten mevcut' });
+        return;
+      }
+      if (String(error?.code) === 'DB_EXISTS') {
+        res.status(409).json({ error: 'DB_EXISTS', message: 'Bu isimde bir veritabanı zaten var — farklı bir ad seçin' });
+        return;
+      }
+      if (String(error?.code) === 'INVALID_DB_NAME') {
+        res.status(400).json({ error: 'INVALID_DB_NAME' });
         return;
       }
       console.error('Company create error', error);

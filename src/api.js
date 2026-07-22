@@ -171,6 +171,14 @@ export async function updateFieldConfig(formKey, fields) {
   });
 }
 
+export async function updateCustomFields(formKey, fields) {
+  return apiFetch('/admin/custom-fields', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ formKey, fields })
+  });
+}
+
 export async function updateGeneralSettings(settings) {
   return apiFetch('/admin/general', {
     method: 'PUT',
@@ -535,13 +543,14 @@ export async function distributeApprovedRequest({ purchaseId, labTechnicianId, i
   });
 }
 
-export async function createPurchaseRequestForLabTech({ itemId, itemCode, itemName, requestedQty, requestedFor, overrideReason, notes, urgency }) {
+export async function createPurchaseRequestForLabTech({ itemId, itemCode, itemName, requestedQty, requestedFor, overrideReason, notes, urgency, customData }) {
   return apiFetch('/purchases', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       itemId, itemCode, itemName, requestedQty,
       requestedFor, overrideReason, notes, urgency,
+      customData,
       isCepDepoRequest: true
     })
   });

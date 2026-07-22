@@ -1,0 +1,21 @@
+# Normalize line endings to LF on commit, checkout as native OS line endings
+* text=auto
+
+# Force LF for these (prevents \r\n issues in shell scripts and config)
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.cjs   text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.sql   text eol=lf
+*.sh    text eol=lf
+
+# Binary files — don't touch
+*.png   binary
+*.jpg   binary
+*.pdf   binary
+*.xlsx  binary
+*.pptx  binary
