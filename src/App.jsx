@@ -637,6 +637,7 @@ const LabEquipmentTracker = () => {
     idealStock: '',
     maxStock: '',
     cepUnitQty: '',
+    minReactionThreshold: '',
     targetLotId: ''
   });
   const [correctionLotOptions, setCorrectionLotOptions] = useState([]);
@@ -681,6 +682,7 @@ const LabEquipmentTracker = () => {
       maxStock: item.max_stock ?? '',
       cepUnitQty: cepDisplay.quantity || 0,
       storageLocation: item.storageLocation || '',
+      minReactionThreshold: item.minReactionThreshold ?? '',
       targetLotId: ''
     });
     try {
@@ -741,6 +743,7 @@ const LabEquipmentTracker = () => {
         maxStock: correctionForm.maxStock === '' ? null : Number(correctionForm.maxStock),
         cepUnitQty: correctionForm.cepUnitQty === '' ? null : Number(correctionForm.cepUnitQty),
         storageLocation: correctionForm.storageLocation.trim() || null,
+        minReactionThreshold: correctionForm.minReactionThreshold === '' ? null : Number(correctionForm.minReactionThreshold),
         targetLotId: correctionForm.targetLotId || null
       });
       await loadUnifiedData();
@@ -4499,6 +4502,22 @@ const LabEquipmentTracker = () => {
                   <option value="TEST">TEST - test sayısı harcanır</option>
                   <option value="PACK">PACK - ana birim harcanır</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Min Reaksiyon Eşiği (Talep Eşiği)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="3"
+                  className="w-full px-3 py-2 border rounded-lg"
+                  value={correctionForm.minReactionThreshold}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, minReactionThreshold: e.target.value })}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Reaksiyon/alt birim ürünlerde: bölüm CEP DEPO stoğu bu eşiğin altına inince yeni talep açılabilir.
+                </p>
               </div>
 
               {correctionLotOptions.length > 1 && (

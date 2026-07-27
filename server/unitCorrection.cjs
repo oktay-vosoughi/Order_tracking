@@ -26,6 +26,8 @@ const buildUnitCorrectionValues = (input = {}) => {
   const maxStock = toNullableNumber(input.maxStock, 'maxStock');
   const cepUnitQty = toNullableNumber(input.cepUnitQty, 'cepUnitQty');
   const storageLocation = normalizeText(input.storageLocation);
+  const minReactionThresholdRaw = toNullableNumber(input.minReactionThreshold, 'minReactionThreshold');
+  const minReactionThreshold = minReactionThresholdRaw == null ? null : Math.floor(minReactionThresholdRaw);
 
   if (!['PACK', 'UNIT', 'TEST'].includes(consumptionUnitType)) {
     throw new Error('consumptionUnitType must be PACK, UNIT, or TEST');
@@ -48,6 +50,7 @@ const buildUnitCorrectionValues = (input = {}) => {
     maxStock,
     cepUnitQty,
     storageLocation,
+    minReactionThreshold,
     cepPackQty: consumptionUnitType === 'PACK'
       ? cepUnitQty
       : (cepUnitQty == null ? null : roundQuantity(cepUnitQty / unitsPerPackage))
