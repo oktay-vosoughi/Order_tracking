@@ -2896,7 +2896,7 @@ const LabEquipmentTracker = () => {
             <div className="sm:hidden divide-y divide-gray-100">
               {filteredItems.map((item) => {
                 const history = getItemHistory(item.id);
-                const pending = history.find(h => h.status === 'TALEP_EDILDI' || h.status === 'ONAYLANDI');
+                const pending = history.find(h => !h.isCepDepoRequest && !h.requestedFor && (h.status === 'TALEP_EDILDI' || h.status === 'ONAYLANDI'));
                 const isExpanded = expandedMaterialId === item.id;
                 const totalStock = Number(item.totalStock ?? item.currentStock ?? 0);
                 const pendingOrderQty = Number(item.pendingOrderQty ?? 0);
@@ -3090,6 +3090,7 @@ const LabEquipmentTracker = () => {
                             </button>
                           )}
                           {pending && <span className="mobile-inline-note">EBYS beklemede</span>}
+                          {pendingCepCount > 0 && <span className="mobile-inline-note">Dağıtım talebi{pendingCepCount > 1 ? ` (${pendingCepCount})` : ''}</span>}
                         </div>
                       </div>
                     )}
@@ -3121,7 +3122,8 @@ const LabEquipmentTracker = () => {
                 <tbody className="divide-y">
                   {filteredItems.map((item) => {
                     const history = getItemHistory(item.id);
-                    const pending = history.find(h => h.status === 'TALEP_EDILDI' || h.status === 'ONAYLANDI');
+                    const pending = history.find(h => !h.isCepDepoRequest && !h.requestedFor && (h.status === 'TALEP_EDILDI' || h.status === 'ONAYLANDI'));
+                    const pendingCepCount = (pendingCepRequestsByItem[item.id] || []).length;
                     const isExpanded = expandedMaterialId === item.id;
                     const totalStock = Number(item.totalStock ?? item.currentStock ?? 0);
                     const pendingOrderQty = Number(item.pendingOrderQty ?? 0);
@@ -3196,6 +3198,7 @@ const LabEquipmentTracker = () => {
                             <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">STOKTA</span>
                           )}
                           {pending && <div className="text-xs text-yellow-600 mt-1">EBYS beklemede</div>}
+                          {pendingCepCount > 0 && <div className="text-xs text-blue-600 mt-1">Dağıtım talebi{pendingCepCount > 1 ? ` (${pendingCepCount})` : ''}</div>}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex gap-1 flex-wrap">
