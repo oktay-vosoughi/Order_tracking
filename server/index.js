@@ -931,6 +931,7 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
           consumptionUnitType = ?,
           ideal_stock = ?,
           max_stock = ?,
+          minReactionThreshold = COALESCE(?, minReactionThreshold),
           updatedBy = ?
         WHERE id = ?
       `, [
@@ -941,6 +942,7 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
         values.consumptionUnitType,
         values.idealStock,
         values.maxStock,
+        values.minReactionThreshold,
         req.user.username,
         req.params.id
       ]);
