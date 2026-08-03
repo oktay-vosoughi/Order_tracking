@@ -3810,6 +3810,24 @@ const ensureCepDepoTables = async () => {
     await ensureColumn('cep_depo_distributions', 'receivedConfirmedBy', '`receivedConfirmedBy` VARCHAR(100) NULL');
   } catch (e) { console.warn('[ensureCepDepo] confirmation columns skipped:', e?.code || e?.message); }
 
+  // Barcode → item mapping (self-heal at boot so the barcode feature works even
+  // when the optional migration prompt is skipped during deploy). Wrapped in
+  // try/catch because the FK requires item_definitions to already exist.
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS item_barcodes (
+      id VARCHAR(64) NOT NULL,
+      itemId VARCHAR(64) NOT NULL,
+      barcode VARCHAR(128) NOT NULL,
+      barcodeType VARCHAR(16) NOT NULL DEFAULT 'OTHER',
+      createdBy VARCHAR(255) NOT NULL,
+      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_item_barcodes_barcode (barcode),
+      KEY idx_item_barcodes_item (itemId),
+      CONSTRAINT fk_item_barcodes_item FOREIGN KEY (itemId) REFERENCES item_definitions(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+  } catch (e) { console.warn('[ensureCepDepo] item_barcodes skipped:', e?.code || e?.message); }
+
   // Simple key/value settings store for per-install feature flags.
   await pool.query(`CREATE TABLE IF NOT EXISTS app_settings (
     settingKey VARCHAR(100) NOT NULL PRIMARY KEY,
