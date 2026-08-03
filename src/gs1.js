@@ -46,6 +46,15 @@ function parseGs1(input) {
     aimSeen = true;
   }
 
+  // GS1 DataMatrix/QR symbols carry a leading FNC1 that scanners (e.g. ZXing)
+  // emit as GS (0x1D). It is the GS1 mode signal, so strip any leading
+  // separators and treat the payload as GS1 — otherwise the plausible-AI guard
+  // below rejects the string because it starts with 0x1D instead of an AI.
+  if (s.charCodeAt(0) === 29) {
+    s = s.replace(/^\x1d+/, '');
+    aimSeen = true;
+  }
+
   // Human-readable form: (01)04012345678901(17)261231(10)ABC123
   // Anchored to string start so vendor codes containing "(NN)" don't false-positive.
   if (/^\(\d{2,4}\)/.test(s)) {

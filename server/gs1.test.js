@@ -90,3 +90,16 @@ test('storageKey: GTIN for GS1 scans (lot varies per shipment), raw otherwise', 
   assert.equal(storageKey(parseGs1('01' + '08690123456789' + '10' + 'L1')), '08690123456789');
   assert.equal(storageKey(parseGs1('8690123456789')), '8690123456789');
 });
+
+test('real QIAGEN GS1 DataMatrix: leading FNC1 + internal FNC1 separator', () => {
+  // Exactly what ZXing delivers for the ipsogen BCR-ABL1 kit box:
+  // <GS>(01)04053228004011(17)261231(10)184017493<GS>(240)1082884
+  const scan = GS + '01' + '04053228004011' + '17' + '261231' + '10' + '184017493' + GS + '240' + '1082884';
+  const r = parseGs1(scan);
+  assert.equal(r.isGs1, true);
+  assert.equal(r.gtin, '04053228004011');
+  assert.equal(r.expiryDate, '2026-12-31');
+  assert.equal(r.lotNumber, '184017493'); // must NOT swallow the trailing (240) element
+  // Enrollment must persist the lot-independent GTIN, not the per-box raw string.
+  assert.equal(storageKey(r), '04053228004011');
+});
