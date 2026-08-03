@@ -192,6 +192,27 @@ const canReceiveGoods = (req, res, next) => {
   }
   res.status(403).json({ error: 'FORBIDDEN' });
 };
+// Single-company feature toggles (mirror of the frontend). Stored in app_settings
+// as `module.<key>`. Barcode modules default OFF (opt-in). getSetting is a hoisted
+// function declaration, so it is available when these middlewares run per-request.
+const FEATURE_DEFAULTS = { barcode_receiving: false, barcode_distribution: false };
+async function isFeatureEnabled(key) {
+  const raw = await getSetting('module.' + key, null);
+  if (raw === null || raw === undefined || raw === '') return FEATURE_DEFAULTS[key] === true;
+  return raw === '1';
+}
+// Allow the request if ANY of the given features is enabled (barcode lookup/enroll
+// is shared by the receiving and distribution modules).
+const requireAnyFeature = (...keys) => async (req, res, next) => {
+  try {
+    for (const k of keys) { if (await isFeatureEnabled(k)) return next(); }
+    return res.status(403).json({ error: 'MODULE_DISABLED', modules: keys });
+  } catch (e) {
+    console.error('Feature check error', e);
+    return res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+};
+
 const canDistribute = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
 const canRequest = (req, res, next) =>
@@ -2115,7 +2136,7 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
 
 // --- Barcode lookup & registration (scan-based receiving) ---
 
-app.get('/api/barcodes/:code', authRequired, canReceiveGoods, async (req, res) => {
+app.get('/api/barcodes/:code', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canReceiveGoods, async (req, res) => {
   const parsed = parseGs1(String(req.params.code || ''));
   const keys = lookupKeys(parsed);
   if (!keys.length) {
@@ -2156,7 +2177,7 @@ app.get('/api/barcodes/:code', authRequired, canReceiveGoods, async (req, res) =
   }
 });
 
-app.post('/api/barcodes', authRequired, canReceiveGoods, async (req, res) => {
+app.post('/api/barcodes', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canReceiveGoods, async (req, res) => {
   const { barcode, itemId, barcodeType } = req.body || {};
   const normalized = typeof barcode === 'string' ? barcode.trim() : '';
   if (!normalized || !itemId) {
@@ -2192,7 +2213,7 @@ app.post('/api/barcodes', authRequired, canReceiveGoods, async (req, res) => {
 });
 
 // List all barcode→item mappings (for the enrollment screen)
-app.get('/api/item-barcodes', authRequired, canReceiveGoods, async (_req, res) => {
+app.get('/api/item-barcodes', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canReceiveGoods, async (_req, res) => {
   try {
     const rows = await all(pool, 'SELECT id, itemId, barcode, barcodeType FROM item_barcodes ORDER BY createdAt DESC');
     res.json({ barcodes: rows });
@@ -2203,7 +2224,7 @@ app.get('/api/item-barcodes', authRequired, canReceiveGoods, async (_req, res) =
 });
 
 // Remove one barcode mapping (fix a mis-scan during enrollment)
-app.delete('/api/barcodes/:id', authRequired, canReceiveGoods, async (req, res) => {
+app.delete('/api/barcodes/:id', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canReceiveGoods, async (req, res) => {
   try {
     const result = await run(pool, 'DELETE FROM item_barcodes WHERE id = ?', [req.params.id]);
     if (!result.affectedRows) {

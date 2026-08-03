@@ -336,6 +336,43 @@ const LabEquipmentTracker = () => {
   const canViewDagit = true; // Tab visible to all; content filtered per role
   // Two-step distribution receipt confirmation feature flag (ADMIN-toggled).
   const receiptConfirmationOn = appSettings.dist_receipt_confirmation === '1';
+
+  // Single-company feature toggles (stored in app_settings as `module.<key>`).
+  // Optional existing tabs default ON (preserve current behavior); barcode add-ons
+  // default OFF (opt-in). ADMIN flips them in Hesabım → Modüller. Keys mirror the
+  // configurable-platform module keys so a future multi-company migration maps 1:1.
+  const FEATURE_DEFAULTS = {
+    requests: true, orders: true, distributions: true, waste: true,
+    total_stock: true, lot_inventory: true, cep_depo: true, prices: true, iso_forms: true,
+    barcode_receiving: false, barcode_distribution: false
+  };
+  const TOGGLEABLE_MODULES = [
+    { key: 'requests', label: 'Talepler' },
+    { key: 'orders', label: 'Siparişler' },
+    { key: 'distributions', label: 'Dağıtım' },
+    { key: 'waste', label: 'Atık' },
+    { key: 'total_stock', label: 'Genel Stok' },
+    { key: 'lot_inventory', label: 'LOT Stok' },
+    { key: 'cep_depo', label: 'CEP DEPO' },
+    { key: 'prices', label: 'Fiyatlar' },
+    { key: 'iso_forms', label: 'ISO Formları' },
+    { key: 'barcode_receiving', label: 'Barkodlu Mal Kabul (Teslim Al + Eşleştirme)' },
+    { key: 'barcode_distribution', label: 'Barkodlu Dağıtım' }
+  ];
+  const isFeatureOn = (key) => {
+    const raw = appSettings['module.' + key];
+    if (raw === undefined || raw === null || raw === '') return FEATURE_DEFAULTS[key] !== false;
+    return raw === '1';
+  };
+  const toggleFeature = async (key, next) => {
+    try {
+      await updateSetting('module.' + key, next ? '1' : '0');
+      setAppSettings((s) => ({ ...s, ['module.' + key]: next ? '1' : '0' }));
+    } catch (err) {
+      alert('Modül güncellenemedi: ' + (err?.payload?.message || err?.message || 'HATA'));
+    }
+  };
+
   const canViewTalep = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
   const canViewSiparis = canOrder;
   
@@ -2026,35 +2063,35 @@ const LabEquipmentTracker = () => {
             <Package size={15} /><span>Stok</span>
           </button>
         )}
-        {canViewTalep && (
+        {canViewTalep && isFeatureOn('requests') && (
           <button className={`nv${activeTab === 'requests' ? ' on' : ''}`} onClick={() => navClick('requests')}>
             <ShoppingCart size={15} /><span>Talepler</span>
             {pendingCount > 0 && <span className="nbdg">{pendingCount}</span>}
           </button>
         )}
-        {canViewSiparis && (
+        {canViewSiparis && isFeatureOn('orders') && (
           <button className={`nv${activeTab === 'orders' ? ' on' : ''}`} onClick={() => navClick('orders')}>
             <Truck size={15} /><span>Siparişler</span>
             {readyForOrderCount > 0 && <span className="nbdg">{readyForOrderCount}</span>}
           </button>
         )}
-        {canReceive && (
+        {canReceive && isFeatureOn('barcode_receiving') && (
           <button className={`nv${activeTab === 'barcode_receive' ? ' on' : ''}`} onClick={() => navClick('barcode_receive')}>
             <ScanBarcode size={15} /><span>Barkodla Teslim Al</span>
           </button>
         )}
-        {canReceive && (
+        {canReceive && isFeatureOn('barcode_receiving') && (
           <button className={`nv${activeTab === 'barcode_enroll' ? ' on' : ''}`} onClick={() => navClick('barcode_enroll')}>
             <ScanBarcode size={15} /><span>Barkod Eşleştirme</span>
           </button>
         )}
-        {canDistribute && (
+        {canDistribute && isFeatureOn('barcode_distribution') && (
           <button className={`nv${activeTab === 'barcode_distribute' ? ' on' : ''}`} onClick={() => navClick('barcode_distribute')}>
             <ScanBarcode size={15} /><span>Barkodla Dağıt</span>
             {canViewAllDagit && pendingCepTotal > 0 && <span className="nbdg">{pendingCepTotal}</span>}
           </button>
         )}
-        {canViewDagit && (
+        {canViewDagit && isFeatureOn('distributions') && (
           <button className={`nv${activeTab === 'distributions' ? ' on' : ''}`} onClick={() => navClick('distributions')}>
             <FileCheck size={15} /><span>Dağıtım</span>
             {canViewAllDagit && pendingCepTotal > 0 && <span className="nbdg">{pendingCepTotal}</span>}
@@ -2066,31 +2103,33 @@ const LabEquipmentTracker = () => {
             {pendingConfirmations.length > 0 && <span className="nbdg">{pendingConfirmations.length}</span>}
           </button>
         )}
-        {!isObserver && (
+        {!isObserver && isFeatureOn('waste') && (
           <button className={`nv${activeTab === 'waste' ? ' on' : ''}`} onClick={() => navClick('waste')}>
             <Recycle size={15} /><span>Atık</span>
             {wasteRecords.length > 0 && <span className="nbdg">{wasteRecords.length}</span>}
           </button>
         )}
-        {canViewStock && (
+        {canViewStock && isFeatureOn('total_stock') && (
           <button className={`nv${activeTab === 'total_stock' ? ' on' : ''}`} onClick={() => navClick('total_stock')}>
             <BarChart2 size={15} /><span>Genel Stok</span>
           </button>
         )}
-        {!isObserver && (
+        {!isObserver && isFeatureOn('lot_inventory') && (
           <button className={`nv${activeTab === 'lot_inventory' ? ' on' : ''}`} onClick={() => navClick('lot_inventory')}>
             <Package size={15} /><span>LOT Stok</span>
           </button>
         )}
-        <button className={`nv${activeTab === 'cep_depo' ? ' on' : ''}`} onClick={() => navClick('cep_depo')}>
-          <Droplet size={15} /><span>CEP DEPO</span>
-        </button>
-        {canViewPrices && (
+        {isFeatureOn('cep_depo') && (
+          <button className={`nv${activeTab === 'cep_depo' ? ' on' : ''}`} onClick={() => navClick('cep_depo')}>
+            <Droplet size={15} /><span>CEP DEPO</span>
+          </button>
+        )}
+        {canViewPrices && isFeatureOn('prices') && (
           <button className={`nv${activeTab === 'prices' ? ' on' : ''}`} onClick={() => navClick('prices')}>
             <BarChart2 size={15} /><span>Fiyatlar</span>
           </button>
         )}
-        {canExportIsoForm && (
+        {canExportIsoForm && isFeatureOn('iso_forms') && (
           <button className={`nv${activeTab === 'iso_forms' ? ' on' : ''}`} onClick={() => navClick('iso_forms')}>
             <FileText size={15} /><span>ISO Formları</span>
           </button>
@@ -2359,6 +2398,34 @@ const LabEquipmentTracker = () => {
                       </span>
                     </span>
                   </label>
+                </div>
+              )}
+
+              {isAdmin && (
+                <div className="border rounded-xl p-4 md:p-6 bg-slate-50 border-slate-200">
+                  <h3 className="text-lg font-semibold mb-1 flex items-center gap-2 text-slate-800">
+                    <Package size={18} />
+                    Modüller
+                  </h3>
+                  <p className="text-sm text-gray-500 mb-4">
+                    Kullanmadığınız özellikleri menüden gizleyin. Barkod modülleri varsayılan olarak kapalıdır.
+                  </p>
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    {TOGGLEABLE_MODULES.map((m) => {
+                      const on = isFeatureOn(m.key);
+                      return (
+                        <label key={m.key} className="flex items-center justify-between gap-3 border rounded-lg px-3 py-2 bg-white cursor-pointer">
+                          <span className="text-sm">{m.label}</span>
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            onChange={(e) => toggleFeature(m.key, e.target.checked)}
+                            className="h-4 w-4"
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -4606,18 +4673,18 @@ const LabEquipmentTracker = () => {
           </div>
         )}
 
-        {activeTab === 'barcode_receive' && canReceive && (
+        {activeTab === 'barcode_receive' && canReceive && isFeatureOn('barcode_receiving') && (
           <BarcodeReceive
             currentUsername={username}
             onReceived={() => { loadUnifiedData(); loadAllActionData(); }}
           />
         )}
 
-        {activeTab === 'barcode_enroll' && canReceive && (
+        {activeTab === 'barcode_enroll' && canReceive && isFeatureOn('barcode_receiving') && (
           <BarcodeEnroll currentUsername={username} />
         )}
 
-        {activeTab === 'barcode_distribute' && canDistribute && (
+        {activeTab === 'barcode_distribute' && canDistribute && isFeatureOn('barcode_distribution') && (
           <div className="max-w-xl mx-auto surface-panel p-6">
             <div className="flex items-center gap-2 mb-2">
               <ScanBarcode size={20} className="text-indigo-600" />
