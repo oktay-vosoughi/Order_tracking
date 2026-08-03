@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, lookupBarcode } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import BarcodeScanner from './BarcodeScanner';
 import { parseGs1 } from './gs1';
@@ -104,6 +104,16 @@ const LabEquipmentTracker = () => {
   const [showRequestForm, setShowRequestForm] = useState(null);
   const [showReceiveForm, setShowReceiveForm] = useState(null);
   const [showDistributeForm, setShowDistributeForm] = useState(null);
+  // Barkodla Dağıt: status line on the scan tab + the last scanned box's
+  // LOT/SKT hint shown inside the Dağıt modal so the depot picks the matching parti.
+  const [distScanMsg, setDistScanMsg] = useState(null);   // { kind: 'ok'|'err', text }
+  const [scanHint, setScanHint] = useState(null);         // { itemId, lotNumber, expiryDate }
+  // Feature flags (e.g. dist_receipt_confirmation) + this user's pending receipts.
+  const [appSettings, setAppSettings] = useState({});
+  const [pendingConfirmations, setPendingConfirmations] = useState([]);
+  // Dağıt modal: the CEP DEPO request chosen from the tech pick-list. When set,
+  // "Dağıt" routes through that request (closing it) instead of a generic handout.
+  const [selectedCepReq, setSelectedCepReq] = useState(null);
   // Distributable lots per item (Parti/SKT picker at Dağıt). Keyed by itemId.
   const [itemLotsCache, setItemLotsCache] = useState({});
   // Distribution-request alarm (badge is Task 6; this is the toast + sound).
@@ -276,6 +286,9 @@ const LabEquipmentTracker = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showDistributeForm, purchases]);
 
+  // Reset the chosen CEP request whenever the Dağıt modal opens for a (new) item.
+  useEffect(() => { setSelectedCepReq(null); }, [showDistributeForm?.id]);
+
   // Alarm when distribution requests are waiting: beep + toast for
   // SATINAL_LOJISTIK / ADMIN, on first load with pending and on any increase.
   useEffect(() => {
@@ -302,6 +315,8 @@ const LabEquipmentTracker = () => {
   const canImportItems = canModifyInventory;
   const canViewAllDagit = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
   const canViewDagit = true; // Tab visible to all; content filtered per role
+  // Two-step distribution receipt confirmation feature flag (ADMIN-toggled).
+  const receiptConfirmationOn = appSettings.dist_receipt_confirmation === '1';
   const canViewTalep = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
   const canViewSiparis = canOrder;
   
@@ -315,6 +330,7 @@ const LabEquipmentTracker = () => {
     if (currentUser) {
       loadData();
       loadAllActionData();
+      fetchSettings().then((res) => setAppSettings(res?.settings || {})).catch(() => {});
     }
   }, [currentUser]);
 
@@ -328,17 +344,19 @@ const LabEquipmentTracker = () => {
 
   const loadAllActionData = async () => {
     try {
-      const [purchasesRes, distributionsRes, wasteRes, techRes] = await Promise.all([
+      const [purchasesRes, distributionsRes, wasteRes, techRes, pendingRes] = await Promise.all([
         fetchPurchases(),
         fetchDistributionsAPI(),
         fetchWasteRecords(),
-        fetchLabTechnicians().catch(() => ({ users: [] }))
+        fetchLabTechnicians().catch(() => ({ users: [] })),
+        fetchPendingConfirmations().catch(() => ({ pending: [] }))
       ]);
-      
+
       setPurchases(purchasesRes?.purchases || []);
       setDistributions(distributionsRes?.distributions || []);
       setWasteRecords(wasteRes?.wasteRecords || []);
       setLabTechs(techRes?.users || []);
+      setPendingConfirmations(pendingRes?.pending || []);
     } catch (error) {
       console.error('Failed to load action data:', error);
     }
@@ -1203,6 +1221,19 @@ const LabEquipmentTracker = () => {
     return { ...f, lotRows: rows };
   });
 
+  // Pick a technician's request from the modal list: auto-fill Alan Kişi,
+  // Departman and miktar so the depot only needs to choose the parti + Dağıt.
+  const selectCepRequest = (p) => {
+    const tech = labTechs.find((t) => t.username === (p.requestedFor || p.requestedBy));
+    setSelectedCepReq(p);
+    setDistributeForm((f) => ({
+      ...f,
+      receivedBy: p.requestedFor || p.requestedBy || '',
+      department: p.department || tech?.department || f.department,
+      quantity: p.requestedQty,
+    }));
+  };
+
   const distributeItem = async (item) => {
     if (!distributeForm.quantity || distributeForm.quantity <= 0) {
       alert('Lütfen geçerli bir miktar girin');
@@ -1224,24 +1255,49 @@ const LabEquipmentTracker = () => {
     }
     const lots = completeRows.map((r) => ({ lotId: r.lotId, qty: Number(r.qty) }));
     try {
-      await distribute({
-        itemId: item.id,
-        quantity: parseInt(distributeForm.quantity),
-        receivedBy: distributeForm.receivedBy,
-        department: distributeForm.department || item.department || '',
-        purpose: distributeForm.purpose,
-        useFefo: false,
-        lots
-      });
+      if (selectedCepReq) {
+        // Distributing against a chosen request → close it (purchaseId link) and
+        // credit the technician's CEP DEPO pool. Approve first if still TALEP_EDILDI.
+        const tech = labTechs.find((t) => t.username === (selectedCepReq.requestedFor || selectedCepReq.requestedBy));
+        if (!tech) {
+          alert('Hedef lab teknisyeni bulunamadı: ' + (selectedCepReq.requestedFor || selectedCepReq.requestedBy));
+          return;
+        }
+        if (selectedCepReq.status === 'TALEP_EDILDI') {
+          try { await approvePurchase(selectedCepReq.id, 'Dağıtım anında onaylandı'); }
+          catch (e) { /* non-fatal */ }
+        }
+        await distributeApprovedRequest({
+          purchaseId: selectedCepReq.id,
+          labTechnicianId: tech.id,
+          itemId: item.id,
+          packQty: parseInt(distributeForm.quantity),
+          lots,
+          notes: `Talep #${selectedCepReq.requestNumber || selectedCepReq.id.slice(0, 8)}`
+        });
+      } else {
+        await distribute({
+          itemId: item.id,
+          quantity: parseInt(distributeForm.quantity),
+          receivedBy: distributeForm.receivedBy,
+          department: distributeForm.department || item.department || '',
+          purpose: distributeForm.purpose,
+          useFefo: false,
+          lots
+        });
+      }
       await loadUnifiedData();
       await loadAllActionData();
       setShowDistributeForm(null);
+      setSelectedCepReq(null);
+      setScanHint(null);
       setDistributeForm({ quantity: 0, receivedBy: '', purpose: '', department: '', lotRows: [{ lotId: '', qty: '' }] });
       alert('Malzeme başarıyla dağıtıldı! Stok güncellendi.');
     } catch (error) {
       console.error('Distribution error:', error);
       const code = error?.payload?.error;
-      if (code === 'INSUFFICIENT_LOT_STOCK') alert(error?.payload?.message || 'Seçilen partide yeterli stok yok.');
+      if (code === 'ALREADY_DISTRIBUTED') alert('Bu talep zaten dağıtılmış.');
+      else if (code === 'INSUFFICIENT_LOT_STOCK') alert(error?.payload?.message || 'Seçilen partide yeterli stok yok.');
       else alert('Dağıtım hatası: ' + (error?.payload?.message || error?.message || 'Bilinmeyen hata'));
     }
   };
@@ -1256,10 +1312,74 @@ const LabEquipmentTracker = () => {
       alert('Dağıtım tamamlanamadı: ' + (error?.message || 'Bilinmeyen hata'));
     }
   };
+
+  // Two-step confirmation: the recipient technician acknowledges a CEP DEPO receipt.
+  const confirmReceipt = async (id) => {
+    try {
+      await confirmCepReceipt(id);
+      await loadAllActionData();
+      alert('Teslim onaylandı.');
+    } catch (err) {
+      alert('Onay başarısız: ' + (err?.payload?.message || err?.message || 'HATA'));
+    }
+  };
+
+  // ADMIN toggles the receipt-confirmation feature on/off.
+  const toggleReceiptConfirmation = async (next) => {
+    try {
+      await updateSetting('dist_receipt_confirmation', next ? '1' : '0');
+      setAppSettings((s) => ({ ...s, dist_receipt_confirmation: next ? '1' : '0' }));
+    } catch (err) {
+      alert('Ayar güncellenemedi: ' + (err?.payload?.message || err?.message || 'HATA'));
+    }
+  };
   
   // UNIFIED DATA SOURCE: Use unifiedStock from API instead of localStorage items
   // This ensures "Stok" tab and "LOT Stok Yönetimi" show the same data
   const displayItems = unifiedStock.length > 0 ? unifiedStock : items;
+
+  // Barkodla Dağıt: depot personnel scans a box → resolve the item → open the
+  // existing Dağıt modal, which already shows this item's pending lab-tech
+  // requests (pick-list, one row per technician) plus the generic/ad-hoc form.
+  // The scanned GS1 LOT/SKT is stashed in scanHint to guide parti selection.
+  const handleDistributeScan = async (code) => {
+    const parsed = parseGs1(code);
+    setDistScanMsg(null);
+    try {
+      const res = await lookupBarcode(code);
+      const found = res?.item;
+      if (!found) {
+        setDistScanMsg({ kind: 'err', text: 'Barkod bir ürünle eşleşmedi.' });
+        return;
+      }
+      // Prefer the full stock row (has totalStock/packageUnit); fall back to the definition.
+      const full = displayItems.find((i) => i.id === found.id) || {
+        id: found.id,
+        name: found.name,
+        packageUnit: found.packageUnit,
+        unit: found.consumptionUnit || found.packageUnit,
+      };
+      setScanHint({ itemId: full.id, lotNumber: parsed.lotNumber || '', expiryDate: parsed.expiryDate || '' });
+      setShowDistributeForm(full);
+      const reqCount = (pendingCepRequestsByItem[full.id] || []).length;
+      setDistScanMsg({
+        kind: 'ok',
+        text: reqCount > 0
+          ? `${full.name} — ${reqCount} bekleyen talep. Teknisyeni seçin (Alan Kişi/Departman otomatik dolar), parti seçip Dağıt'a basın.`
+          : `${full.name} — bekleyen talep yok. Aşağıdan genel (talepsiz) dağıtım yapabilirsiniz.`,
+      });
+    } catch (err) {
+      if (err?.status === 404) {
+        const bits = [];
+        if (parsed.lotNumber) bits.push('Parti ' + parsed.lotNumber);
+        if (parsed.expiryDate) bits.push('SKT ' + parsed.expiryDate);
+        const extra = bits.length ? ` (Okunan: ${bits.join(' · ')})` : '';
+        setDistScanMsg({ kind: 'err', text: 'Barkod kayıtlı değil — "Barkod Eşleştirme" ekranından tanımlayın.' + extra });
+      } else {
+        setDistScanMsg({ kind: 'err', text: 'Barkod okunamadı: ' + (err?.payload?.message || err?.message || 'HATA') });
+      }
+    }
+  };
 
   const totalMaterialCount = analytics?.summary?.totalItems ?? displayItems.length;
   const lowStockCountFromData = displayItems.filter(isBelowStockTarget).length;
@@ -1791,6 +1911,12 @@ const LabEquipmentTracker = () => {
       loadUnifiedData();
     } else if (tab === 'requests' || tab === 'orders' || tab === 'distributions') {
       loadAllActionData();
+    } else if (tab === 'barcode_distribute') {
+      // Scan-to-distribute needs both fresh stock (lots) and fresh requests (pick-list).
+      loadUnifiedData();
+      loadAllActionData();
+    } else if (tab === 'confirm_receipt') {
+      loadAllActionData();
     }
   }
 
@@ -1844,10 +1970,22 @@ const LabEquipmentTracker = () => {
             <ScanBarcode size={15} /><span>Barkod Eşleştirme</span>
           </button>
         )}
+        {canDistribute && (
+          <button className={`nv${activeTab === 'barcode_distribute' ? ' on' : ''}`} onClick={() => navClick('barcode_distribute')}>
+            <ScanBarcode size={15} /><span>Barkodla Dağıt</span>
+            {canViewAllDagit && pendingCepTotal > 0 && <span className="nbdg">{pendingCepTotal}</span>}
+          </button>
+        )}
         {canViewDagit && (
           <button className={`nv${activeTab === 'distributions' ? ' on' : ''}`} onClick={() => navClick('distributions')}>
             <FileCheck size={15} /><span>Dağıtım</span>
             {canViewAllDagit && pendingCepTotal > 0 && <span className="nbdg">{pendingCepTotal}</span>}
+          </button>
+        )}
+        {receiptConfirmationOn && (isLabTechnician || pendingConfirmations.length > 0) && (
+          <button className={`nv${activeTab === 'confirm_receipt' ? ' on' : ''}`} onClick={() => navClick('confirm_receipt')}>
+            <ClipboardCheck size={15} /><span>Teslim Onayı</span>
+            {pendingConfirmations.length > 0 && <span className="nbdg">{pendingConfirmations.length}</span>}
           </button>
         )}
         {!isObserver && (
@@ -2026,6 +2164,30 @@ const LabEquipmentTracker = () => {
                   </div>
                 </div>
               </div>
+
+              {isAdmin && (
+                <div className="border rounded-xl p-4 md:p-6 bg-indigo-50 border-indigo-200">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-indigo-800">
+                    <ClipboardCheck size={18} />
+                    Sistem Ayarları
+                  </h3>
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={receiptConfirmationOn}
+                      onChange={(e) => toggleReceiptConfirmation(e.target.checked)}
+                      className="mt-1 h-4 w-4"
+                    />
+                    <span className="text-sm">
+                      <span className="font-semibold">Teslim onayı (iki adımlı dağıtım)</span>
+                      <span className="block text-gray-600 text-xs mt-0.5">
+                        Açıkken: dağıtım yapıldığında lab teknisyeni "Teslim aldım" ile onaylayana kadar
+                        teslimat "onay bekliyor" durumunda kalır. Kapalıyken dağıtım anında tamamlanır.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
 
               <div className="border rounded-xl p-4 md:p-6 bg-amber-50 border-amber-200">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-amber-800">
@@ -2448,7 +2610,21 @@ const LabEquipmentTracker = () => {
                 Stok: {showDistributeForm.totalStock || showDistributeForm.currentStock || 0} {showDistributeForm.unit}
               </p>
 
-              {/* CEP DEPO request queue for this item */}
+              {/* Scanned box hint: guides the depot to pick the parti actually in hand. */}
+              {scanHint && scanHint.itemId === showDistributeForm.id && (scanHint.lotNumber || scanHint.expiryDate) && (
+                <div className="mb-4 flex items-center gap-2 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2 text-xs text-indigo-800">
+                  <ScanBarcode size={15} />
+                  <span>
+                    Okunan koli:
+                    {scanHint.lotNumber && <> Parti <strong>{scanHint.lotNumber}</strong></>}
+                    {scanHint.expiryDate && <> · SKT <strong>{new Date(scanHint.expiryDate).toLocaleDateString('tr-TR')}</strong></>}
+                    {' '}— aşağıda aynı partiyi seçin.
+                  </span>
+                </div>
+              )}
+
+              {/* CEP DEPO request queue: choose which technician you are distributing
+                  to. Selecting a request auto-fills Alan Kişi + Departman + miktar below. */}
               {(() => {
                 const reqs = pendingCepRequestsByItem[showDistributeForm.id] || [];
                 if (reqs.length === 0) return null;
@@ -2459,14 +2635,24 @@ const LabEquipmentTracker = () => {
                       <h3 className="font-bold text-red-700">CEP DEPO Talepleri ({reqs.length})</h3>
                     </div>
                     <p className="text-xs text-gray-600 mb-3">
-                      Bu lab teknisyeni talepleri ürünün siparişle ilgili genel talebinden farklıdır. Dağıttığınızda doğrudan ilgili kullanıcının CEP DEPOsuna eklenir.
+                      Bu ürünü isteyen teknisyeni seçin — <strong>Alan Kişi</strong> ve <strong>Departman</strong> otomatik dolar. Ardından aşağıdan parti seçip <strong>Dağıt</strong>'a basın.
                     </p>
                     <div className="space-y-2">
                       {reqs.map((p) => {
                         const target = p.requestedFor || p.requestedBy;
-                        const qtyVal = cepReqQty[p.id] ?? String(p.requestedQty);
+                        const isSel = selectedCepReq?.id === p.id;
                         return (
-                          <div key={p.id} className="bg-white rounded p-2 border border-red-200 flex flex-col sm:flex-row sm:items-center gap-2">
+                          <label
+                            key={p.id}
+                            className={`flex items-start gap-2 rounded p-2 border cursor-pointer ${isSel ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-300' : 'border-red-200 bg-white hover:border-indigo-300'}`}
+                          >
+                            <input
+                              type="radio"
+                              name="cepReqSelect"
+                              className="mt-1"
+                              checked={isSel}
+                              onChange={() => selectCepRequest(p)}
+                            />
                             <div className="flex-1 text-xs">
                               <div className="font-semibold">
                                 #{p.requestNumber || p.id.slice(0, 8)} — <span className="text-indigo-700">{target}</span>
@@ -2475,75 +2661,32 @@ const LabEquipmentTracker = () => {
                                 İstenen: <strong>{p.requestedQty}</strong> {showDistributeForm.packageUnit || 'koli'}
                                 {' · '}
                                 <span className={`px-1.5 py-0.5 rounded ${p.status === 'ONAYLANDI' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{p.status}</span>
+                                {p.department && <> · {p.department}</>}
                                 {p.requestedAt && <> · {new Date(p.requestedAt).toLocaleString('tr-TR')}</>}
                               </div>
                               {p.notes && <div className="text-gray-500 italic">{p.notes}</div>}
                             </div>
-                            <input
-                              type="number"
-                              min="0.01"
-                              step="0.01"
-                              value={qtyVal}
-                              onChange={(e) => setCepReqQty((s) => ({ ...s, [p.id]: e.target.value }))}
-                              className="w-20 px-2 py-1 border rounded text-sm"
-                              title="Verilecek miktar (varsayılan = istenen)"
-                            />
-                            {(() => {
-                              const lotRows = getCepLotRows(p.id);
-                              const packQty = Number(cepReqQty[p.id] ?? String(p.requestedQty));
-                              const total = lotRows.reduce((s, r) => s + Number(r.qty || 0), 0);
-                              const isReady = lotRows.some((r) => r.lotId && Number(r.qty) > 0) && Math.abs(total - packQty) <= 0.001;
-                              return (
-                                <div className="flex flex-col gap-1">
-                                  {lotRows.map((row, idx) => (
-                                    <div key={idx} className="flex items-center gap-1">
-                                      <select
-                                        value={row.lotId}
-                                        onChange={(e) => setCepLotRow(p.id, idx, 'lotId', e.target.value)}
-                                        className="px-2 py-1 border rounded text-xs flex-1 min-w-[10rem]"
-                                      >
-                                        <option value="">Parti seç *</option>
-                                        {(itemLotsCache[showDistributeForm.id] || []).map((l) => (
-                                          <option key={l.id} value={l.id}>{distributableLotLabel(l, showDistributeForm.packageUnit || 'koli')}</option>
-                                        ))}
-                                      </select>
-                                      <input
-                                        type="number" min="0.01" step="0.01"
-                                        value={row.qty}
-                                        onChange={(e) => setCepLotRow(p.id, idx, 'qty', e.target.value)}
-                                        className="w-16 px-2 py-1 border rounded text-xs"
-                                        placeholder="Miktar"
-                                      />
-                                      {lotRows.length > 1 && (
-                                        <button onClick={() => removeCepLotRow(p.id, idx)} className="text-red-500 hover:text-red-700 px-1 text-sm">✕</button>
-                                      )}
-                                    </div>
-                                  ))}
-                                  <div className="flex items-center justify-between mt-0.5 gap-2">
-                                    <button onClick={() => addCepLotRow(p.id)} className="text-xs text-indigo-600 hover:underline">+ Parti Ekle</button>
-                                    <span className={`text-xs ${isReady ? 'text-green-600 font-semibold' : 'text-gray-500'}`}>
-                                      Toplam: {total} / {packQty}
-                                    </span>
-                                  </div>
-                                  <button
-                                    onClick={() => approveAndDistributeCepRequest(p, showDistributeForm)}
-                                    disabled={!isReady}
-                                    className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed self-end"
-                                  >
-                                    Onayla & Dağıt
-                                  </button>
-                                </div>
-                              );
-                            })()}
-                          </div>
+                          </label>
                         );
                       })}
                     </div>
+                    {selectedCepReq && (
+                      <button
+                        onClick={() => setSelectedCepReq(null)}
+                        className="mt-2 text-xs text-gray-500 hover:underline"
+                      >
+                        Seçimi temizle (talepsiz dağıt)
+                      </button>
+                    )}
                   </div>
                 );
               })()}
 
-              <h4 className="text-sm font-semibold text-gray-700 mb-2 border-t pt-3">Departman / Genel Dağıtım</h4>
+              <h4 className="text-sm font-semibold text-gray-700 mb-2 border-t pt-3">
+                {selectedCepReq
+                  ? `Dağıtım Detayı — ${selectedCepReq.requestedFor || selectedCepReq.requestedBy}`
+                  : 'Departman / Genel Dağıtım'}
+              </h4>
               {(() => {
                 const lots = itemLotsCache[showDistributeForm.id] || [];
                 const unit = showDistributeForm.packageUnit || showDistributeForm.unit || 'koli';
@@ -2625,7 +2768,7 @@ const LabEquipmentTracker = () => {
               <input type="text" placeholder="Kullanım Amacı" value={distributeForm.purpose} onChange={(e) => setDistributeForm({...distributeForm, purpose: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <div className="flex gap-3">
                 <button onClick={() => distributeItem(showDistributeForm)} disabled={!distributeForm.lotRows.some((r) => r.lotId && Number(r.qty) > 0) || Math.abs(distributeForm.lotRows.reduce((s, r) => s + Number(r.qty || 0), 0) - Number(distributeForm.quantity)) > 0.001} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Dağıt</button>
-                <button onClick={() => setShowDistributeForm(null)} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
+                <button onClick={() => { setShowDistributeForm(null); setScanHint(null); setSelectedCepReq(null); }} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
               </div>
             </div>
           </div>
@@ -4295,6 +4438,75 @@ const LabEquipmentTracker = () => {
 
         {activeTab === 'barcode_enroll' && canReceive && (
           <BarcodeEnroll currentUsername={username} />
+        )}
+
+        {activeTab === 'barcode_distribute' && canDistribute && (
+          <div className="max-w-xl mx-auto surface-panel p-6">
+            <div className="flex items-center gap-2 mb-2">
+              <ScanBarcode size={20} className="text-indigo-600" />
+              <h2 className="text-xl font-bold">Barkodla Dağıt</h2>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Lab teknisyenine vermeden önce koliyi okutun. Ürün tanınınca dağıtım
+              ekranı açılır; bekleyen talebi olan teknisyeni seçip <strong>Onayla &amp; Dağıt</strong>
+              {' '}yapın veya talep yoksa genel dağıtım yapın. Kim dağıttı / kime verildi otomatik kaydedilir.
+            </p>
+            <BarcodeScanner
+              autoFocus={true}
+              placeholder="Barkod okut — ürünü bul ve dağıtım ekranını aç"
+              onScan={handleDistributeScan}
+            />
+            {distScanMsg && (
+              <p className={`text-sm mt-3 ${distScanMsg.kind === 'ok' ? 'text-green-700' : 'text-red-600'}`}>
+                {distScanMsg.text}
+              </p>
+            )}
+            {pendingCepTotal > 0 && (
+              <p className="text-xs text-gray-500 mt-4 border-t pt-3">
+                Şu an <strong>{pendingCepTotal}</strong> bekleyen dağıtım talebi var.
+              </p>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'confirm_receipt' && (
+          <div className="max-w-2xl mx-auto surface-panel p-6">
+            <div className="flex items-center gap-2 mb-2">
+              <ClipboardCheck size={20} className="text-indigo-600" />
+              <h2 className="text-xl font-bold">Teslim Onayı</h2>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Size dağıtılan ve onayınızı bekleyen malzemeler. Teslim aldığınızda
+              {' '}<strong>Teslim aldım</strong> ile onaylayın.
+            </p>
+            {pendingConfirmations.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <ClipboardCheck size={48} className="mx-auto mb-4 opacity-50" />
+                <p>Onay bekleyen teslimat yok.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {pendingConfirmations.map((d) => (
+                  <div key={d.id} className="flex items-center justify-between gap-3 border rounded-lg p-3">
+                    <div className="text-sm">
+                      <div className="font-semibold">{d.itemName}</div>
+                      <div className="text-gray-600 text-xs">
+                        {d.packQty} {d.packageUnit || 'koli'} · Dağıtan: {d.distributedBy}
+                        {d.distributedAt && <> · {new Date(d.distributedAt).toLocaleString('tr-TR')}</>}
+                      </div>
+                      {d.notes && <div className="text-gray-500 text-xs italic">{d.notes}</div>}
+                    </div>
+                    <button
+                      onClick={() => confirmReceipt(d.id)}
+                      className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-sm whitespace-nowrap"
+                    >
+                      Teslim aldım
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'lot_inventory' && (

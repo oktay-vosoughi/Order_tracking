@@ -2144,6 +2144,9 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
         const factor = resolveUnitFactor(item, null);
         let totalUnitQty = 0;
         const cepDistributionId = generateId();
+        // When the two-step receipt-confirmation feature is on, leave the
+        // distribution awaiting the technician's acknowledgement (NULL confirmedAt).
+        const confirmOn = (await getSetting('dist_receipt_confirmation', '0')) === '1';
 
         for (const dl of distributionLots) {
           const lotRows = await all(conn, 'SELECT unitsPerPackage, consumptionUnitType FROM lots WHERE id = ?', [dl.lotId]);
@@ -2158,9 +2161,9 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
 
         await run(conn, `
           INSERT INTO cep_depo_distributions
-            (id, labTechnicianId, labTechnicianUsername, recipientTechnicianId, department, itemId, packQty, unitQty, purchaseId, distributedBy, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [cepDistributionId, targetTech.id, targetTech.username, targetTech.id, targetDept, itemId, quantity, totalUnitQty, purchaseId || null, req.user.username, purpose || null]);
+            (id, labTechnicianId, labTechnicianUsername, recipientTechnicianId, department, itemId, packQty, unitQty, purchaseId, distributedBy, notes, receivedConfirmedAt, receivedConfirmedBy)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${confirmOn ? 'NULL' : 'NOW()'}, ?)
+        `, [cepDistributionId, targetTech.id, targetTech.username, targetTech.id, targetDept, itemId, quantity, totalUnitQty, purchaseId || null, req.user.username, purpose || null, confirmOn ? null : req.user.username]);
 
         await run(conn, `
           INSERT INTO cep_depo_balances
@@ -3537,6 +3540,34 @@ const ensureCepDepoTables = async () => {
     INSERT IGNORE INTO item_departments (itemDefinitionId, department)
     SELECT id, department FROM item_definitions WHERE department IS NOT NULL AND department <> ''
   `);
+
+  // Two-step distribution receipt confirmation (toggleable via app_settings).
+  // NULL receivedConfirmedAt = the recipient technician has not acknowledged yet.
+  try {
+    await ensureColumn('cep_depo_distributions', 'receivedConfirmedAt', '`receivedConfirmedAt` DATETIME NULL');
+    await ensureColumn('cep_depo_distributions', 'receivedConfirmedBy', '`receivedConfirmedBy` VARCHAR(100) NULL');
+  } catch (e) { console.warn('[ensureCepDepo] confirmation columns skipped:', e?.code || e?.message); }
+
+  // Simple key/value settings store for per-install feature flags.
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_settings (
+    settingKey VARCHAR(100) NOT NULL PRIMARY KEY,
+    settingValue TEXT NULL,
+    updatedBy VARCHAR(100) NULL,
+    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+  await pool.query("INSERT IGNORE INTO app_settings (settingKey, settingValue) VALUES ('dist_receipt_confirmation', '0')");
+
+  // One-time backfill: rows that predate this feature have NULL receivedConfirmedAt.
+  // Treat them as already confirmed so enabling the toggle later does not resurface
+  // every historical distribution as "awaiting confirmation". Marker-gated so it
+  // runs exactly once and never re-confirms genuinely-pending rows on a later boot.
+  try {
+    const [m] = await pool.query("SELECT settingValue FROM app_settings WHERE settingKey = 'dist_confirmation_backfilled'");
+    if (!m?.[0]) {
+      await pool.query('UPDATE cep_depo_distributions SET receivedConfirmedAt = distributedAt, receivedConfirmedBy = distributedBy WHERE receivedConfirmedAt IS NULL');
+      await pool.query("INSERT IGNORE INTO app_settings (settingKey, settingValue) VALUES ('dist_confirmation_backfilled', '1')");
+    }
+  } catch (e) { console.warn('[ensureCepDepo] confirmation backfill skipped:', e?.code || e?.message); }
 };
 
 // Helper: resolve effective pack/unit factor (lot override > item default > 1)
@@ -3548,6 +3579,15 @@ const resolveUnitFactor = (item, lot) => {
 
 const resolveConsumptionUnitType = (item, lot) =>
   (lot && lot.consumptionUnitType) || (item && item.consumptionUnitType) || 'PACK';
+
+// Read a feature-flag style setting from app_settings; returns the stored
+// string value, or `def` if the key is missing or the table isn't ready yet.
+async function getSetting(key, def = null) {
+  try {
+    const rows = await all(pool, 'SELECT settingValue FROM app_settings WHERE settingKey = ?', [key]);
+    return rows?.[0] ? rows[0].settingValue : def;
+  } catch { return def; }
+}
 // Resolve a caller's department memberships — null means "no filter" (bypass role).
 // Always resolved fresh from the DB per request; never trust JWT or query params.
 async function getUserDepartments(userId, role) {
@@ -3636,6 +3676,8 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
       const item = itemRows?.[0];
       if (!item) throw { status: 404, error: 'ITEM_NOT_FOUND' };
 
+      // Two-step receipt confirmation toggle (see /api/distribute for the mirror path).
+      const confirmOn = (await getSetting('dist_receipt_confirmation', '0')) === '1';
       const cepDistributionId = generateId();
       let totalUnitQty = 0;
       const splits = [];
@@ -3763,9 +3805,9 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
       // Header — records the recipient technician and the target department pool.
       await run(conn, `
         INSERT INTO cep_depo_distributions
-          (id, labTechnicianId, labTechnicianUsername, recipientTechnicianId, department, itemId, packQty, unitQty, purchaseId, distributedBy, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [cepDistributionId, tech.id, tech.username, tech.id, dept, itemId, packQtyNum, totalUnitQty, purchaseId || null, req.user.username, notes || null]);
+          (id, labTechnicianId, labTechnicianUsername, recipientTechnicianId, department, itemId, packQty, unitQty, purchaseId, distributedBy, notes, receivedConfirmedAt, receivedConfirmedBy)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${confirmOn ? 'NULL' : 'NOW()'}, ?)
+      `, [cepDistributionId, tech.id, tech.username, tech.id, dept, itemId, packQtyNum, totalUnitQty, purchaseId || null, req.user.username, notes || null, confirmOn ? null : req.user.username]);
 
       // Upsert the shared department pool balance (keyed by department + item).
       await run(conn, `
@@ -3801,6 +3843,81 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
     if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
     console.error('CEP DEPO distribute error', error);
     res.status(500).json({ error: 'SERVER_ERROR', message: error?.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// App settings (feature flags) + two-step distribution receipt confirmation
+// ---------------------------------------------------------------------------
+
+// GET /api/settings — expose feature flags. Any authenticated user reads them
+// (the client decides which UI to show based on the flags).
+app.get('/api/settings', authRequired, async (_req, res) => {
+  try {
+    const rows = await all(pool, 'SELECT settingKey, settingValue FROM app_settings');
+    const settings = {};
+    for (const r of rows) settings[r.settingKey] = r.settingValue;
+    res.json({ settings });
+  } catch (error) {
+    console.error('Failed to load settings', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// PUT /api/settings/:key — ADMIN only.
+app.put('/api/settings/:key', authRequired, requireRole([ROLES.ADMIN]), async (req, res) => {
+  const key = req.params.key;
+  const value = req.body?.value;
+  if (typeof value === 'undefined') return res.status(400).json({ error: 'INVALID_INPUT', message: 'value zorunludur.' });
+  try {
+    await run(pool, `
+      INSERT INTO app_settings (settingKey, settingValue, updatedBy) VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE settingValue = VALUES(settingValue), updatedBy = VALUES(updatedBy)
+    `, [key, String(value), req.user.username]);
+    res.json({ key, value: String(value) });
+  } catch (error) {
+    console.error('Failed to update setting', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// GET /api/cep-depo/pending-confirmations — CEP DEPO distributions awaiting the
+// caller's receipt acknowledgement (two-step confirmation feature).
+app.get('/api/cep-depo/pending-confirmations', authRequired, async (req, res) => {
+  try {
+    const rows = await all(pool, `
+      SELECT d.id, d.itemId, d.packQty, d.unitQty, d.department, d.distributedBy, d.distributedAt, d.notes,
+             i.code AS itemCode, i.name AS itemName, i.packageUnit, i.consumptionUnit
+      FROM cep_depo_distributions d
+      JOIN item_definitions i ON i.id = d.itemId
+      WHERE d.recipientTechnicianId = ? AND d.receivedConfirmedAt IS NULL
+      ORDER BY d.distributedAt DESC
+    `, [req.user.id]);
+    res.json({ pending: rows });
+  } catch (error) {
+    console.error('Failed to load pending confirmations', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// POST /api/cep-depo/distributions/:id/confirm — the recipient technician (or a
+// privileged/bypass role) acknowledges receipt. Idempotent.
+app.post('/api/cep-depo/distributions/:id/confirm', authRequired, async (req, res) => {
+  try {
+    const rows = await all(pool, 'SELECT * FROM cep_depo_distributions WHERE id = ?', [req.params.id]);
+    const dist = rows?.[0];
+    if (!dist) return res.status(404).json({ error: 'NOT_FOUND' });
+    const isRecipient = String(dist.recipientTechnicianId) === String(req.user.id);
+    if (!isRecipient && !isBypassRole(req.user.role)) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Sadece teslim alan teknisyen veya yetkili onaylayabilir.' });
+    }
+    if (dist.receivedConfirmedAt) return res.json({ distribution: dist, alreadyConfirmed: true });
+    await run(pool, 'UPDATE cep_depo_distributions SET receivedConfirmedAt = NOW(), receivedConfirmedBy = ? WHERE id = ?',
+      [req.user.username, req.params.id]);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Failed to confirm distribution receipt', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
   }
 });
 

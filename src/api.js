@@ -471,6 +471,27 @@ export async function createPurchaseRequestForLabTech({ itemId, itemCode, itemNa
   });
 }
 
+// --- App settings (feature flags) + two-step distribution receipt confirmation ---
+export async function fetchSettings() {
+  return apiFetch('/settings');
+}
+
+export async function updateSetting(key, value) {
+  return apiFetch(`/settings/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value })
+  });
+}
+
+export async function fetchPendingConfirmations() {
+  return apiFetch('/cep-depo/pending-confirmations');
+}
+
+export async function confirmCepReceipt(id) {
+  return apiFetch(`/cep-depo/distributions/${encodeURIComponent(id)}/confirm`, { method: 'POST' });
+}
+
 export async function lookupBarcode(code) {
   return apiFetch(`/barcodes/${encodeURIComponent(code)}`);
 }
