@@ -1,7 +1,8 @@
 node_modules/
 dist/
 .vite/
-
+.graphifyignore
+graphify-out/
 # System/OS
 .DS_Store
 Thumbs.db
