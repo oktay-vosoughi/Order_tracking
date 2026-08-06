@@ -362,6 +362,36 @@ const clearAuthAttempts = (req) => {
   loginAttempts.delete(`${req.ip}`);
 };
 
+// Admin-only: inspect currently throttled IPs (does not reveal usernames/passwords).
+app.get('/api/auth/lockouts', authRequired, adminRequired, (_req, res) => {
+  const now = Date.now();
+  const lockouts = [];
+  for (const [ip, entry] of loginAttempts.entries()) {
+    const isLocked = now - entry.first < LOGIN_WINDOW_MS && entry.count >= LOGIN_MAX_ATTEMPTS;
+    lockouts.push({
+      ip,
+      attempts: entry.count,
+      firstAttemptAt: new Date(entry.first).toISOString(),
+      locked: isLocked,
+      unlocksAt: new Date(entry.first + LOGIN_WINDOW_MS).toISOString(),
+    });
+  }
+  res.json({ lockouts });
+});
+
+// Admin-only: clear the throttle for a given IP (or all IPs if none provided) so a
+// locked-out user can log in again without waiting for the window to expire or
+// requiring a server restart.
+app.post('/api/auth/unlock', authRequired, adminRequired, (req, res) => {
+  const { ip } = req.body || {};
+  if (ip) {
+    loginAttempts.delete(String(ip));
+  } else {
+    loginAttempts.clear();
+  }
+  res.json({ ok: true });
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });

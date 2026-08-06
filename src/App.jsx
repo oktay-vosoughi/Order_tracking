@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import BarcodeScanner from './BarcodeScanner';
 import { parseGs1 } from './gs1';
@@ -187,6 +187,7 @@ const LabEquipmentTracker = () => {
   const [bootstrapMode, setBootstrapMode] = useState(false);
 
   const [users, setUsers] = useState([]);
+  const [loginLockouts, setLoginLockouts] = useState([]);
   const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false, department: '', departments: [] });
   const [departments, setDepartments] = useState([]);
   const [newDeptName, setNewDeptName] = useState('');
@@ -442,6 +443,7 @@ const LabEquipmentTracker = () => {
     if (currentUser && activeTab === 'users' && canManageUsers) {
       loadUsers();
       loadDepartments();
+      if (isAdmin) loadLoginLockouts();
     }
   }, [activeTab, currentUser]);
 
@@ -608,6 +610,24 @@ const LabEquipmentTracker = () => {
       setUsers(res.users || []);
     } catch (error) {
       alert('Kullanıcılar yüklenemedi: ' + (error?.message || 'HATA'));
+    }
+  };
+
+  const loadLoginLockouts = async () => {
+    try {
+      const res = await listLoginLockouts();
+      setLoginLockouts(res.lockouts || []);
+    } catch (error) {
+      // Non-fatal: only admins can see this, silently ignore for other roles.
+    }
+  };
+
+  const handleUnlockLogin = async (ip) => {
+    try {
+      await unlockLogin(ip);
+      await loadLoginLockouts();
+    } catch (error) {
+      alert('Kilit kaldırılamadı: ' + (error?.message || 'HATA'));
     }
   };
 
@@ -2665,6 +2685,72 @@ const LabEquipmentTracker = () => {
                   </div>
                 )}
               </div>
+
+              {isAdmin && (
+                <div className="mt-8 border-t pt-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-bold flex items-center gap-2">
+                      <Lock size={16} /> Giriş Kilitleri (Brute-force Koruması)
+                    </h3>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={loadLoginLockouts}
+                        className="px-3 py-1.5 rounded bg-gray-100 text-gray-700 text-xs hover:bg-gray-200"
+                      >
+                        Yenile
+                      </button>
+                      {loginLockouts.length > 0 && (
+                        <button
+                          onClick={() => handleUnlockLogin(null)}
+                          className="px-3 py-1.5 rounded bg-red-100 text-red-700 text-xs hover:bg-red-200"
+                        >
+                          Tümünü Kaldır
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {loginLockouts.length === 0 ? (
+                    <p className="text-sm text-gray-500">Şu anda kilitli IP yok.</p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="px-3 py-2 text-left text-xs font-semibold">IP</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold">Deneme Sayısı</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold">Durum</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold">Kilit Açılış</th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold">İşlem</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {loginLockouts.map((l) => (
+                          <tr key={l.ip} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 font-mono text-xs">{l.ip}</td>
+                            <td className="px-3 py-2">{l.attempts}</td>
+                            <td className="px-3 py-2">
+                              <span className={`px-2 py-1 rounded text-xs ${l.locked ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                {l.locked ? 'Kilitli' : 'Açık'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-500">
+                              {new Date(l.unlocksAt).toLocaleString('tr-TR')}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                onClick={() => handleUnlockLogin(l.ip)}
+                                className="px-3 py-1 rounded bg-red-100 text-red-700 text-xs hover:bg-red-200"
+                              >
+                                Kilidi Kaldır
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

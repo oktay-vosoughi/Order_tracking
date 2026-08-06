@@ -213,6 +213,18 @@ export async function updateUserDepartments(id, departments) {
   });
 }
 
+export async function listLoginLockouts() {
+  return apiFetch('/auth/lockouts');
+}
+
+export async function unlockLogin(ip) {
+  return apiFetch('/auth/unlock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(ip ? { ip } : {})
+  });
+}
+
 // ============================================================
 // DEPARTMENTS registry (runtime-editable name list)
 // ============================================================
