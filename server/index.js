@@ -1177,6 +1177,24 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
           values.cepUnitQty,
           balanceRows[0].id
         ]);
+      } else if (values.cepUnitQty !== null && values.cepUnitQty > 0 && !balanceRows[0]) {
+        // No CEP DEPO balance row exists for this item yet (never distributed to a
+        // department's pocket depot) — a new row needs an explicit department, since
+        // cep_depo_balances is keyed by (department, itemId). Previously this silently
+        // no-opped, leaving the admin thinking the correction saved when it hadn't.
+        const cepDepartment = String(req.body?.cepDepartment || '').trim() || null;
+        if (!cepDepartment) {
+          throw {
+            status: 400,
+            error: 'CEP_DEPARTMENT_REQUIRED',
+            message: 'Bu malzeme için CEP DEPO kaydı yok. Hangi bölüm için oluşturulacağını seçin.'
+          };
+        }
+        correctedBalanceId = generateId();
+        await run(conn, `
+          INSERT INTO cep_depo_balances (id, department, itemId, packQty, unitQty, consumptionUnitType, status)
+          VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')
+        `, [correctedBalanceId, cepDepartment, req.params.id, values.cepPackQty, values.cepUnitQty, values.consumptionUnitType]);
       }
 
       await run(conn, `
