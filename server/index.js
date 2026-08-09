@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const { buildUnitCorrectionValues } = require('./unitCorrection.cjs');
 const { validateLotSplit } = require('./lotSplit.cjs');
 const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause } = require('./departmentScope.cjs');
+const { resolveDepoGroup, buildLotPoolFilter } = require('./depoGroup.cjs');
 const { buildIsoRows, fillIsoCountForm } = require('./isoCountForm.cjs');
 const { buildTrackingRows, buildDistributionRows, buildMgWorkbook } = require('./mgTrackingForm.cjs');
 const { parseGs1, lookupKeys } = require('./gs1');
@@ -1445,16 +1446,20 @@ app.post('/api/consume', authRequired, canDistribute, async (req, res) => {
         
         usageRecords.push({ usageId, lotId, lotNumber: lot.lotNumber, quantityUsed: quantity });
       } else {
-        // FEFO auto-selection
+        // FEFO auto-selection, scoped to the target department's depo pool once
+        // depo_pool_split is enabled (see server/depoGroup.cjs).
+        const poolOn = (await getSetting('depo_pool_split', '0')) === '1';
+        const poolFilter = poolOn ? buildLotPoolFilter(resolveDepoGroup(department), 'l') : { clause: '', params: [] };
         const availableLots = await all(conn, `
-          SELECT * FROM lots 
-          WHERE itemId = ? AND status = 'ACTIVE' AND currentQuantity > 0 
-          ORDER BY 
-            CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END,
-            expiryDate ASC, 
-            receivedDate ASC
+          SELECT l.* FROM lots l
+          WHERE l.itemId = ? AND l.status = 'ACTIVE' AND l.currentQuantity > 0
+          ${poolFilter.clause}
+          ORDER BY
+            CASE WHEN l.expiryDate IS NULL THEN 1 ELSE 0 END,
+            l.expiryDate ASC,
+            l.receivedDate ASC
           FOR UPDATE
-        `, [itemId]);
+        `, [itemId, ...poolFilter.params]);
 
         if (!availableLots.length) {
           throw { status: 400, error: 'NO_STOCK_AVAILABLE' };
@@ -1753,12 +1758,85 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
       GROUP BY id.id
       ORDER BY id.name ASC
     `, deptFilter.params);
+
+    // Per-department depo pools — every department works like its own lab with
+    // its own stock and its own buying process (see server/depoGroup.cjs).
+    // Two small grouped queries (not per-item N+1) build a department → totals
+    // map for every item at once; untagged legacy rows collapse into UNASSIGNED_POOL.
+    const [lotPoolRows, pendingPoolRows] = await Promise.all([
+      all(pool, `
+        SELECT
+          l.itemId,
+          l.department,
+          COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 THEN l.currentQuantity ELSE 0 END), 0) AS total,
+          COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND (l.expiryDate IS NULL OR l.expiryDate >= CURDATE()) THEN l.currentQuantity ELSE 0 END), 0) AS available,
+          COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND l.expiryDate < CURDATE() THEN l.currentQuantity ELSE 0 END), 0) AS expired,
+          COUNT(DISTINCT CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 THEN l.id END) AS activeLotCount,
+          MIN(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND l.expiryDate >= CURDATE() THEN l.expiryDate END) AS nearestExpiry
+        FROM lots l
+        GROUP BY l.itemId, l.department
+      `),
+      all(pool, `
+        SELECT p.itemId, p.department, SUM(p.orderedQty - COALESCE(p.receivedQtyTotal, 0)) AS pendingOrderQty
+        FROM purchases p
+        WHERE p.status IN ('ONAYLANDI', 'SIPARIS_VERILDI', 'KISMI_TESLIM')
+          AND p.orderedQty > COALESCE(p.receivedQtyTotal, 0)
+        GROUP BY p.itemId, p.department
+      `),
+    ]);
+
+    const lotPoolsByItem = new Map();
+    for (const row of lotPoolRows) {
+      if (Number(row.total) === 0 && Number(row.activeLotCount) === 0) continue;
+      const group = resolveDepoGroup(row.department);
+      if (!lotPoolsByItem.has(row.itemId)) lotPoolsByItem.set(row.itemId, new Map());
+      lotPoolsByItem.get(row.itemId).set(group, row);
+    }
+    const pendingPoolsByItem = new Map();
+    for (const row of pendingPoolRows) {
+      if (Number(row.pendingOrderQty) === 0) continue;
+      const group = resolveDepoGroup(row.department);
+      if (!pendingPoolsByItem.has(row.itemId)) pendingPoolsByItem.set(row.itemId, new Map());
+      pendingPoolsByItem.get(row.itemId).set(group, Number(row.pendingOrderQty));
+    }
+
+    // Mirrors the SQL `stockStatus` CASE above, parameterized so it can be reused
+    // per depo pool.
+    const computeStockStatus = (available, idealOrMin, nearestExpiry, expired) => {
+      if (available === 0) return 'STOK_YOK';
+      if (available < idealOrMin) return 'SATIN_AL';
+      if (nearestExpiry && new Date(nearestExpiry) <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)) return 'SKT_YAKIN';
+      if (expired > 0) return 'SKT_GECMIS';
+      return 'STOKTA';
+    };
+
     const mapped = items.map((item) => {
       const { departmentsRaw, ...rest } = item;
+      const idealOrMin = item.ideal_stock ?? item.minStock;
+      const lotPools = lotPoolsByItem.get(item.id) || new Map();
+      const pendingPools = pendingPoolsByItem.get(item.id) || new Map();
+      const poolKeys = new Set([...lotPools.keys(), ...pendingPools.keys()]);
+      const poolsObj = {};
+      for (const key of poolKeys) {
+        const lotRow = lotPools.get(key);
+        const available = Number(lotRow?.available ?? 0);
+        const expired = Number(lotRow?.expired ?? 0);
+        const nearestExpiryForPool = lotRow?.nearestExpiry ?? null;
+        poolsObj[key] = {
+          total: Number(lotRow?.total ?? 0),
+          available,
+          expired,
+          activeLotCount: Number(lotRow?.activeLotCount ?? 0),
+          nearestExpiry: nearestExpiryForPool,
+          pendingOrderQty: pendingPools.get(key) || 0,
+          status: computeStockStatus(available, idealOrMin, nearestExpiryForPool, expired),
+        };
+      }
       return {
         ...rest,
         isGlobal: !!item.isGlobal,
         departments: departmentsRaw ? departmentsRaw.split('||') : [],
+        pools: poolsObj,
       };
     });
     res.json({ items: mapped });
@@ -2075,13 +2153,13 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
 
       // Check if lot already exists for this item (FOR UPDATE prevents concurrent receive race)
       const existingLots = await all(conn, 'SELECT * FROM lots WHERE itemId = ? AND lotNumber = ? FOR UPDATE', [item.id, lotNumber]);
-      
+
       let lotId;
       if (existingLots.length) {
-        // Add to existing lot
+        // Add to existing lot — its department (depo pool) was fixed at creation, don't touch it here.
         lotId = existingLots[0].id;
         await run(conn, `
-          UPDATE lots SET 
+          UPDATE lots SET
             currentQuantity = currentQuantity + ?,
             initialQuantity = initialQuantity + ?,
             status = 'ACTIVE',
@@ -2089,12 +2167,16 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
           WHERE id = ?
         `, [quantity, quantity, req.user.username, lotId]);
       } else {
-        // Create new lot
+        // Create new lot, tagged with the purchase's own department — every
+        // department's stock lands in its own depo pool (see server/depoGroup.cjs).
+        // Untagged purchases (legacy / no department on file) leave the lot
+        // departmentless, same as before this feature existed.
         lotId = generateId();
+        const lotDepartment = purchase.department || null;
         await run(conn, `
-          INSERT INTO lots (id, itemId, purchaseId, receiptId, lotNumber, expiryDate, receivedDate, initialQuantity, currentQuantity, invoiceNo, attachmentUrl, attachmentName, notes, createdBy)
-          VALUES (?, ?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?)
-        `, [lotId, item.id, purchaseId, normalizedReceiptId, lotNumber, expiryDate || null, quantity, quantity, invoiceNo || '', attachmentUrl || '', attachmentName || '', notes || '', req.user.username]);
+          INSERT INTO lots (id, itemId, purchaseId, receiptId, lotNumber, expiryDate, receivedDate, initialQuantity, currentQuantity, department, invoiceNo, attachmentUrl, attachmentName, notes, createdBy)
+          VALUES (?, ?, ?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [lotId, item.id, purchaseId, normalizedReceiptId, lotNumber, expiryDate || null, quantity, quantity, lotDepartment, invoiceNo || '', attachmentUrl || '', attachmentName || '', notes || '', req.user.username]);
       }
 
       // Insert or update receipt record
@@ -2348,16 +2430,20 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
           remainingQty -= take;
         }
       } else {
-        // FEFO auto-selection
+        // FEFO auto-selection, scoped to the target department's depo pool once
+        // depo_pool_split is enabled (see server/depoGroup.cjs).
+        const poolOn = (await getSetting('depo_pool_split', '0')) === '1';
+        const poolFilter = poolOn ? buildLotPoolFilter(resolveDepoGroup(department), 'l') : { clause: '', params: [] };
         const availableLots = await all(conn, `
-          SELECT * FROM lots
-          WHERE itemId = ? AND status = 'ACTIVE' AND currentQuantity > 0
+          SELECT l.* FROM lots l
+          WHERE l.itemId = ? AND l.status = 'ACTIVE' AND l.currentQuantity > 0
+          ${poolFilter.clause}
           ORDER BY
-            CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END,
-            expiryDate ASC,
-            receivedDate ASC
+            CASE WHEN l.expiryDate IS NULL THEN 1 ELSE 0 END,
+            l.expiryDate ASC,
+            l.receivedDate ASC
           FOR UPDATE
-        `, [itemId]);
+        `, [itemId, ...poolFilter.params]);
 
         if (!availableLots.length) {
           throw { status: 400, error: 'NO_STOCK_AVAILABLE' };
@@ -3833,6 +3919,32 @@ const ensureCepDepoTables = async () => {
     SELECT id, department FROM item_definitions WHERE department IS NOT NULL AND department <> ''
   `);
 
+  // Per-department depo-pool backfill — see server/migrations/2026-08-08-depo-pool-backfill.sql
+  // and server/depoGroup.cjs. Only the unambiguous case (item belongs to exactly
+  // one department, not global, no other department tagged) is backfilled; a
+  // shared/global item's existing NULL lots stay in the UNASSIGNED pool until
+  // someone tags a specific batch going forward. Idempotent — matches 0 rows once set.
+  try {
+    await pool.query(`
+      UPDATE lots l
+      JOIN item_definitions id ON id.id = l.itemId
+      SET l.department = id.department
+      WHERE l.department IS NULL
+        AND id.isGlobal = 0
+        AND id.department IS NOT NULL AND id.department <> ''
+        AND NOT EXISTS (
+          SELECT 1 FROM item_departments idp
+          WHERE idp.itemDefinitionId = id.id AND idp.department <> id.department
+        )
+    `);
+    const [idxRows] = await pool.query(
+      "SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'lots' AND INDEX_NAME = 'idx_lots_department'"
+    );
+    if (!idxRows?.[0]?.n) {
+      await pool.query('CREATE INDEX idx_lots_department ON lots (department)');
+    }
+  } catch (e) { console.warn('[ensureCepDepo] depo-pool backfill skipped:', e?.code || e?.message); }
+
   // Two-step distribution receipt confirmation (toggleable via app_settings).
   // NULL receivedConfirmedAt = the recipient technician has not acknowledged yet.
   try {
@@ -3866,6 +3978,9 @@ const ensureCepDepoTables = async () => {
     updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
   await pool.query("INSERT IGNORE INTO app_settings (settingKey, settingValue) VALUES ('dist_receipt_confirmation', '0')");
+  // SİTOGENETİK depo-pool split — gates FEFO lot scoping in /api/consume,
+  // /api/distribute, /api/cep-depo/distribute. Off by default (today's behavior).
+  await pool.query("INSERT IGNORE INTO app_settings (settingKey, settingValue) VALUES ('depo_pool_split', '0')");
 
   // One-time backfill: rows that predate this feature have NULL receivedConfirmedAt.
   // Treat them as already confirmed so enabling the toggle later does not resurface
@@ -4075,13 +4190,17 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
           remaining -= take;
         }
       } else {
-        // FEFO fallback (no lotId supplied) — original behavior.
+        // FEFO fallback (no lotId supplied), scoped to the recipient technician's
+        // depo pool once depo_pool_split is enabled (see server/depoGroup.cjs).
+        const poolOn = (await getSetting('depo_pool_split', '0')) === '1';
+        const poolFilter = poolOn ? buildLotPoolFilter(resolveDepoGroup(dept), 'l') : { clause: '', params: [] };
         const lots = await all(conn, `
-          SELECT * FROM lots
-          WHERE itemId = ? AND status = 'ACTIVE' AND currentQuantity > 0
-          ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC
+          SELECT l.* FROM lots l
+          WHERE l.itemId = ? AND l.status = 'ACTIVE' AND l.currentQuantity > 0
+          ${poolFilter.clause}
+          ORDER BY CASE WHEN l.expiryDate IS NULL THEN 1 ELSE 0 END, l.expiryDate ASC, l.receivedDate ASC
           FOR UPDATE
-        `, [itemId]);
+        `, [itemId, ...poolFilter.params]);
 
         const totalAvailable = lots.reduce((s, l) => s + Number(l.currentQuantity), 0);
         if (totalAvailable < packQtyNum) {

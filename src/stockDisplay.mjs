@@ -16,6 +16,30 @@ export const isBelowStockTarget = (item) => {
   return target > 0 && totalStock < target;
 };
 
+// Label for the catch-all pool used by lots/purchases that predate
+// department-scoped tracking (no department recorded on the row).
+export const UNASSIGNED_POOL_LABEL = 'Etiketlenmemiş';
+
+// Each department works like its own lab with its own stock and its own
+// buying process (see server/depoGroup.cjs). `item.pools` is a map keyed by
+// department name (or 'UNASSIGNED') — this only returns rows when the item's
+// stock/pending orders are actually split across more than one department, so
+// ordinary single-department items render exactly as before this feature existed.
+export const getDepoPoolRows = (item) => {
+  const pools = item?.pools;
+  if (!pools || typeof pools !== 'object') return [];
+  const keys = Object.keys(pools);
+  if (keys.length < 2) return [];
+  return keys
+    .map((key) => ({
+      key,
+      label: key === 'UNASSIGNED' ? UNASSIGNED_POOL_LABEL : key,
+      available: toNumber(pools[key]?.available, 0),
+      pendingOrderQty: toNumber(pools[key]?.pendingOrderQty, 0),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
+};
+
 export const getCepDepoDisplay = (item) => {
   const hasSubUnit = Boolean(
     item?.consumptionUnit &&

@@ -36,7 +36,7 @@ import {
   getPurchaseStatusFilterOptions,
   getVisibleTabOptions
 } from './mobileUi.mjs';
-import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget } from './stockDisplay.mjs';
+import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget, getDepoPoolRows } from './stockDisplay.mjs';
 import './theme.css';
 import logoIcon from './logos/icon.png';
 
@@ -337,6 +337,7 @@ const LabEquipmentTracker = () => {
   const canViewDagit = true; // Tab visible to all; content filtered per role
   // Two-step distribution receipt confirmation feature flag (ADMIN-toggled).
   const receiptConfirmationOn = appSettings.dist_receipt_confirmation === '1';
+  const depoPoolSplitOn = appSettings.depo_pool_split === '1';
 
   // Single-company feature toggles (stored in app_settings as `module.<key>`).
   // Optional existing tabs default ON (preserve current behavior); barcode add-ons
@@ -1432,6 +1433,16 @@ const LabEquipmentTracker = () => {
       alert('Ayar güncellenemedi: ' + (err?.payload?.message || err?.message || 'HATA'));
     }
   };
+
+  // ADMIN toggles per-department depo-pool separation (scopes FEFO to the correct pool).
+  const toggleDepoPoolSplit = async (next) => {
+    try {
+      await updateSetting('depo_pool_split', next ? '1' : '0');
+      setAppSettings((s) => ({ ...s, depo_pool_split: next ? '1' : '0' }));
+    } catch (err) {
+      alert('Ayar güncellenemedi: ' + (err?.payload?.message || err?.message || 'HATA'));
+    }
+  };
   
   // UNIFIED DATA SOURCE: Use unifiedStock from API instead of localStorage items
   // This ensures "Stok" tab and "LOT Stok Yönetimi" show the same data
@@ -2418,6 +2429,22 @@ const LabEquipmentTracker = () => {
                       </span>
                     </span>
                   </label>
+                  <label className="flex items-start gap-3 cursor-pointer mt-4">
+                    <input
+                      type="checkbox"
+                      checked={depoPoolSplitOn}
+                      onChange={(e) => toggleDepoPoolSplit(e.target.checked)}
+                      className="mt-1 h-4 w-4"
+                    />
+                    <span className="text-sm">
+                      <span className="font-semibold">Bölüm bazlı depo ayrımı</span>
+                      <span className="block text-gray-600 text-xs mt-0.5">
+                        Açıkken: her bölümün deposu ayrı bir laboratuvar gibi çalışır — dağıtım/tüketimde
+                        bir bölümün stoğu başka bir bölümün stoğuyla karıştırılmaz, her talep yalnızca
+                        kendi bölümünün deposundan karşılanır.
+                      </span>
+                    </span>
+                  </label>
                 </div>
               )}
 
@@ -3249,6 +3276,10 @@ const LabEquipmentTracker = () => {
                 const stockDisplayTarget = getStockDisplayTarget(item);
                 const isLowStock = isBelowStockTarget(item);
                 const cepDepoDisplay = getCepDepoDisplay(item);
+                // Each department works like its own lab with its own stock and its
+                // own buying process — when this item's stock/pending orders span more
+                // than one department, show the split instead of one blended number.
+                const depoPoolRows = getDepoPoolRows(item);
                 const showAllLots = showAllMobileLotsFor === item.id;
                 const lotPreviewLimit = showAllLots ? expandedMaterialLots.length : 3;
                 const lotPreview = getLotPreview(expandedMaterialLots, lotPreviewLimit);
@@ -3304,9 +3335,20 @@ const LabEquipmentTracker = () => {
                       </div>
                     </div>
 
-                    {pendingOrderQty > 0 && (
+                    {depoPoolRows.length === 0 && pendingOrderQty > 0 && (
                       <div className="mobile-inline-note">
                         +{Math.floor(pendingOrderQty)} beklemede, tahmini stok {Math.floor(totalStock + pendingOrderQty)}
+                      </div>
+                    )}
+
+                    {depoPoolRows.length > 0 && (
+                      <div className="mobile-inline-note text-gray-500">
+                        {depoPoolRows.map((row) => (
+                          <div key={row.key}>
+                            {row.label}: {row.available}
+                            {row.pendingOrderQty > 0 && ` (+${Math.floor(row.pendingOrderQty)} beklemede)`}
+                          </div>
+                        ))}
                       </div>
                     )}
 
@@ -3476,7 +3518,11 @@ const LabEquipmentTracker = () => {
                     const stockDisplayTarget = getStockDisplayTarget(item);
                     const isLowStock = isBelowStockTarget(item);
                     const cepDepoDisplay = getCepDepoDisplay(item);
-                    
+                    // Each department works like its own lab with its own stock and its
+                    // own buying process — when this item's stock/pending orders span more
+                    // than one department, show the split instead of one blended number.
+                    const depoPoolRows = getDepoPoolRows(item);
+
                     return (
                       <React.Fragment key={item.id}>
                         <tr className={`hover:bg-gray-50 cursor-pointer ${isLowStock ? 'bg-red-50' : ''}`} onClick={() => toggleMaterialLots(item.id)}>
@@ -3511,11 +3557,21 @@ const LabEquipmentTracker = () => {
                                 {totalStock}
                               </span> / {stockDisplayTarget} {item.unit}
                             </div>
-                            {pendingOrderQty > 0 && (
+                            {depoPoolRows.length === 0 && pendingOrderQty > 0 && (
                               <div className="text-xs text-blue-600 mt-1">
                                 +{Math.floor(pendingOrderQty)} beklemede
                                 <br/>
                                 <span className="text-gray-600">Tahmini: {Math.floor(totalStock + pendingOrderQty)}</span>
+                              </div>
+                            )}
+                            {depoPoolRows.length > 0 && (
+                              <div className="text-[10px] text-gray-500 mt-1">
+                                {depoPoolRows.map((row) => (
+                                  <div key={row.key}>
+                                    {row.label}: {row.available}
+                                    {row.pendingOrderQty > 0 && ` (+${Math.floor(row.pendingOrderQty)} beklemede)`}
+                                  </div>
+                                ))}
                               </div>
                             )}
                           </td>
