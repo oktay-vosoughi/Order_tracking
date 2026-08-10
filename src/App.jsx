@@ -443,10 +443,18 @@ const LabEquipmentTracker = () => {
     }
     if (currentUser && activeTab === 'users' && canManageUsers) {
       loadUsers();
-      loadDepartments();
       if (isAdmin) loadLoginLockouts();
     }
   }, [activeTab, currentUser]);
+
+  // Department list is needed on the Stok tab too (Birim's department checkboxes,
+  // Düzelt's CEP-DEPO department picker) — load it once on login rather than only
+  // when the Users tab happens to be visited first, which left it empty everywhere else.
+  useEffect(() => {
+    if (currentUser) {
+      loadDepartments();
+    }
+  }, [currentUser]);
 
   const initAuth = async () => {
     try {
