@@ -996,7 +996,17 @@ app.put('/api/item-definitions/:id', authRequired, canManageItems, async (req, r
         minReactionThreshold = COALESCE(?, minReactionThreshold),
         updatedBy = ?
       WHERE id = ?
-    `, [code, name, category, department, unit, minStock, ideal_stock, max_stock, supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType, msdsUrl, notes, status, pkgUnit, conUnit, upp, cut, mrt, req.user.username, req.params.id]);
+    `, [
+      // mysql2 rejects `undefined` bind params (requires explicit `null`); the SQL's
+      // COALESCE(?, existingColumn) is what actually implements "unset field = keep
+      // current value" for partial updates like the Birim (unit-fields-only) save —
+      // ?? null is what makes that COALESCE reachable instead of crashing first.
+      code ?? null, name ?? null, category ?? null, department ?? null, unit ?? null,
+      minStock ?? null, ideal_stock ?? null, max_stock ?? null, supplier ?? null,
+      catalogNo ?? null, brand ?? null, storageLocation ?? null, storageTemp ?? null,
+      chemicalType ?? null, msdsUrl ?? null, notes ?? null, status ?? null,
+      pkgUnit, conUnit, upp, cut, mrt, req.user.username, req.params.id
+    ]);
     
     const items = await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [req.params.id]);
     const updated = items[0];
