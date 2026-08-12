@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import BarcodeScanner from './BarcodeScanner';
 import { parseGs1 } from './gs1';
@@ -53,6 +53,11 @@ const RECEIVE_FORM_DEFAULT = {
 };
 
 const EXPIRY_WARNING_DAYS = 90;
+
+const getCorrectionCepQuantity = (balance, consumptionUnitType) => {
+  if (!balance) return '';
+  return String(consumptionUnitType === 'PACK' ? Number(balance.packQty || 0) : Number(balance.unitQty || 0));
+};
 const EXPIRY_FILTER_VALUE = 'EXPIRY_WARNING';
 
 // Migration function for old data
@@ -729,10 +734,10 @@ const LabEquipmentTracker = () => {
     targetLotId: '',
     cepDepartment: ''
   });
-  // Set when the server reports CEP_DEPARTMENT_REQUIRED — this item has no CEP DEPO
-  // balance row yet, so creating one needs an explicit department (cep_depo_balances
-  // is keyed by (department, itemId)).
-  const [correctionNeedsCepDepartment, setCorrectionNeedsCepDepartment] = useState(false);
+  const [correctionCepBalanceOptions, setCorrectionCepBalanceOptions] = useState([]);
+  const [correctionCepBalancesLoading, setCorrectionCepBalancesLoading] = useState(false);
+  const [correctionCepBalancesError, setCorrectionCepBalancesError] = useState(false);
+  const [correctionCepQtyDirty, setCorrectionCepQtyDirty] = useState(false);
   const [correctionLotOptions, setCorrectionLotOptions] = useState([]);
   const [correctionLotsLoading, setCorrectionLotsLoading] = useState(false);
   const [correctionLotsError, setCorrectionLotsError] = useState(false);
@@ -759,30 +764,39 @@ const LabEquipmentTracker = () => {
     setCorrectionLotOptions([]); // reset before async fetch to avoid stale picker
     setCorrectionLotsError(false);
     setCorrectionLotsLoading(true);
-    setCorrectionNeedsCepDepartment(false);
-    const cepDisplay = getCepDepoDisplay(item);
+    setCorrectionCepBalanceOptions([]);
+    setCorrectionCepBalancesError(false);
+    setCorrectionCepBalancesLoading(true);
+    setCorrectionCepQtyDirty(false);
     setCorrectionItem(item);
+    const correctionConsumptionType = item.consumptionUnitType || (item.consumptionUnit ? 'UNIT' : 'PACK');
     setCorrectionForm({
       unit: item.unit || 'kutu',
       packageUnit: item.packageUnit || item.unit || 'kutu',
       consumptionUnit: item.consumptionUnit || '',
       unitsPerPackage: item.unitsPerPackage ?? '',
-      consumptionUnitType: item.consumptionUnitType || (item.consumptionUnit ? 'UNIT' : 'PACK'),
+      consumptionUnitType: correctionConsumptionType,
       // Left blank until the live lot fetch below confirms the real lot count — prefilling from
       // cached activeLotCount here raced with that fetch and could send a stale mainStock to the
       // server before the multi-lot picker had a chance to appear (server then rightfully 409s).
       mainStock: '',
       idealStock: item.ideal_stock ?? item.minStock ?? '',
       maxStock: item.max_stock ?? '',
-      cepUnitQty: cepDisplay.quantity || 0,
+      // CEP DEPO is department-scoped. Do not prefill the aggregate item total;
+      // the authoritative department balance is loaded below.
+      cepUnitQty: '',
       storageLocation: item.storageLocation || '',
       minReactionThreshold: item.minReactionThreshold ?? '',
       targetLotId: '',
       cepDepartment: ''
     });
-    try {
-      const res = await fetchItemLots(item.id);
-      const opts = (res.lots || []).filter((l) => l.status === 'ACTIVE' && Number(l.currentQuantity) > 0);
+    const [lotsResult, balancesResult] = await Promise.allSettled([
+      fetchItemLots(item.id),
+      fetchCepDepoBalances()
+    ]);
+
+    if (lotsResult.status === 'fulfilled') {
+      const opts = (lotsResult.value.lots || []).filter((l) => l.status === 'ACTIVE' && Number(l.currentQuantity) > 0);
       setCorrectionLotOptions(opts);
       // Fill mainStock only once the authoritative lot list is known: a single active lot's own
       // quantity, or the item total when there's no active lot yet (e.g. brand-new item). With
@@ -792,13 +806,29 @@ const LabEquipmentTracker = () => {
       } else if (opts.length === 0) {
         setCorrectionForm((prev) => ({ ...prev, mainStock: item.totalStock ?? item.currentStock ?? 0 }));
       }
-    } catch (err) {
-      console.error('Failed to load lots for correction:', err);
+    } else {
+      console.error('Failed to load lots for correction:', lotsResult.reason);
       setCorrectionLotOptions([]);
       setCorrectionLotsError(true);
-    } finally {
-      setCorrectionLotsLoading(false);
     }
+    setCorrectionLotsLoading(false);
+
+    if (balancesResult.status === 'fulfilled') {
+      const balances = (balancesResult.value.balances || []).filter((balance) => balance.itemId === item.id);
+      setCorrectionCepBalanceOptions(balances);
+      if (balances.length === 1) {
+        setCorrectionForm((prev) => ({
+          ...prev,
+          cepDepartment: balances[0].department,
+          cepUnitQty: getCorrectionCepQuantity(balances[0], correctionConsumptionType)
+        }));
+      }
+    } else {
+      console.error('Failed to load CEP DEPO balances for correction:', balancesResult.reason);
+      setCorrectionCepBalanceOptions([]);
+      setCorrectionCepBalancesError(true);
+    }
+    setCorrectionCepBalancesLoading(false);
   };
 
   const handleSaveUnitStockCorrection = async () => {
@@ -825,6 +855,22 @@ const LabEquipmentTracker = () => {
       alert('Lütfen düzeltilecek LOT\'u seçin.');
       return;
     }
+    if (correctionCepQtyDirty && correctionCepBalancesLoading) {
+      alert('CEP DEPO bilgisi yükleniyor, lütfen birkaç saniye bekleyip tekrar deneyin.');
+      return;
+    }
+    if (correctionCepQtyDirty && correctionCepBalancesError) {
+      alert('CEP DEPO bakiyeleri yüklenemedi. Düzeltme güvenli şekilde kaydedilemiyor.');
+      return;
+    }
+    if (correctionCepQtyDirty && !correctionForm.cepDepartment) {
+      alert('Lütfen düzeltilecek CEP DEPO bölümünü seçin.');
+      return;
+    }
+    if (correctionCepQtyDirty && (correctionForm.cepUnitQty === '' || !Number.isFinite(Number(correctionForm.cepUnitQty)) || Number(correctionForm.cepUnitQty) < 0)) {
+      alert('CEP DEPO miktarı sıfır veya pozitif bir sayı olmalıdır.');
+      return;
+    }
 
     try {
       await applyUnitStockCorrection(correctionItem.id, {
@@ -836,7 +882,7 @@ const LabEquipmentTracker = () => {
         mainStock: correctionForm.mainStock === '' ? null : Number(correctionForm.mainStock),
         idealStock: correctionForm.idealStock === '' ? null : Number(correctionForm.idealStock),
         maxStock: correctionForm.maxStock === '' ? null : Number(correctionForm.maxStock),
-        cepUnitQty: correctionForm.cepUnitQty === '' ? null : Number(correctionForm.cepUnitQty),
+        cepUnitQty: correctionCepQtyDirty ? Number(correctionForm.cepUnitQty) : null,
         storageLocation: correctionForm.storageLocation.trim() || null,
         minReactionThreshold: correctionForm.minReactionThreshold === '' ? null : Number(correctionForm.minReactionThreshold),
         targetLotId: correctionForm.targetLotId || null,
@@ -846,7 +892,8 @@ const LabEquipmentTracker = () => {
       setCorrectionItem(null);
       alert('Birim ve stok düzeltmesi kaydedildi.');
     } catch (err) {
-      if (err?.message === 'MULTIPLE_ACTIVE_LOTS') {
+      const errorCode = err?.payload?.error || err?.message;
+      if (errorCode === 'MULTIPLE_ACTIVE_LOTS') {
         try {
           const res = await fetchItemLots(correctionItem.id);
           const opts = (res.lots || []).filter((l) => l.status === 'ACTIVE' && Number(l.currentQuantity) > 0);
@@ -856,11 +903,10 @@ const LabEquipmentTracker = () => {
         } catch {
           alert('Düzeltme başarısız: LOT listesi yüklenemedi.');
         }
-      } else if (err?.message === 'CEP_DEPARTMENT_REQUIRED') {
-        setCorrectionNeedsCepDepartment(true);
-        alert('Bu malzeme için CEP DEPO kaydı yok. Lütfen hangi bölüm için oluşturulacağını seçin ve tekrar kaydedin.');
+      } else if (errorCode === 'CEP_DEPARTMENT_REQUIRED') {
+        alert('Lütfen düzeltilecek CEP DEPO bölümünü seçin ve tekrar kaydedin.');
       } else {
-        alert('Düzeltme başarısız: ' + (err?.message || 'HATA'));
+        alert('Düzeltme başarısız: ' + (err?.payload?.message || err?.message || 'HATA'));
       }
     }
   };
@@ -4993,7 +5039,16 @@ const LabEquipmentTracker = () => {
                 <select
                   className="w-full px-3 py-2 border rounded-lg"
                   value={correctionForm.consumptionUnitType}
-                  onChange={(e) => setCorrectionForm({ ...correctionForm, consumptionUnitType: e.target.value })}
+                  onChange={(e) => {
+                    const consumptionUnitType = e.target.value;
+                    const selectedBalance = correctionCepBalanceOptions.find((balance) => balance.department === correctionForm.cepDepartment);
+                    setCorrectionCepQtyDirty(false);
+                    setCorrectionForm({
+                      ...correctionForm,
+                      consumptionUnitType,
+                      cepUnitQty: getCorrectionCepQuantity(selectedBalance, consumptionUnitType)
+                    });
+                  }}
                 >
                   <option value="UNIT">UNIT - alt birim harcanır</option>
                   <option value="TEST">TEST - test sayısı harcanır</option>
@@ -5085,7 +5140,35 @@ const LabEquipmentTracker = () => {
 
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  CEP DEPO'da görünen / harcanan miktar
+                  CEP DEPO bölümü
+                </label>
+                <select
+                  className="w-full px-3 py-2 border rounded-lg mb-2"
+                  value={correctionForm.cepDepartment}
+                  disabled={correctionCepBalancesLoading || correctionCepBalancesError}
+                  onChange={(e) => {
+                    const cepDepartment = e.target.value;
+                    const balance = correctionCepBalanceOptions.find((option) => option.department === cepDepartment);
+                    setCorrectionCepQtyDirty(false);
+                    setCorrectionForm({
+                      ...correctionForm,
+                      cepDepartment,
+                      cepUnitQty: cepDepartment
+                        ? getCorrectionCepQuantity(balance, correctionForm.consumptionUnitType)
+                        : ''
+                    });
+                  }}
+                >
+                  <option value="">Bölüm seç…</option>
+                  {Array.from(new Set([
+                    ...departments.filter((department) => department.active).map((department) => department.name),
+                    ...correctionCepBalanceOptions.map((balance) => balance.department).filter(Boolean)
+                  ])).sort((a, b) => a.localeCompare(b, 'tr')).map((department) => (
+                    <option key={department} value={department}>{department}</option>
+                  ))}
+                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Seçili bölümde görünen / harcanan miktar
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -5094,7 +5177,12 @@ const LabEquipmentTracker = () => {
                     step="0.01"
                     className="flex-1 px-3 py-2 border rounded-lg"
                     value={correctionForm.cepUnitQty}
-                    onChange={(e) => setCorrectionForm({ ...correctionForm, cepUnitQty: e.target.value })}
+                    disabled={!correctionForm.cepDepartment || correctionCepBalancesLoading || correctionCepBalancesError}
+                    placeholder={correctionForm.cepDepartment ? 'Miktar girin' : 'Önce bölüm seçin'}
+                    onChange={(e) => {
+                      setCorrectionCepQtyDirty(true);
+                      setCorrectionForm({ ...correctionForm, cepUnitQty: e.target.value });
+                    }}
                   />
                   <span className="px-3 py-2 bg-gray-100 border rounded-lg text-sm text-gray-700 min-w-20 text-center">
                     {correctionForm.consumptionUnitType === 'PACK'
@@ -5107,25 +5195,13 @@ const LabEquipmentTracker = () => {
                     Sistem paket karşılığı: {(Number(correctionForm.cepUnitQty || 0) / Number(correctionForm.unitsPerPackage)).toFixed(4)} {correctionForm.packageUnit || correctionForm.unit || 'kutu'}
                   </p>
                 )}
-                {correctionNeedsCepDepartment && (
-                  <div className="mt-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      CEP DEPO Bölümü <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      className="w-full px-3 py-2 border rounded-lg"
-                      value={correctionForm.cepDepartment}
-                      onChange={(e) => setCorrectionForm({ ...correctionForm, cepDepartment: e.target.value })}
-                    >
-                      <option value="">Bölüm seç…</option>
-                      {departments.filter((d) => d.active).map((d) => (
-                        <option key={d.id} value={d.name}>{d.name}</option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Bu malzeme için henüz CEP DEPO kaydı yok — hangi bölüm için oluşturulacağını seçin.
-                    </p>
-                  </div>
+                {correctionForm.cepDepartment && !correctionCepBalanceOptions.some((balance) => balance.department === correctionForm.cepDepartment) && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    Bu bölümde henüz CEP DEPO kaydı yok. Gireceğiniz miktarla yeni bölüm bakiyesi oluşturulur.
+                  </p>
+                )}
+                {!correctionCepQtyDirty && correctionForm.cepDepartment && (
+                  <p className="text-xs text-gray-500 mt-1">CEP DEPO miktarını değiştirmek için miktar alanını düzenleyin.</p>
                 )}
               </div>
 
@@ -5149,6 +5225,11 @@ const LabEquipmentTracker = () => {
             {correctionLotsError && (
               <p className="text-xs text-red-600 mt-3 font-medium">
                 LOT listesi yüklenemedi. Pencereyi kapatıp tekrar açmayı deneyin.
+              </p>
+            )}
+            {correctionCepBalancesError && (
+              <p className="text-xs text-red-600 mt-3 font-medium">
+                CEP DEPO bakiyeleri yüklenemedi. Ana depo/birim düzeltmesi yapılabilir; CEP DEPO miktarı değiştirilemez.
               </p>
             )}
 

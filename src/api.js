@@ -581,6 +581,20 @@ export async function createPurchaseRequestForLabTech({ itemId, itemCode, itemNa
   });
 }
 
+export async function updateOwnCepRequestQuantity(purchaseId, requestedQty) {
+  return apiFetch(`/purchases/${encodeURIComponent(purchaseId)}/requested-quantity`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestedQty })
+  });
+}
+
+export async function cancelOwnCepRequest(purchaseId) {
+  return apiFetch(`/purchases/${encodeURIComponent(purchaseId)}/cancel`, {
+    method: 'POST'
+  });
+}
+
 // --- App settings (feature flags) + two-step distribution receipt confirmation ---
 export async function fetchSettings() {
   return apiFetch('/settings');

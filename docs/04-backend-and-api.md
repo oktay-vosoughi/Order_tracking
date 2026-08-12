@@ -40,6 +40,7 @@ JWT payload: `{ id, username, role }`. Signed with `JWT_SECRET`. Expires in `7d`
 | GET  | `/api/item-definitions/:id` | authRequired | One item + its lots. |
 | POST | `/api/item-definitions` | authRequired | Create item (requires code+name; 409 on dup code). |
 | PUT  | `/api/item-definitions/:id` | authRequired | Update (uses `COALESCE` preserving nulls). |
+| POST | `/api/item-definitions/:id/unit-stock-correction` | authRequired + adminRequired | Correct item units/main stock and an explicitly selected department's CEP DEPO balance. Transactional. |
 | DELETE | `/api/item-definitions/:id` | authRequired + adminRequired | Hard delete + cascade lots. |
 | GET  | `/api/lots` | authRequired | Lots with item info. Filters: `itemId`, `status`, `expiringSoon=true`. |
 | POST | `/api/lots` | authRequired | Create lot (409 on dup item+lotNumber). |
@@ -58,6 +59,8 @@ JWT payload: `{ id, username, role }`. Signed with `JWT_SECRET`. Expires in `7d`
 | POST | `/api/distribute/:id/confirm` | authRequired + canDistribute | Flip to `COMPLETED`. |
 | POST | `/api/purchases` | authRequired + canRequest | New purchase request. |
 | GET  | `/api/purchases` | authRequired | List + attached receipts. |
+| PATCH | `/api/purchases/:id/requested-quantity` | authRequired + LAB_TECHNICIAN | Change the positive integer quantity of the caller's pending CEP DEPO request. |
+| POST | `/api/purchases/:id/cancel` | authRequired + LAB_TECHNICIAN | Cancel the caller's pending CEP DEPO request (`IPTAL`). |
 | POST | `/api/purchases/:id/approve` | authRequired + canApprove | Approve. |
 | POST | `/api/purchases/:id/reject` | authRequired + canReject | Reject (requires reason). |
 | POST | `/api/purchases/:id/order` | authRequired + canOrder | Mark as ordered (requires supplier+orderedQty). |

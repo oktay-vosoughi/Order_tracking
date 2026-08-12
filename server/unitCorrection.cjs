@@ -15,6 +15,28 @@ const toNullableNumber = (value, fieldName) => {
 
 const roundQuantity = (value) => Math.round((Number(value) + Number.EPSILON) * 10000) / 10000;
 
+const resolveCepCorrectionTarget = (balanceRows = [], cepDepartment) => {
+  const department = normalizeText(cepDepartment);
+  if (department) {
+    return {
+      department,
+      balance: balanceRows.find((balance) => balance.department === department) || null
+    };
+  }
+
+  if (balanceRows.length === 1) {
+    return { department: balanceRows[0].department, balance: balanceRows[0] };
+  }
+
+  if (balanceRows.length > 1) {
+    const error = new Error('Düzeltilecek CEP DEPO bölümünü seçin.');
+    error.code = 'CEP_DEPARTMENT_REQUIRED';
+    throw error;
+  }
+
+  return { department: null, balance: null };
+};
+
 const buildUnitCorrectionValues = (input = {}) => {
   const unit = normalizeText(input.unit) || 'kutu';
   const packageUnit = normalizeText(input.packageUnit) || unit;
@@ -58,5 +80,6 @@ const buildUnitCorrectionValues = (input = {}) => {
 };
 
 module.exports = {
-  buildUnitCorrectionValues
+  buildUnitCorrectionValues,
+  resolveCepCorrectionTarget
 };

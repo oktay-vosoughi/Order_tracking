@@ -7,10 +7,11 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { buildUnitCorrectionValues } = require('./unitCorrection.cjs');
+const { buildUnitCorrectionValues, resolveCepCorrectionTarget } = require('./unitCorrection.cjs');
 const { validateLotSplit } = require('./lotSplit.cjs');
 const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause } = require('./departmentScope.cjs');
 const { resolveDepoGroup, buildLotPoolFilter } = require('./depoGroup.cjs');
+const { assertOwnPendingCepRequest } = require('./purchaseRequestPolicy.cjs');
 const { buildIsoRows, fillIsoCountForm } = require('./isoCountForm.cjs');
 const { buildTrackingRows, buildDistributionRows, buildMgWorkbook } = require('./mgTrackingForm.cjs');
 const { parseGs1, lookupKeys } = require('./gs1');
@@ -1079,16 +1080,9 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
       const balanceRows = await all(conn, `
         SELECT *
         FROM cep_depo_balances
-        WHERE itemId = ? AND status = 'ACTIVE'
+        WHERE itemId = ?
         FOR UPDATE
       `, [req.params.id]);
-      if (balanceRows.length > 1 && values.cepUnitQty !== null) {
-        throw {
-          status: 409,
-          error: 'MULTIPLE_CEP_BALANCES',
-          message: 'Bu malzemede birden fazla aktif CEP DEPO kullanıcısı var. Kullanıcı bazlı düzeltme gerekir.'
-        };
-      }
 
       await run(conn, `
         UPDATE item_definitions
@@ -1169,8 +1163,22 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
       }
 
       let correctedBalanceId = null;
-      if (values.cepUnitQty !== null && balanceRows[0]) {
-        correctedBalanceId = balanceRows[0].id;
+      let correctedBalanceDepartment = null;
+      let cepTarget = { department: null, balance: null };
+      if (values.cepUnitQty !== null) {
+        try {
+          cepTarget = resolveCepCorrectionTarget(balanceRows, req.body?.cepDepartment);
+        } catch (error) {
+          if (error.code === 'CEP_DEPARTMENT_REQUIRED') {
+            throw { status: 400, error: error.code, message: error.message };
+          }
+          throw error;
+        }
+      }
+
+      if (values.cepUnitQty !== null && cepTarget.balance) {
+        correctedBalanceId = cepTarget.balance.id;
+        correctedBalanceDepartment = cepTarget.department;
         await run(conn, `
           UPDATE cep_depo_balances
           SET
@@ -1185,33 +1193,58 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
           values.consumptionUnitType,
           values.cepPackQty,
           values.cepUnitQty,
-          balanceRows[0].id
+          cepTarget.balance.id
         ]);
-      } else if (values.cepUnitQty !== null && values.cepUnitQty > 0 && !balanceRows[0]) {
-        // No CEP DEPO balance row exists for this item yet (never distributed to a
-        // department's pocket depot) — a new row needs an explicit department, since
-        // cep_depo_balances is keyed by (department, itemId). Previously this silently
-        // no-opped, leaving the admin thinking the correction saved when it hadn't.
-        const cepDepartment = String(req.body?.cepDepartment || '').trim() || null;
-        if (!cepDepartment) {
+      } else if (values.cepUnitQty !== null && cepTarget.department) {
+        const departmentRows = await all(conn, 'SELECT name FROM departments WHERE name = ? AND active = 1', [cepTarget.department]);
+        if (!departmentRows.length) {
           throw {
             status: 400,
-            error: 'CEP_DEPARTMENT_REQUIRED',
-            message: 'Bu malzeme için CEP DEPO kaydı yok. Hangi bölüm için oluşturulacağını seçin.'
+            error: 'INVALID_CEP_DEPARTMENT',
+            message: 'Seçilen CEP DEPO bölümü aktif değil veya bulunamadı.'
           };
         }
-        correctedBalanceId = generateId();
+
+        // Explicit department targeting makes this safe for items that were never
+        // distributed there. ON DUPLICATE KEY also covers a concurrent first
+        // distribution and reactivates an existing ZERO row instead of failing.
+        const proposedBalanceId = generateId();
         await run(conn, `
           INSERT INTO cep_depo_balances (id, department, itemId, packQty, unitQty, consumptionUnitType, status)
-          VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')
-        `, [correctedBalanceId, cepDepartment, req.params.id, values.cepPackQty, values.cepUnitQty, values.consumptionUnitType]);
+          VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? > 0 OR ? > 0 THEN 'ACTIVE' ELSE 'ZERO' END)
+          ON DUPLICATE KEY UPDATE
+            packQty = VALUES(packQty),
+            unitQty = VALUES(unitQty),
+            consumptionUnitType = VALUES(consumptionUnitType),
+            status = VALUES(status)
+        `, [
+          proposedBalanceId,
+          cepTarget.department,
+          req.params.id,
+          values.cepPackQty,
+          values.cepUnitQty,
+          values.consumptionUnitType,
+          values.cepPackQty,
+          values.cepUnitQty
+        ]);
+        const correctedRows = await all(conn,
+          'SELECT id FROM cep_depo_balances WHERE department = ? AND itemId = ?',
+          [cepTarget.department, req.params.id]);
+        correctedBalanceId = correctedRows[0]?.id || proposedBalanceId;
+        correctedBalanceDepartment = cepTarget.department;
+      } else if (values.cepUnitQty !== null && values.cepUnitQty > 0) {
+        throw {
+          status: 400,
+          error: 'CEP_DEPARTMENT_REQUIRED',
+          message: 'Bu malzeme için CEP DEPO kaydı yok. Hangi bölüm için oluşturulacağını seçin.'
+        };
       }
 
       await run(conn, `
         INSERT INTO stock_movements
           (id, movementType, itemId, fromLocation, toLocation, packQty, unitQty,
-           performedByUserId, performedByUsername, refId, notes)
-        VALUES (?, 'ADMIN_CORRECTION', ?, 'MANUAL', 'MANUAL', ?, ?, ?, ?, ?, ?)
+           performedByUserId, performedByUsername, department, refId, notes)
+        VALUES (?, 'ADMIN_CORRECTION', ?, 'MANUAL', 'MANUAL', ?, ?, ?, ?, ?, ?, ?)
       `, [
         generateId(),
         req.params.id,
@@ -1219,12 +1252,13 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
         values.cepUnitQty || 0,
         req.user.id,
         req.user.username,
+        correctedBalanceDepartment,
         correctedLotId || correctedBalanceId || req.params.id,
         'Admin birim/stok düzeltmesi'
       ]);
 
       const updatedItems = await all(conn, 'SELECT * FROM item_definitions WHERE id = ?', [req.params.id]);
-      return { item: updatedItems[0], correctedLotId, correctedBalanceId };
+      return { item: updatedItems[0], correctedLotId, correctedBalanceId, correctedBalanceDepartment };
     });
 
     res.json(result);
@@ -2826,15 +2860,65 @@ app.get('/api/purchases', authRequired, async (req, res) => {
   }
 });
 
+// Lab technicians may correct the quantity of their own pending CEP DEPO request.
+app.patch('/api/purchases/:id/requested-quantity', authRequired, requireRole([ROLES.LAB_TECHNICIAN]), async (req, res) => {
+  const requestedQty = Number(req.body?.requestedQty);
+  if (!Number.isInteger(requestedQty) || requestedQty <= 0) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: 'Talep miktarı pozitif bir tam sayı olmalıdır.' });
+  }
+
+  try {
+    const purchase = await withTransaction(async (conn) => {
+      const purchases = await all(conn, 'SELECT * FROM purchases WHERE id = ? FOR UPDATE', [req.params.id]);
+      if (!purchases.length) throw { status: 404, error: 'NOT_FOUND' };
+
+      assertOwnPendingCepRequest(purchases[0], req.user);
+      await run(conn, 'UPDATE purchases SET requestedQty = ?, orderedQty = ? WHERE id = ?', [requestedQty, requestedQty, req.params.id]);
+      return (await all(conn, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]))[0];
+    });
+
+    res.json({ purchase });
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.error, message: error.message });
+    }
+    console.error('Failed to update CEP DEPO request quantity', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// Cancellation keeps an audit-visible history row but removes the request from pending queues.
+app.post('/api/purchases/:id/cancel', authRequired, requireRole([ROLES.LAB_TECHNICIAN]), async (req, res) => {
+  try {
+    const purchase = await withTransaction(async (conn) => {
+      const purchases = await all(conn, 'SELECT * FROM purchases WHERE id = ? FOR UPDATE', [req.params.id]);
+      if (!purchases.length) throw { status: 404, error: 'NOT_FOUND' };
+
+      assertOwnPendingCepRequest(purchases[0], req.user);
+      await run(conn, "UPDATE purchases SET status = 'IPTAL' WHERE id = ?", [req.params.id]);
+      return (await all(conn, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]))[0];
+    });
+
+    res.json({ purchase });
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.error, message: error.message });
+    }
+    console.error('Failed to cancel CEP DEPO request', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
 // Approve purchase request (LAB_MANAGER + ADMIN + SATINAL_YONETICI)
 // When supplierName + orderedQty are provided, jumps directly to SIPARIS_VERILDI
 app.post('/api/purchases/:id/approve', authRequired, canApprove, async (req, res) => {
   const { approvalNote, autoOrder, supplierName, poNumber, orderedQty, unitPrice } = req.body || {};
   
   try {
+    let updateResult;
     if (autoOrder) {
       // Approve + auto-order in one step → SIPARIS_VERILDI (no supplier info required here)
-      await run(pool, `
+      updateResult = await run(pool, `
         UPDATE purchases SET 
           status = 'SIPARIS_VERILDI',
           approvedBy = ?,
@@ -2844,11 +2928,11 @@ app.post('/api/purchases/:id/approve', authRequired, canApprove, async (req, res
           orderedBy = ?,
           orderedAt = NOW(),
           orderedDate = CURDATE()
-        WHERE id = ?
+        WHERE id = ? AND status = 'TALEP_EDILDI'
       `, [req.user.username, approvalNote || '', req.user.username, req.params.id]);
     } else if (supplierName && orderedQty && Number(orderedQty) > 0) {
       // Legacy: approve + order with full supplier info (backward compat)
-      await run(pool, `
+      updateResult = await run(pool, `
         UPDATE purchases SET 
           status = 'SIPARIS_VERILDI',
           approvedBy = ?,
@@ -2862,23 +2946,31 @@ app.post('/api/purchases/:id/approve', authRequired, canApprove, async (req, res
           poNumber = ?,
           orderedQty = ?,
           unitPrice = ?
-        WHERE id = ?
+        WHERE id = ? AND status = 'TALEP_EDILDI'
       `, [req.user.username, approvalNote || '', req.user.username, supplierName, poNumber || '', Number(orderedQty), unitPrice ? Number(unitPrice) : null, req.params.id]);
     } else {
       // Standard approval only → ONAYLANDI (backward compat for CEP DEPO etc.)
-      await run(pool, `
+      updateResult = await run(pool, `
         UPDATE purchases SET 
           status = 'ONAYLANDI',
           approvedBy = ?,
           approvedAt = NOW(),
           approvedDate = CURDATE(),
           approvalNote = ?
-        WHERE id = ?
+        WHERE id = ? AND status = 'TALEP_EDILDI'
       `, [req.user.username, approvalNote || '', req.params.id]);
     }
-    
+
+    if (!updateResult.affectedRows) {
+      const purchases = await all(pool, 'SELECT status FROM purchases WHERE id = ?', [req.params.id]);
+      if (!purchases.length) return res.status(404).json({ error: 'NOT_FOUND' });
+      return res.status(409).json({
+        error: 'INVALID_STATUS',
+        message: 'Yalnızca onay bekleyen talepler onaylanabilir.'
+      });
+    }
+
     const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]);
-    if (!purchases.length) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ purchase: purchases[0] });
   } catch (error) {
     console.error('Failed to approve purchase', error);
@@ -2895,17 +2987,25 @@ app.post('/api/purchases/:id/reject', authRequired, canReject, async (req, res) 
   }
   
   try {
-    await run(pool, `
+    const updateResult = await run(pool, `
       UPDATE purchases SET 
         status = 'REDDEDILDI',
         rejectedBy = ?,
         rejectedDate = NOW(),
         rejectionReason = ?
-      WHERE id = ?
+      WHERE id = ? AND status = 'TALEP_EDILDI'
     `, [req.user.username, rejectionReason, req.params.id]);
-    
+
+    if (!updateResult.affectedRows) {
+      const purchases = await all(pool, 'SELECT status FROM purchases WHERE id = ?', [req.params.id]);
+      if (!purchases.length) return res.status(404).json({ error: 'NOT_FOUND' });
+      return res.status(409).json({
+        error: 'INVALID_STATUS',
+        message: 'Yalnızca onay bekleyen talepler reddedilebilir.'
+      });
+    }
+
     const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]);
-    if (!purchases.length) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ purchase: purchases[0] });
   } catch (error) {
     console.error('Failed to reject purchase', error);

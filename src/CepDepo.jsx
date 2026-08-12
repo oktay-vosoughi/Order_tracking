@@ -15,6 +15,8 @@ import {
   approvePurchase,
   rejectPurchase,
   distributeApprovedRequest,
+  updateOwnCepRequestQuantity,
+  cancelOwnCepRequest,
   updateItemDefinition
 } from './api';
 
@@ -51,6 +53,9 @@ export default function CepDepo({ currentUser }) {
   const [myRequests, setMyRequests] = useState([]);            // lab tech: own requests
   const [pendingRequests, setPendingRequests] = useState([]);  // admin/satinal: awaiting approval
   const [readyForDistribution, setReadyForDistribution] = useState([]); // approved CEP requests
+  const [editingRequestId, setEditingRequestId] = useState(null);
+  const [editingRequestQty, setEditingRequestQty] = useState('');
+  const [requestMutationId, setRequestMutationId] = useState(null);
 
   // Forms
   const [distForm, setDistForm] = useState({ labTechnicianId: '', itemId: '', packQty: '', notes: '' });
@@ -187,6 +192,7 @@ export default function CepDepo({ currentUser }) {
         notes: reqForm.notes || undefined
       });
       setReqForm({ itemId: '', requestedQty: '', notes: '' });
+      await loadAll();
       alert('Talep oluşturuldu.');
     } catch (err) {
       const code = err?.payload?.error;
@@ -235,6 +241,51 @@ export default function CepDepo({ currentUser }) {
       await loadAll();
     } catch (err) {
       alert('Red başarısız: ' + (err?.payload?.message || err?.message || 'HATA'));
+    }
+  };
+
+  const handleEditRequestQuantity = (purchase) => {
+    setEditingRequestId(purchase.id);
+    setEditingRequestQty(String(purchase.requestedQty));
+  };
+
+  const handleSaveRequestQuantity = async (purchase) => {
+    const requestedQty = Number(editingRequestQty);
+    if (!Number.isInteger(requestedQty) || requestedQty <= 0) {
+      alert('Talep miktarı pozitif bir tam sayı olmalıdır.');
+      return;
+    }
+
+    setRequestMutationId(purchase.id);
+    try {
+      await updateOwnCepRequestQuantity(purchase.id, requestedQty);
+      setEditingRequestId(null);
+      setEditingRequestQty('');
+      await loadAll();
+      alert('Talep miktarı güncellendi.');
+    } catch (err) {
+      alert('Talep güncellenemedi: ' + (err?.payload?.message || err?.message || 'HATA'));
+    } finally {
+      setRequestMutationId(null);
+    }
+  };
+
+  const handleCancelRequest = async (purchase) => {
+    if (!window.confirm(`${purchase.requestNumber || 'Bu talep'} iptal edilsin mi?\n\n${purchase.itemName || purchase.itemId} — ${purchase.requestedQty} koli`)) return;
+
+    setRequestMutationId(purchase.id);
+    try {
+      await cancelOwnCepRequest(purchase.id);
+      if (editingRequestId === purchase.id) {
+        setEditingRequestId(null);
+        setEditingRequestQty('');
+      }
+      await loadAll();
+      alert('Talep iptal edildi.');
+    } catch (err) {
+      alert('Talep iptal edilemedi: ' + (err?.payload?.message || err?.message || 'HATA'));
+    } finally {
+      setRequestMutationId(null);
     }
   };
 
@@ -365,7 +416,7 @@ export default function CepDepo({ currentUser }) {
     );
   };
 
-  const requestsTable = (rows, { showActions } = {}) => (
+  const requestsTable = (rows, { showActions = false, showOwnerActions = false } = {}) => (
     <div className="overflow-x-auto -mx-4 sm:mx-0">
     <table className="min-w-full text-sm">
       <thead className="bg-gray-100">
@@ -378,19 +429,31 @@ export default function CepDepo({ currentUser }) {
           <th className="px-3 py-2 text-left">Lab Tekn.</th>
           <th className="px-3 py-2 text-left">Durum</th>
           <th className="px-3 py-2 text-left">Not</th>
-          {showActions && <th className="px-3 py-2 text-left">İşlem</th>}
+          {(showActions || showOwnerActions) && <th className="px-3 py-2 text-left">İşlem</th>}
         </tr>
       </thead>
       <tbody>
         {rows.length === 0 && (
-          <tr><td colSpan={showActions ? 9 : 8} className="px-3 py-4 text-center text-gray-500">Kayıt yok.</td></tr>
+          <tr><td colSpan={(showActions || showOwnerActions) ? 9 : 8} className="px-3 py-4 text-center text-gray-500">Kayıt yok.</td></tr>
         )}
         {rows.map((p) => (
           <tr key={p.id} className="border-t align-top">
             <td className="px-3 py-2 font-mono text-xs">{p.requestNumber || p.id.slice(0, 8)}</td>
             <td className="px-3 py-2 text-xs">{p.requestedAt ? new Date(p.requestedAt).toLocaleString('tr-TR') : '-'}</td>
             <td className="px-3 py-2">{p.itemName || p.itemId} {p.itemCode ? <span className="text-gray-500 text-xs">({p.itemCode})</span> : null}</td>
-            <td className="px-3 py-2 text-right">{p.requestedQty}</td>
+            <td className="px-3 py-2 text-right">
+              {showOwnerActions && editingRequestId === p.id ? (
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={editingRequestQty}
+                  onChange={(e) => setEditingRequestQty(e.target.value)}
+                  className="w-20 px-2 py-1 border rounded text-right"
+                  aria-label={`${p.requestNumber || 'Talep'} miktarı`}
+                />
+              ) : p.requestedQty}
+            </td>
             <td className="px-3 py-2">{p.requestedBy || '-'}</td>
             <td className="px-3 py-2">{p.requestedFor || (p.isCepDepoRequest ? p.requestedBy : '-')}</td>
             <td className="px-3 py-2">
@@ -398,13 +461,14 @@ export default function CepDepo({ currentUser }) {
                 p.status === 'TESLIM_ALINDI' ? 'bg-green-100 text-green-700'
                 : p.status === 'ONAYLANDI' ? 'bg-blue-100 text-blue-700'
                 : p.status === 'REDDEDILDI' ? 'bg-red-100 text-red-700'
+                : p.status === 'IPTAL' ? 'bg-gray-100 text-gray-600'
                 : 'bg-amber-100 text-amber-700'
               }`}>{p.status}</span>
             </td>
             <td className="px-3 py-2 text-xs max-w-xs truncate" title={p.notes || p.approvalNote || p.rejectionReason || ''}>
               {p.rejectionReason ? `RED: ${p.rejectionReason}` : (p.notes || p.approvalNote || '')}
             </td>
-            {showActions && (
+            {(showActions || showOwnerActions) && (
               <td className="px-3 py-2">
                 {p.status === 'TALEP_EDILDI' && canReviewCepRequests && (
                   <div className="flex gap-1">
@@ -414,6 +478,35 @@ export default function CepDepo({ currentUser }) {
                 )}
                 {p.status === 'ONAYLANDI' && isPrivileged && (
                   <button onClick={() => handleDistributeApproved(p)} className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">Dağıt</button>
+                )}
+                {showOwnerActions && p.status === 'TALEP_EDILDI' && (
+                  <div className="flex flex-wrap gap-1">
+                    {editingRequestId === p.id ? (
+                      <>
+                        <button
+                          onClick={() => handleSaveRequestQuantity(p)}
+                          disabled={requestMutationId === p.id}
+                          className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                        >Kaydet</button>
+                        <button
+                          onClick={() => { setEditingRequestId(null); setEditingRequestQty(''); }}
+                          disabled={requestMutationId === p.id}
+                          className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50"
+                        >Vazgeç</button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => handleEditRequestQuantity(p)}
+                        disabled={requestMutationId === p.id}
+                        className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+                      >Düzenle</button>
+                    )}
+                    <button
+                      onClick={() => handleCancelRequest(p)}
+                      disabled={requestMutationId === p.id}
+                      className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                    >İptal Et</button>
+                  </div>
                 )}
               </td>
             )}
@@ -635,8 +728,8 @@ export default function CepDepo({ currentUser }) {
 
       <section className="bg-white rounded-xl shadow p-4 overflow-x-auto">
         <h3 className="text-lg font-bold mb-3">Taleplerim</h3>
-        <p className="text-sm text-gray-500 mb-2">Onay bekleyen, onaylanan, dağıtılan ve reddedilen taleplerimin geçmişi.</p>
-        {requestsTable(myRequests)}
+        <p className="text-sm text-gray-500 mb-2">Onay bekleyen, onaylanan, dağıtılan, reddedilen ve iptal edilen taleplerimin geçmişi.</p>
+        {requestsTable(myRequests, { showOwnerActions: true })}
       </section>
 
       <section className="bg-white rounded-xl shadow p-4 overflow-x-auto">
