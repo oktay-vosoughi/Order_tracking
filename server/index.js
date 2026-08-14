@@ -3416,6 +3416,13 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
           created++;
         }
 
+        if (masterItem.department) {
+          await run(conn,
+            'INSERT IGNORE INTO item_departments (itemDefinitionId, department) VALUES (?, ?)',
+            [itemId, masterItem.department]
+          );
+        }
+
         for (const item of itemRows) {
           const lotNumber = item.lotNumber;
           if (!lotNumber) {
@@ -3435,6 +3442,7 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
                 initialQuantity = ?,
                 expiryDate = COALESCE(?, expiryDate),
                 receivedDate = COALESCE(?, receivedDate),
+                department = ?,
                 status = ?,
                 updatedBy = ?
               WHERE id = ?
@@ -3443,6 +3451,7 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
               qty,
               item.expiryDate,
               item.receivedDate,
+              item.department || '',
               status,
               req.user.username,
               lotId
@@ -3451,8 +3460,8 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
           } else {
             const lotId = generateId();
             await run(conn, `
-              INSERT INTO lots (id, itemId, lotNumber, expiryDate, receivedDate, initialQuantity, currentQuantity, notes, createdBy, status)
-              VALUES (?, ?, ?, ?, ?, ?, ?, 'Excel import', ?, ?)
+              INSERT INTO lots (id, itemId, lotNumber, expiryDate, receivedDate, initialQuantity, currentQuantity, department, notes, createdBy, status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Excel import', ?, ?)
             `, [
               lotId,
               itemId,
@@ -3461,6 +3470,7 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
               item.receivedDate,
               qty,
               qty,
+              item.department || '',
               req.user.username,
               status
             ]);

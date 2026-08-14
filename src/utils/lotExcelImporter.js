@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { buildLyF064Rows, isLyF064Sheet } from './lyF064Importer.mjs';
 
 /**
  * Maps Turkish Excel column headers to the English keys expected by
@@ -113,6 +114,11 @@ export async function buildLotImportPayload(file) {
 
   for (const sheetName of wb.SheetNames) {
     const ws = wb.Sheets[sheetName];
+    const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+    if (isLyF064Sheet(matrix)) {
+      allRows.push(...buildLyF064Rows(matrix, sheetName));
+      continue;
+    }
     const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
 
     for (const rawRow of raw) {

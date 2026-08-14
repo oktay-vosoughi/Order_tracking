@@ -3373,7 +3373,7 @@ const LabEquipmentTracker = () => {
                       </div>
                       <div className="mobile-card-side">
                         <span className={`status-pill ${isLowStock ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                          {isLowStock ? 'SATIN AL' : 'STOKTA'}
+                          {isLowStock ? 'SATIN AL' : 'YETERLİ'}
                         </span>
                         {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                       </div>
@@ -3381,9 +3381,15 @@ const LabEquipmentTracker = () => {
 
                     <div className="mobile-card-metrics">
                       <div>
-                        <div className="mobile-metric-label">Stok</div>
+                        <div className="mobile-metric-label">Depo</div>
                         <div className={isLowStock ? 'mobile-metric-value text-red-600' : 'mobile-metric-value text-green-600'}>
-                          {totalStock} / {stockDisplayTarget} {item.unit}
+                          {totalStock} {item.unit}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mobile-metric-label">İdeal Stok</div>
+                        <div className="mobile-metric-value text-gray-700">
+                          {stockDisplayTarget} {item.unit}
                         </div>
                       </div>
                       <div>
@@ -3564,7 +3570,8 @@ const LabEquipmentTracker = () => {
                   <tr>
                     <th className="px-3 py-2 text-left text-xs font-semibold">Kod</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Stok</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold">Depo</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold">İdeal Stok</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">CEP DEPO (Tüm Kullanıcılar)</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">SKT</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">Durum</th>
@@ -3620,7 +3627,7 @@ const LabEquipmentTracker = () => {
                             <div>
                               <span className={isLowStock ? 'text-red-600 font-bold' : 'text-green-600'}>
                                 {totalStock}
-                              </span> / {stockDisplayTarget} {item.unit}
+                              </span> {item.unit}
                             </div>
                             {depoPoolRows.length === 0 && pendingOrderQty > 0 && (
                               <div className="text-xs text-blue-600 mt-1">
@@ -3639,6 +3646,10 @@ const LabEquipmentTracker = () => {
                                 ))}
                               </div>
                             )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className="font-medium text-gray-700">{stockDisplayTarget}</span>{' '}
+                            <span className="text-xs text-gray-500">{item.unit}</span>
                           </td>
                           <td className="px-3 py-2">
                             <span className={cepDepoDisplay.quantity > 0 ? 'text-indigo-700 font-semibold' : 'text-gray-400'}>
@@ -3661,7 +3672,7 @@ const LabEquipmentTracker = () => {
                           {(item.stockStatus === 'SATIN_AL' || item.stockStatus === 'STOK_YOK' || item.status === 'SATINAL' || isLowStock) ? (
                             <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium">SATIN AL</span>
                           ) : (
-                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">STOKTA</span>
+                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">YETERLİ</span>
                           )}
                           {pending && <div className="text-xs text-yellow-600 mt-1">EBYS beklemede</div>}
                           {pendingCepCount > 0 && <div className="text-xs text-blue-600 mt-1">Dağıtım talebi{pendingCepCount > 1 ? ` (${pendingCepCount})` : ''}</div>}
@@ -3760,7 +3771,7 @@ const LabEquipmentTracker = () => {
                       
                       {isExpanded && (
                         <tr>
-                          <td colSpan="7" className="bg-gray-50 px-4 py-3">
+                          <td colSpan="8" className="bg-gray-50 px-4 py-3">
                             <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-2">
                               <Package size={14} />
                               LOT Detayları - {item.name}
