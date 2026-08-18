@@ -1,4 +1,4 @@
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 
 const rows = [
   {
@@ -117,31 +117,11 @@ const rows = [
   }
 ];
 
-const ws = XLSX.utils.json_to_sheet(rows);
-
-// Set column widths
-ws['!cols'] = [
-  { wch: 14 }, // Malzeme Kodu
-  { wch: 28 }, // Malzeme Adı
-  { wch: 14 }, // Kategori
-  { wch: 14 }, // Departman
-  { wch: 10 }, // Birim
-  { wch: 10 }, // Min Stok
-  { wch: 26 }, // İdeal Stok
-  { wch: 24 }, // Max Stok
-  { wch: 12 }, // Mevcut Stok
-  { wch: 18 }, // Lot No
-  { wch: 14 }, // Son Kullanma
-  { wch: 16 }, // Marka
-  { wch: 16 }, // Tedarikçi
-  { wch: 12 }, // Ana Birim
-  { wch: 12 }, // Alt Birim
-  { wch: 16 }, // 1 Ana = Kaç Alt
-  { wch: 14 }, // Tüketim Tipi
-];
-
-const wb = XLSX.utils.book_new();
-XLSX.utils.book_append_sheet(wb, ws, 'Malzeme Listesi');
-XLSX.writeFile(wb, 'Malzeme_Import_Sablonu.xlsx');
-
-console.log('Template created: Malzeme_Import_Sablonu.xlsx');
+const wb = new ExcelJS.Workbook();
+const ws = wb.addWorksheet('Malzeme Listesi');
+ws.columns = Object.keys(rows[0]).map((header) => ({ header, key: header, width: Math.min(Math.max(header.length + 4, 12), 30) }));
+ws.addRows(rows);
+ws.getRow(1).font = { bold: true };
+wb.xlsx.writeFile('Malzeme_Import_Sablonu.xlsx').then(() => {
+  console.log('Template created: Malzeme_Import_Sablonu.xlsx');
+});

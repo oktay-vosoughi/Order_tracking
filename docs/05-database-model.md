@@ -74,6 +74,13 @@ Plus legacy value `GELDI` (old "received") used by `migrateData` in `App.jsx`.
 1. **`UNIQUE (itemId, lotNumber)`** on `lots` — cannot create two identical lot numbers per item. Server returns `409 DUPLICATE_LOT`.
 2. **`UNIQUE (code)`** on `item_definitions`. Returns `409 DUPLICATE_CODE`.
 3. **`UNIQUE (requestNumber)`** on `purchases`.
+
+### EBYS batches
+
+`ebys_batches` owns the website batch ID and the unique Talep No generated in the same
+`YYMMDD-HHMMSS` format as the official Medipol macro workbook. Purchase rows reference a
+batch through `purchases.ebysBatchId`; `purchases.ebysReference` keeps that Talep No as a
+denormalized display field. The unique key prevents two batches from claiming the same number.
 4. **Cascade deletes** (important to understand before deleting anything):
    - `item_definitions` deletion → cascades to `lots`, `usage_records` (hard), and **restricts** `purchases`, `distributions`, `waste_records`.
    - `lots` deletion → cascades to `usage_records`, `distribution_lots`, `lot_adjustments`; sets `receipts.lotId = NULL`; sets `waste_records.lotId = NULL`.

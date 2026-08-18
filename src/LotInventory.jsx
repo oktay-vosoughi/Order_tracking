@@ -1,26 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import * as XLSX from 'xlsx';
 import { Package, Plus, Search, Layers, ArrowDownCircle, AlertTriangle, Calendar, Trash2, Eye, ChevronDown, ChevronUp, CheckCircle, XCircle, BarChart2, Clock, Building2, Upload, Download } from 'lucide-react';
 import { DEPARTMENTS, STORAGE_TEMPS, CHEMICAL_TYPES, formatDate, getExpiryColorClass, openAttachmentSafely } from './labUtils';
 import { buildLotImportPayload } from './utils/lotExcelImporter';
-import { getApiRole } from './api';
-
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
-
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('auth_token');
-  return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
-};
-
-const apiCall = async (endpoint, options = {}) => {
-  const method = (options.method || 'GET').toUpperCase();
-  if (getApiRole() === 'KALITE' && method !== 'GET') {
-    throw new Error('KALITE rolü salt görüntüleme modundadır; bu işlem gerçekleştirilemez.');
-  }
-  const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers: getAuthHeaders() });
-  if (!res.ok) { const error = await res.json().catch(() => ({ error: 'UNKNOWN_ERROR' })); throw new Error(error.message || error.error); }
-  return res.json();
-};
+import { downloadWorkbook } from './utils/excel';
+import { apiRequest } from './api';
 
 const LotStatusBadge = ({ status }) => {
   const styles = { ACTIVE: 'bg-green-100 text-green-700', DEPLETED: 'bg-gray-100 text-gray-600', EXPIRED: 'bg-red-100 text-red-700' };
@@ -70,14 +53,14 @@ const LotInventory = ({ currentUser }) => {
   const loadData = async () => {
     setLoading(true); setError(null);
     try {
-      const [itemsRes, lotsRes] = await Promise.all([apiCall('/item-definitions'), apiCall('/lots')]);
+      const [itemsRes, lotsRes] = await Promise.all([apiRequest('/item-definitions'), apiRequest('/lots')]);
       setItemDefinitions(itemsRes.items || []); setLots(lotsRes.lots || []);
     } catch (err) { setError(err.message); } finally { setLoading(false); }
   };
 
   const loadReports = async () => {
     try {
-      const [summaryRes, expiryRes, lowStockRes, deptRes] = await Promise.all([apiCall('/reports/stock-summary'), apiCall('/reports/expiry?days=60'), apiCall('/reports/low-stock'), apiCall('/reports/department-stock')]);
+      const [summaryRes, expiryRes, lowStockRes, deptRes] = await Promise.all([apiRequest('/reports/stock-summary'), apiRequest('/reports/expiry?days=60'), apiRequest('/reports/low-stock'), apiRequest('/reports/department-stock')]);
       setStockSummary(summaryRes.summary || []); setExpiryReport(expiryRes.lots || []); setLowStockReport(lowStockRes.items || []); setDepartmentReport(deptRes.report || []);
     } catch (err) { console.error('Failed to load reports:', err); }
   };
@@ -85,7 +68,7 @@ const LotInventory = ({ currentUser }) => {
   const handleCreateItem = async () => {
     if (!newItem.code || !newItem.name) { alert('Malzeme kodu ve adı zorunludur'); return; }
     try {
-      const res = await apiCall('/item-definitions', { method: 'POST', body: JSON.stringify(newItem) });
+      const res = await apiRequest('/item-definitions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItem) });
       setItemDefinitions([...itemDefinitions, res.item]);
       setNewItem({ code: '', name: '', category: '', department: '', unit: '', minStock: 0, supplier: '', catalogNo: '', brand: '', storageLocation: '', storageTemp: '', chemicalType: '', msdsUrl: '', notes: '' });
       setShowAddItemForm(false);
@@ -95,7 +78,7 @@ const LotInventory = ({ currentUser }) => {
   const handleCreateLot = async () => {
     if (!newLot.lotNumber || !newLot.initialQuantity || newLot.initialQuantity <= 0) { alert('LOT numarası ve miktar zorunludur'); return; }
     try {
-      const res = await apiCall('/lots', { method: 'POST', body: JSON.stringify({ ...newLot, itemId: showAddLotForm.id }) });
+      const res = await apiRequest('/lots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newLot, itemId: showAddLotForm.id }) });
       setLots([...lots, { ...res.lot, itemName: showAddLotForm.name, itemCode: showAddLotForm.code, itemUnit: showAddLotForm.unit }]);
       setItemDefinitions(itemDefinitions.map(item => item.id === showAddLotForm.id ? { ...item, totalStock: (parseInt(item.totalStock) || 0) + parseInt(newLot.initialQuantity), activeLotCount: (parseInt(item.activeLotCount) || 0) + 1 } : item));
       setNewLot({ lotNumber: '', manufacturer: '', catalogNo: '', expiryDate: '', receivedDate: new Date().toISOString().split('T')[0], initialQuantity: 0, department: '', location: '', storageLocation: '', invoiceNo: '', notes: '', attachmentUrl: '', attachmentName: '' });
@@ -109,7 +92,7 @@ const LotInventory = ({ currentUser }) => {
     try {
       const payload = { itemId: showConsumeForm.id, quantity: parseInt(consumeForm.quantity), department: consumeForm.department, purpose: consumeForm.purpose, notes: consumeForm.notes, receivedBy: consumeForm.receivedBy };
       if (!consumeForm.useFefo && consumeForm.lotId) payload.lotId = consumeForm.lotId;
-      const res = await apiCall('/consume', { method: 'POST', body: JSON.stringify(payload) });
+      const res = await apiRequest('/consume', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       await loadData();
       alert(`Başarılı! ${res.totalConsumed} adet tüketildi.\n\nKullanılan LOT'lar:\n${res.usageRecords.map(r => `- ${r.lotNumber}: ${r.quantityUsed} adet`).join('\n')}`);
       setConsumeForm({ quantity: 0, lotId: '', department: '', purpose: '', notes: '', useFefo: true, receivedBy: '' }); setShowConsumeForm(null);
@@ -147,7 +130,7 @@ const LotInventory = ({ currentUser }) => {
     if (!canSubmitSplit()) { alert('Bölüm miktarları toplamı mevcut LOT miktarına eşit olmalı ve tüm alanlar doldurulmalıdır.'); return; }
     try {
       const payload = { splits: splitRows.map((row) => ({ lotNumber: row.lotNumber.trim(), expiryDate: row.expiryDate || null, quantity: parseInt(row.quantity, 10) })) };
-      const res = await apiCall(`/lots/${showSplitLotForm.id}/split`, { method: 'POST', body: JSON.stringify(payload) });
+      const res = await apiRequest(`/lots/${showSplitLotForm.id}/split`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const meta = { itemName: showSplitLotForm.itemName, itemCode: showSplitLotForm.itemCode, itemUnit: showSplitLotForm.itemUnit };
       setLots(lots.map((l) => l.id === res.originalLot.id ? { ...res.originalLot, ...meta } : l).concat(res.newLots.map((l) => ({ ...l, ...meta }))));
       setItemDefinitions(itemDefinitions.map(item => item.id === res.originalLot.itemId ? { ...item, activeLotCount: (parseInt(item.activeLotCount) || 0) + (res.newLots.length - 1) } : item));
@@ -168,7 +151,7 @@ const LotInventory = ({ currentUser }) => {
         department: null, location: null, storageLocation: null, invoiceNo: null,
         attachmentUrl: null, attachmentName: null, notes: null, status: null
       };
-      const res = await apiCall(`/lots/${showEditSktForm.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      const res = await apiRequest(`/lots/${showEditSktForm.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const meta = { itemName: showEditSktForm.itemName, itemCode: showEditSktForm.itemCode, itemUnit: showEditSktForm.itemUnit };
       setLots(lots.map((l) => l.id === res.lot.id ? { ...res.lot, ...meta } : l));
       setShowEditSktForm(null);
@@ -177,7 +160,7 @@ const LotInventory = ({ currentUser }) => {
 
   const handleDeleteItem = async (itemId) => {
     if (!confirm('Bu malzeme tanımını ve tüm LOT\'larını silmek istediğinize emin misiniz?')) return;
-    try { await apiCall(`/item-definitions/${itemId}`, { method: 'DELETE' }); setItemDefinitions(itemDefinitions.filter(i => i.id !== itemId)); setLots(lots.filter(l => l.itemId !== itemId)); } catch (err) { alert('Hata: ' + err.message); }
+    try { await apiRequest(`/item-definitions/${itemId}`, { method: 'DELETE' }); setItemDefinitions(itemDefinitions.filter(i => i.id !== itemId)); setLots(lots.filter(l => l.itemId !== itemId)); } catch (err) { alert('Hata: ' + err.message); }
   };
 
   const handleExcelImport = async (e) => {
@@ -186,8 +169,9 @@ const LotInventory = ({ currentUser }) => {
 
     try {
       const itemsPayload = await buildLotImportPayload(file);
-      const importResult = await apiCall('/import-items', {
+      const importResult = await apiRequest('/import-items', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: itemsPayload })
       });
 
@@ -208,7 +192,7 @@ const LotInventory = ({ currentUser }) => {
     }
   };
 
-  const downloadExcelTemplate = () => {
+  const downloadExcelTemplate = async () => {
     // Template matches EXACTLY the Stok tab Excel format
     // Each row = one LOT with explicit LOT No and SKT
     const templateData = [
@@ -277,10 +261,7 @@ const LotInventory = ({ currentUser }) => {
       }
     ];
     
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(templateData);
-    XLSX.utils.book_append_sheet(wb, ws, 'Stok');
-    XLSX.writeFile(wb, 'LOT_Stok_Sablonu.xlsx');
+    await downloadWorkbook([{ name: 'Stok', rows: templateData }], 'LOT_Stok_Sablonu.xlsx');
   };
 
   const filteredItems = itemDefinitions.filter(item => {

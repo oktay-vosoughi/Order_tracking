@@ -70,10 +70,17 @@ async function apiFetch(path, options = {}) {
     payload = null;
   }
 
-  const err = new Error(payload?.error || 'REQUEST_FAILED');
+  const err = new Error(payload?.message || payload?.error || `HTTP_${response.status}`);
   err.status = response.status;
   err.payload = payload;
   throw err;
+}
+
+// Shared escape hatch for feature components while their endpoint-specific
+// wrappers are migrated incrementally. Keeps auth, read-only roles, and error
+// handling at the single HTTP boundary.
+export function apiRequest(path, options = {}) {
+  return apiFetch(path, options);
 }
 
 // Downloads the controlled ISO count form (LY-F064) as an .xlsx for one
@@ -395,6 +402,41 @@ export async function fetchTalepEbys({ date, department } = {}) {
   return apiFetch(`/export/talep-ebys?${qs.toString()}`);
 }
 
+export async function createEbysExportBatch({ date, department, purchaseIds } = {}) {
+  assertWriteAllowed('POST');
+  const token = getAuthToken();
+  const response = await fetch(`${API_BASE}/export/talep-ebys-batch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify({ date, department: department || undefined, purchaseIds })
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const error = new Error(payload?.message || payload?.error || `HTTP_${response.status}`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename\*=UTF-8''([^;]+)/i) || disposition.match(/filename="?([^";]+)"?/i);
+  const talepNo = response.headers.get('X-EBYS-Talep-No') || '';
+  const batchId = response.headers.get('X-EBYS-Batch-Id') || '';
+  const filename = match ? decodeURIComponent(match[1]) : `Medigen_SatınAlmaTalepFormu_${talepNo || 'talep'}.xlsm`;
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  return { batchId, talepNo, filename };
+}
+
 // ============================================================
 // DATA LOADING API
 // ============================================================
@@ -431,6 +473,14 @@ export async function approvePurchase(purchaseId, approvalNote = '', supplierNam
       orderedQty: orderedQty || undefined,
       unitPrice: unitPrice || undefined
     })
+  });
+}
+
+export async function approveEbysBatch(batchId, data) {
+  return apiFetch(`/purchases/ebys-batches/${encodeURIComponent(batchId)}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
   });
 }
 

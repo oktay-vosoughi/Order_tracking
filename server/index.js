@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs/promises');
 
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
@@ -12,6 +13,9 @@ const { validateLotSplit } = require('./lotSplit.cjs');
 const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause } = require('./departmentScope.cjs');
 const { resolveDepoGroup, buildLotPoolFilter } = require('./depoGroup.cjs');
 const { assertOwnPendingCepRequest } = require('./purchaseRequestPolicy.cjs');
+const { assertApprovableEbysBatch, resolveEbysExportBatchId } = require('./ebysBatchPolicy.cjs');
+const { buildMedipolTalepNo, populateMedipolWorkbook } = require('./ebysWorkbook.cjs');
+const { assertReturnLot, assertConsumableLot } = require('./stockPolicy.cjs');
 const { buildIsoRows, fillIsoCountForm } = require('./isoCountForm.cjs');
 const { buildTrackingRows, buildDistributionRows, buildMgWorkbook } = require('./mgTrackingForm.cjs');
 const { parseGs1, lookupKeys } = require('./gs1');
@@ -185,6 +189,10 @@ const requireRole = (allowedRoles) => (req, res, next) => {
 // Capability checks (aligned with updated SATINAL roles)
 const canApprove = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.KURUMSAL])(req, res, next);
+const canApproveEbysBatch = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
+const canCreateEbysBatch = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
 const canOrder = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canReceiveGoods = (req, res, next) => {
@@ -314,7 +322,10 @@ const CORS_ORIGINS = String(process.env.CORS_ORIGIN || '')
   .map((o) => o.trim())
   .filter(Boolean);
 
-if (IS_PRODUCTION && CORS_ORIGINS.length) {
+if (IS_PRODUCTION && !CORS_ORIGINS.length) {
+  console.error('FATAL: CORS_ORIGIN must be set in production. Refusing to start with unrestricted CORS.');
+  process.exit(1);
+} else if (IS_PRODUCTION) {
   app.use(cors({
     origin: (origin, cb) => {
       // Allow same-origin / non-browser callers (no Origin header) and allowlisted origins.
@@ -323,9 +334,6 @@ if (IS_PRODUCTION && CORS_ORIGINS.length) {
     }
   }));
 } else {
-  if (IS_PRODUCTION) {
-    console.warn('[security] CORS_ORIGIN not set in production — allowing all origins. Set CORS_ORIGIN to lock this down.');
-  }
   app.use(cors());
 }
 
@@ -398,7 +406,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-app.post('/api/auth/bootstrap', async (req, res) => {
+app.post('/api/auth/bootstrap', authThrottle, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     res.status(400).json({ error: 'INVALID_INPUT' });
@@ -410,14 +418,22 @@ app.post('/api/auth/bootstrap', async (req, res) => {
   }
 
   try {
-    const adminCount = await countAdmins();
-    if (adminCount > 0) {
-      res.status(409).json({ error: 'BOOTSTRAP_NOT_ALLOWED' });
-      return;
-    }
-
     const passwordHash = await bcrypt.hash(String(password), 10);
-    await run(pool, 'INSERT INTO users (username, passwordHash, role, createdBy) VALUES (?, ?, ?, ?)', [String(username), passwordHash, 'ADMIN', String(username)]);
+    const created = await withTransaction(async (conn) => {
+      // A named database lock serializes first-admin creation across every app
+      // process without relying on an in-memory mutex.
+      const locks = await all(conn, "SELECT GET_LOCK('order_tracking_bootstrap', 5) AS acquired");
+      if (Number(locks[0]?.acquired) !== 1) throw { status: 503, error: 'BOOTSTRAP_BUSY' };
+      try {
+        const rows = await all(conn, "SELECT COUNT(*) AS count FROM users WHERE role = 'ADMIN'");
+        if (Number(rows[0]?.count) > 0) throw { status: 409, error: 'BOOTSTRAP_NOT_ALLOWED' };
+        await run(conn, 'INSERT INTO users (username, passwordHash, role, createdBy) VALUES (?, ?, ?, ?)', [String(username), passwordHash, 'ADMIN', String(username)]);
+      } finally {
+        await all(conn, "SELECT RELEASE_LOCK('order_tracking_bootstrap')");
+      }
+      return true;
+    });
+    if (!created) return;
     const rows = await all(pool, 'SELECT * FROM users WHERE username = ?', [String(username)]);
     const user = rows?.[0];
     const deptRows = await all(pool, 'SELECT department FROM user_departments WHERE userId = ?', [user.id]);
@@ -425,6 +441,7 @@ app.post('/api/auth/bootstrap', async (req, res) => {
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role, canReceive: user.can_receive === 1 || user.can_receive === true, canViewPrices: user.can_view_prices === 1 || user.can_view_prices === true }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
     console.error('Bootstrap error', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
   }
@@ -1476,15 +1493,16 @@ app.post('/api/lots/:id/split', authRequired, adminRequired, async (req, res) =>
 // Consume from item (FEFO auto-selection or manual lot selection)
 app.post('/api/consume', authRequired, canDistribute, async (req, res) => {
   const { itemId, lotId, quantity, department, purpose, notes, receivedBy } = req.body || {};
+  const quantityNum = Number(quantity);
   
-  if (!itemId || !quantity || quantity <= 0) {
+  if (!itemId || !Number.isInteger(quantityNum) || quantityNum <= 0) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Item ID and quantity are required' });
   }
 
   try {
     const result = await withTransaction(async (conn) => {
       const usageRecords = [];
-      let remainingQty = quantity;
+      let remainingQty = quantityNum;
 
       if (lotId) {
         // Manual lot selection
@@ -1493,20 +1511,21 @@ app.post('/api/consume', authRequired, canDistribute, async (req, res) => {
           throw { status: 404, error: 'LOT_NOT_FOUND' };
         }
         const lot = lots[0];
-        if (lot.currentQuantity < quantity) {
+        assertConsumableLot(lot);
+        if (lot.currentQuantity < quantityNum) {
           throw { status: 400, error: 'INSUFFICIENT_STOCK', message: `LOT ${lot.lotNumber} has only ${lot.currentQuantity} available` };
         }
 
         // Deduct from selected lot
-        await run(conn, 'UPDATE lots SET currentQuantity = currentQuantity - ?, status = CASE WHEN currentQuantity - ? <= 0 THEN "DEPLETED" ELSE status END, updatedBy = ? WHERE id = ?', [quantity, quantity, req.user.username, lotId]);
+        await run(conn, 'UPDATE lots SET currentQuantity = currentQuantity - ?, status = CASE WHEN currentQuantity - ? <= 0 THEN "DEPLETED" ELSE status END, updatedBy = ? WHERE id = ?', [quantityNum, quantityNum, req.user.username, lotId]);
         
         const usageId = generateId();
         await run(conn, `
           INSERT INTO usage_records (id, lotId, itemId, quantityUsed, usedBy, receivedBy, department, purpose, notes)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [usageId, lotId, itemId, quantity, req.user.username, receivedBy || '', department || '', purpose || '', notes || '']);
+        `, [usageId, lotId, itemId, quantityNum, req.user.username, receivedBy || '', department || '', purpose || '', notes || '']);
         
-        usageRecords.push({ usageId, lotId, lotNumber: lot.lotNumber, quantityUsed: quantity });
+        usageRecords.push({ usageId, lotId, lotNumber: lot.lotNumber, quantityUsed: quantityNum });
       } else {
         // FEFO auto-selection, scoped to the target department's depo pool once
         // depo_pool_split is enabled (see server/depoGroup.cjs).
@@ -1528,7 +1547,7 @@ app.post('/api/consume', authRequired, canDistribute, async (req, res) => {
         }
 
         const totalAvailable = availableLots.reduce((sum, l) => sum + l.currentQuantity, 0);
-        if (totalAvailable < quantity) {
+        if (totalAvailable < quantityNum) {
           throw { status: 400, error: 'INSUFFICIENT_TOTAL_STOCK', message: `Total available: ${totalAvailable}, requested: ${quantity}` };
         }
 
@@ -1553,7 +1572,7 @@ app.post('/api/consume', authRequired, canDistribute, async (req, res) => {
         }
       }
 
-      return { usageRecords, totalConsumed: quantity };
+      return { usageRecords, totalConsumed: quantityNum };
     });
 
     res.json(result);
@@ -2978,6 +2997,79 @@ app.post('/api/purchases/:id/approve', authRequired, canApprove, async (req, res
   }
 });
 
+// Attach the reference returned by EBYS and approve every buying request in
+// the website batch as one atomic operation. EBYS approval is also the order
+// transition in the current workflow, so all lines go directly to SIPARIS_VERILDI.
+app.post('/api/purchases/ebys-batches/:batchId/approve', authRequired, canApproveEbysBatch, async (req, res) => {
+  const batchId = String(req.params.batchId || '').trim();
+  const ebysReference = String(req.body?.ebysReference || '').trim();
+  const supplierName = String(req.body?.supplierName || '').trim();
+  const poNumber = String(req.body?.poNumber || '').trim();
+  const estimatedDelivery = req.body?.estimatedDelivery || null;
+
+  if (!batchId || !ebysReference) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: 'EBYS referans kodu zorunludur.' });
+  }
+
+  try {
+    const result = await withTransaction(async (conn) => {
+      const rows = await all(conn, `
+        SELECT id, status
+        FROM purchases
+        WHERE ebysBatchId = ?
+          AND (isCepDepoRequest = 0 OR isCepDepoRequest IS NULL)
+        FOR UPDATE
+      `, [batchId]);
+      assertApprovableEbysBatch(rows);
+      await run(conn, 'INSERT IGNORE INTO ebys_batches (id, createdBy) VALUES (?, ?)', [batchId, req.user.username]);
+      const batchUpdate = await run(conn, `
+        UPDATE ebys_batches
+        SET ebysReference = ?, approvedBy = ?, approvedAt = NOW()
+        WHERE id = ? AND (ebysReference IS NULL OR ebysReference = ?)
+      `, [ebysReference, req.user.username, batchId, ebysReference]);
+      if (!batchUpdate.affectedRows) {
+        throw { status: 409, error: 'BATCH_ALREADY_APPROVED', message: 'Bu paket farklı bir EBYS referansıyla daha önce onaylandı.' };
+      }
+
+      await run(conn, `
+        UPDATE purchases SET
+          ebysReference = ?,
+          status = 'SIPARIS_VERILDI',
+          approvedBy = ?, approvedAt = NOW(), approvedDate = CURDATE(),
+          orderedBy = ?, orderedAt = NOW(), orderedDate = CURDATE(),
+          supplierName = CASE WHEN ? = '' THEN supplierName ELSE ? END,
+          poNumber = CASE WHEN ? = '' THEN poNumber ELSE ? END,
+          estimatedDelivery = COALESCE(?, estimatedDelivery),
+          orderedQty = COALESCE(orderedQty, requestedQty)
+        WHERE ebysBatchId = ?
+          AND status = 'TALEP_EDILDI'
+          AND (isCepDepoRequest = 0 OR isCepDepoRequest IS NULL)
+      `, [
+        ebysReference,
+        req.user.username,
+        req.user.username,
+        supplierName, supplierName,
+        poNumber, poNumber,
+        estimatedDelivery,
+        batchId
+      ]);
+
+      const changed = await all(conn, 'SELECT ROW_COUNT() AS affected');
+      const affected = Number(changed[0]?.affected || 0);
+      if (affected !== rows.length) throw { status: 409, error: 'BATCH_CHANGED', message: 'Paket işlem sırasında değişti; yeniden deneyin.' };
+      return { batchId, ebysReference, affected };
+    });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
+    if (String(error?.code) === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'DUPLICATE_EBYS_REFERENCE', message: 'Bu EBYS referans kodu başka bir pakette kullanılıyor.' });
+    }
+    console.error('Failed to approve EBYS batch', error);
+    res.status(500).json({ error: 'SERVER_ERROR', message: error.message });
+  }
+});
+
 // Reject purchase request (LAB_MANAGER + ADMIN)
 app.post('/api/purchases/:id/reject', authRequired, canReject, async (req, res) => {
   const { rejectionReason } = req.body || {};
@@ -3022,7 +3114,7 @@ app.post('/api/purchases/:id/order', authRequired, canOrder, async (req, res) =>
   }
   
   try {
-    await run(pool, `
+    const updateResult = await run(pool, `
       UPDATE purchases SET 
         status = 'SIPARIS_VERILDI',
         orderedBy = ?,
@@ -3030,11 +3122,12 @@ app.post('/api/purchases/:id/order', authRequired, canOrder, async (req, res) =>
         supplierName = ?,
         poNumber = ?,
         orderedQty = ?
-      WHERE id = ?
+      WHERE id = ? AND status = 'ONAYLANDI'
     `, [req.user.username, supplierName, poNumber || '', orderedQty, req.params.id]);
     
     const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]);
     if (!purchases.length) return res.status(404).json({ error: 'NOT_FOUND' });
+    if (!updateResult.affectedRows) return res.status(409).json({ error: 'INVALID_STATUS', message: 'Yalnızca onaylanmış talepler siparişe dönüştürülebilir.' });
     res.json({ purchase: purchases[0] });
   } catch (error) {
     console.error('Failed to mark as ordered', error);
@@ -3325,7 +3418,7 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
           consumptionUnitType: rawCut
         };
 
-        console.log('[ImportItems] Row %d (%s / %s) expiry raw=%s parsed=%s', idx + 1, code, lotNumber, raw.expiryDate, normalizedRow.expiryDate);
+        if (process.env.DEBUG_IMPORTS === '1') console.debug('[ImportItems] row=%d expiryParsed=%s', idx + 1, normalizedRow.expiryDate);
 
         if (!itemsByCode[code]) {
           itemsByCode[code] = [];
@@ -3380,10 +3473,10 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
               `UPDATE cep_depo_balances SET unitQty = packQty * ?, consumptionUnitType = ? WHERE itemId = ? AND status != 'ZERO'`,
               [Number(masterItem.unitsPerPackage), masterItem.consumptionUnitType || 'PACK', itemId]
             );
-            console.log(`[ImportItems] CEP balance recalc for ${code}: factor=${masterItem.unitsPerPackage}, type=${masterItem.consumptionUnitType}, rows updated=${balResult?.affectedRows ?? 0}`);
+            if (process.env.DEBUG_IMPORTS === '1') console.debug(`[ImportItems] CEP rows updated=${balResult?.affectedRows ?? 0}`);
           }
 
-          console.log(`[ImportItems] Updated item ${code}: pkgUnit=${masterItem.packageUnit} conUnit=${masterItem.consumptionUnit} upp=${masterItem.unitsPerPackage} cut=${masterItem.consumptionUnitType}`);
+          if (process.env.DEBUG_IMPORTS === '1') console.debug('[ImportItems] item updated');
           updated++;
         } else {
           itemId = generateId();
@@ -3790,6 +3883,90 @@ app.get('/api/export/talep-ebys', authRequired, async (req, res) => {
   } catch (error) {
     console.error('Export talep-ebys error:', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// Create (or safely reuse) the website-side batch represented by one EBYS
+// spreadsheet export. The external EBYS reference is attached after the user
+// submits that spreadsheet in EBYS.
+app.post('/api/export/talep-ebys-batch', authRequired, canCreateEbysBatch, async (req, res) => {
+  const { date, department } = req.body || {};
+  const purchaseIds = Array.isArray(req.body?.purchaseIds)
+    ? [...new Set(req.body.purchaseIds.map((id) => String(id).trim()).filter(Boolean))]
+    : [];
+  if (!purchaseIds.length && (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date))) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: 'Talep tarihi zorunludur.' });
+  }
+
+  try {
+    const templatePath = path.join(__dirname, '..', 'Medigen_SatınAlmaTalepFormu.xlsm');
+    const templateBuffer = await fs.readFile(templatePath);
+    const result = await withTransaction(async (conn) => {
+      const params = [];
+      let selectionClause;
+      if (purchaseIds.length) {
+        selectionClause = `p.id IN (${purchaseIds.map(() => '?').join(',')})`;
+        params.push(...purchaseIds);
+      } else {
+        selectionClause = 'COALESCE(p.requestDate, DATE(p.requestedAt)) = ?';
+        params.push(date);
+        if (department) {
+          selectionClause += ' AND p.department = ?';
+          params.push(department);
+        }
+      }
+      const purchases = await all(conn, `
+        SELECT p.id, p.ebysBatchId, p.ebysReference,
+          COALESCE(id.category, '') AS kategori,
+          CONCAT(COALESCE(id.name, p.itemName), ', ', COALESCE(id.code, p.itemCode)) AS Urun,
+          COALESCE(NULLIF(TRIM(id.packageUnit), ''), id.unit, '') AS birim,
+          p.requestedQty AS miktar
+        FROM purchases p
+        LEFT JOIN item_definitions id ON id.id = p.itemId
+        WHERE ${selectionClause}
+          AND p.status = 'TALEP_EDILDI'
+          AND (p.isCepDepoRequest = 0 OR p.isCepDepoRequest IS NULL)
+        ORDER BY COALESCE(id.category, ''), COALESCE(id.name, p.itemName)
+        FOR UPDATE
+      `, params);
+
+      const { batchId, isNew } = resolveEbysExportBatchId(
+        purchases,
+        () => `TALEP-${generateId().slice(0, 12).toUpperCase()}`
+      );
+      const existingReferences = [...new Set(purchases.map((row) => row.ebysReference).filter(Boolean))];
+      if (existingReferences.length > 1) {
+        throw { status: 409, error: 'MIXED_EBYS_REFERENCES', message: 'Paket kalemlerinde farklı Talep No değerleri var.' };
+      }
+      const talepNo = existingReferences[0] || buildMedipolTalepNo();
+      if (isNew) {
+        await run(conn, 'INSERT INTO ebys_batches (id, ebysReference, createdBy) VALUES (?, ?, ?)', [batchId, talepNo, req.user.username]);
+        await run(conn, `UPDATE purchases SET ebysBatchId = ?, ebysReference = ? WHERE id IN (${purchases.map(() => '?').join(',')})`, [batchId, talepNo, ...purchases.map((row) => row.id)]);
+      } else if (!existingReferences.length) {
+        await run(conn, 'UPDATE ebys_batches SET ebysReference = ? WHERE id = ? AND ebysReference IS NULL', [talepNo, batchId]);
+        await run(conn, 'UPDATE purchases SET ebysReference = ? WHERE ebysBatchId = ? AND ebysReference IS NULL', [talepNo, batchId]);
+      }
+      const rows = purchases.map(({ kategori, Urun, birim, miktar }) => ({ kategori, Urun, birim, miktar }));
+      const workbook = await populateMedipolWorkbook(templateBuffer, { talepNo, rows });
+      return {
+        batchId,
+        talepNo,
+        workbook
+      };
+    });
+    const filename = `Medigen_SatınAlmaTalepFormu_${result.talepNo}.xlsm`;
+    res.setHeader('Content-Type', 'application/vnd.ms-excel.sheet.macroEnabled.12');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.setHeader('X-EBYS-Batch-Id', result.batchId);
+    res.setHeader('X-EBYS-Talep-No', result.talepNo);
+    res.send(result.workbook);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
+    if (String(error?.code) === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'TALEP_NO_COLLISION', message: 'Aynı saniyede başka bir Talep No oluşturuldu. Lütfen tekrar deneyin.' });
+    }
+    console.error('Failed to create EBYS export batch', error);
+    res.status(500).json({ error: 'SERVER_ERROR', message: error.message });
   }
 });
 
@@ -4610,7 +4787,7 @@ app.post('/api/cep-depo/return', authRequired, async (req, res) => {
   const { itemId, packQty, lotId, notes } = req.body || {};
   const targetTechId = (role === ROLES.ADMIN && req.body?.labTechnicianId) ? req.body.labTechnicianId : req.user.id;
   const packQtyNum = Number(packQty);
-  if (!itemId || !(packQtyNum > 0)) {
+  if (!itemId || !Number.isInteger(packQtyNum) || packQtyNum <= 0) {
     return res.status(400).json({ error: 'INVALID_INPUT' });
   }
 
@@ -4632,12 +4809,15 @@ app.post('/api/cep-depo/return', authRequired, async (req, res) => {
 
       const itemRows = await all(conn, 'SELECT * FROM item_definitions WHERE id = ?', [itemId]);
       const item = itemRows?.[0];
+      if (!item) throw { status: 404, error: 'ITEM_NOT_FOUND' };
       const factor = resolveUnitFactor(item, null);
       const unitQtyNum = packQtyNum * factor;
 
       // Credit a lot
       let creditLotId = lotId || null;
       if (creditLotId) {
+        const returnLots = await all(conn, 'SELECT id, itemId FROM lots WHERE id = ? AND itemId = ? FOR UPDATE', [creditLotId, itemId]);
+        assertReturnLot(returnLots[0], itemId);
         await run(conn, "UPDATE lots SET currentQuantity = currentQuantity + ?, status = 'ACTIVE', updatedBy = ? WHERE id = ?",
           [packQtyNum, req.user.username, creditLotId]);
       } else {

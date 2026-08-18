@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { buildLyF064Rows, isLyF064Sheet } from './lyF064Importer.mjs';
 
 /**
@@ -18,15 +17,13 @@ const pad2 = (n) => String(n).padStart(2, '0');
  * Excel stores dates as serial numbers. Reading them with cellDates:true
  * produces a JS Date built in the local timezone, which shifts the calendar
  * day across the UTC boundary (e.g. Aug 1 -> Jul 31 in UTC+3). We instead
- * parse the raw serial with XLSX.SSF.parse_date_code, which returns the exact
- * calendar components with no timezone involved.
+ * convert the raw serial directly, preserving calendar components.
  */
 function toSafeDate(value) {
   if (value === undefined || value === null || value === '') return '';
   if (typeof value === 'number') {
-    const dc = XLSX.SSF.parse_date_code(value);
-    if (dc && dc.y) return `${dc.y}-${pad2(dc.m)}-${pad2(dc.d)}`;
-    return '';
+    const utc = new Date(Date.UTC(1899, 11, 30) + Math.floor(value) * 86400000);
+    return `${utc.getUTCFullYear()}-${pad2(utc.getUTCMonth() + 1)}-${pad2(utc.getUTCDate())}`;
   }
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
@@ -107,19 +104,29 @@ const COLUMN_MAP = {
  * @returns {Promise<Array<Object>>}
  */
 export async function buildLotImportPayload(file) {
+  if (!file || file.size > 5 * 1024 * 1024) {
+    throw new Error('Excel dosyası en fazla 5 MB olabilir.');
+  }
   const buffer = await file.arrayBuffer();
-  const wb = XLSX.read(buffer, { type: 'array', cellDates: false });
+  const { default: ExcelJS } = await import('exceljs');
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  if (wb.worksheets.length > 20) throw new Error('Excel dosyası en fazla 20 sayfa içerebilir.');
 
   const allRows = [];
 
-  for (const sheetName of wb.SheetNames) {
-    const ws = wb.Sheets[sheetName];
-    const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+  for (const ws of wb.worksheets) {
+    if (ws.rowCount > 20000) throw new Error(`"${ws.name}" sayfası 20.000 satır sınırını aşıyor.`);
+    const matrix = [];
+    ws.eachRow({ includeEmpty: false }, (row) => {
+      matrix.push(row.values.slice(1).map((value) => value?.result ?? value ?? ''));
+    });
     if (isLyF064Sheet(matrix)) {
-      allRows.push(...buildLyF064Rows(matrix, sheetName));
+      allRows.push(...buildLyF064Rows(matrix, ws.name));
       continue;
     }
-    const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+    const headers = (matrix[0] || []).map((value) => String(value).trim());
+    const raw = matrix.slice(1).map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ''])));
 
     for (const rawRow of raw) {
       const row = {};

@@ -64,6 +64,7 @@ JWT payload: `{ id, username, role }`. Signed with `JWT_SECRET`. Expires in `7d`
 | POST | `/api/purchases/:id/approve` | authRequired + canApprove | Approve. |
 | POST | `/api/purchases/:id/reject` | authRequired + canReject | Reject (requires reason). |
 | POST | `/api/purchases/:id/order` | authRequired + canOrder | Mark as ordered (requires supplier+orderedQty). |
+| POST | `/api/purchases/ebys-batches/:batchId/approve` | authRequired + ADMIN/SATINAL_LOJISTIK | Atomically approve and order a pending EBYS batch using its stored official-form Talep No. |
 | GET  | `/api/distributions` | authRequired | List. |
 | GET  | `/api/distributions-detailed` | authRequired | With lot splits. |
 | GET  | `/api/waste-records` | authRequired | List. |
@@ -75,6 +76,7 @@ JWT payload: `{ id, username, role }`. Signed with `JWT_SECRET`. Expires in `7d`
 | GET  | `/api/export/receipts` | authRequired | |
 | GET  | `/api/export/distributions` | authRequired | |
 | GET  | `/api/export/waste` | authRequired | |
+| POST | `/api/export/talep-ebys-batch` | authRequired + purchasing roles | Create/reuse a batch, assign the Medipol `YYMMDD-HHMMSS` Talep No, and download the populated official `.xlsm` form with VBA preserved. |
 | GET  | `/api/export/usage` | authRequired | |
 | GET  | `/api/export/stock` | authRequired | |
 | POST | `/api/clear-all` | authRequired + adminRequired | ⚠ wipe nearly everything. |
@@ -121,7 +123,7 @@ PORT=4000
 MYSQL_HOST=localhost
 MYSQL_PORT=3306
 MYSQL_USER=root
-MYSQL_PASSWORD=0000
+MYSQL_PASSWORD=<set-a-local-password>
 MYSQL_DATABASE=order_Tracking
 JWT_SECRET=change-this-in-production
 ```

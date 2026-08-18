@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const mysql = require('mysql2/promise');
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 require('dotenv').config({ path: path.join(__dirname, '..', 'server', '.env') });
 
 const outputPath = path.join(
@@ -117,11 +117,11 @@ ORDER BY \`Kod\`
 `;
 
 const addSheet = (workbook, sheetName, rows) => {
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  worksheet['!cols'] = Object.keys(rows[0] || { Bos: '' }).map((key) => ({
-    wch: Math.min(Math.max(key.length + 4, 14), 40)
-  }));
-  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  const worksheet = workbook.addWorksheet(sheetName);
+  const headers = Object.keys(rows[0] || { Bos: '' });
+  worksheet.columns = headers.map((key) => ({ header: key, key, width: Math.min(Math.max(key.length + 4, 14), 40) }));
+  worksheet.addRows(rows);
+  worksheet.getRow(1).font = { bold: true };
 };
 
 (async () => {
@@ -130,11 +130,11 @@ const addSheet = (workbook, sheetName, rows) => {
     const [allRows] = await pool.query(allRowsSql);
     const [issueRows] = await pool.query(issueRowsSql);
 
-    const workbook = XLSX.utils.book_new();
+    const workbook = new ExcelJS.Workbook();
     addSheet(workbook, 'Tüm Malzemeler', allRows);
     addSheet(workbook, 'Sorunlu Kayıtlar', issueRows.length ? issueRows : [{ Bilgi: 'Sorunlu kayıt bulunmadı' }]);
 
-    XLSX.writeFile(workbook, outputPath);
+    await workbook.xlsx.writeFile(outputPath);
 
     console.log(`Excel oluşturuldu: ${outputPath}`);
     console.log(`Tüm malzemeler: ${allRows.length}`);

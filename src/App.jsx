@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, fetchTalepEbys, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
+import { downloadWorkbook } from './utils/excel';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, createEbysExportBatch, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, approveEbysBatch, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import BarcodeScanner from './BarcodeScanner';
 import { parseGs1 } from './gs1';
@@ -172,6 +172,7 @@ const LabEquipmentTracker = () => {
   const [loadingLots, setLoadingLots] = useState(false);
   const [purchaseStatusFilter, setPurchaseStatusFilter] = useState(null);
   const [purchaseDateFilter, setPurchaseDateFilter] = useState({ startDate: '', endDate: '' });
+  const [ebysCodeFilter, setEbysCodeFilter] = useState('');
   const [usageViewMode, setUsageViewMode] = useState('detail'); // 'detail' | 'monthly' | 'department'
   const [expandedPurchaseId, setExpandedPurchaseId] = useState(null);
   const [showAllMobileLotsFor, setShowAllMobileLotsFor] = useState(null);
@@ -185,6 +186,7 @@ const LabEquipmentTracker = () => {
   const [cepFilterTech, setCepFilterTech] = useState('');
   const [showEbysModal, setShowEbysModal] = useState(false);
   const [ebysExportForm, setEbysExportForm] = useState({ date: '', department: '' });
+  const [selectedEbysPurchaseIds, setSelectedEbysPurchaseIds] = useState([]);
 
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
@@ -254,6 +256,8 @@ const LabEquipmentTracker = () => {
   const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
   const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isLabTechnician || isKalite;
   const canApprove = isAdmin || isSatinal || isKurumsal || isKalite;
+  const canApproveEbysBatch = isAdmin || isSatinalLojistik;
+  const canCreateEbysBatch = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
   const canOrder = isAdmin || isSatinalLojistik || isKalite;
   const canReceive = isAdmin || isSatinalLojistik || isKalite || !!currentUser?.canReceive;
   const canExportIsoForm = isAdmin || isSatinalLojistik || isKalite;
@@ -1186,6 +1190,23 @@ const LabEquipmentTracker = () => {
   const [receiveForm, setReceiveForm] = useState({ ...RECEIVE_FORM_DEFAULT });
   const [receiveScanWarning, setReceiveScanWarning] = useState('');
 
+  const openReceiveForm = (purchase) => {
+    const batchReceipt = purchase.ebysBatchId
+      ? purchases
+          .filter((row) => row.ebysBatchId === purchase.ebysBatchId)
+          .flatMap((row) => row.receipts || [])
+          .find((receipt) => receipt.invoiceNo || receipt.supplierFirmName)
+      : null;
+    setReceiveForm({
+      ...RECEIVE_FORM_DEFAULT,
+      receivedBy: currentUser?.username || '',
+      invoiceNo: batchReceipt?.invoiceNo || '',
+      supplierFirmName: batchReceipt?.supplierFirmName || purchase.supplierName || ''
+    });
+    setReceiveScanWarning('');
+    setShowReceiveForm(purchase);
+  };
+
   const addReceipt = async (purchase) => {
     if (!canReceive) {
       alert('Bu işlem için SATINAL_LOJISTIK/ADMIN yetkisi gereklidir');
@@ -1275,6 +1296,8 @@ const LabEquipmentTracker = () => {
   const [cepReqQty, setCepReqQty] = useState({});
   // Per-request lot rows (key = purchase.id → [{lotId, qty}]).
   const [cepReqLots, setCepReqLots] = useState({});
+  const [selectedCepRequestIds, setSelectedCepRequestIds] = useState([]);
+  const [batchCepDistributing, setBatchCepDistributing] = useState(false);
   const getCepLotRows = (pid) => cepReqLots[pid] || [{ lotId: '', qty: '' }];
   const setCepLotRow = (pid, idx, field, val) => setCepReqLots((s) => {
     const rows = [...(s[pid] || [{ lotId: '', qty: '' }])];
@@ -1353,6 +1376,81 @@ const LabEquipmentTracker = () => {
       else if (code === 'INSUFFICIENT_MAIN_STOCK') alert(err?.payload?.message || 'Yetersiz ana depo stoğu.');
       else if (code === 'INSUFFICIENT_LOT_STOCK') alert(err?.payload?.message || 'Seçilen partide yeterli stok yok.');
       else alert('Dağıtım başarısız: ' + (err?.payload?.message || err?.message || 'HATA'));
+    }
+  };
+
+  const approveAndDistributeSelectedCepRequests = async (visibleRequests) => {
+    const selected = visibleRequests.filter((purchase) => selectedCepRequestIds.includes(purchase.id));
+    if (!selected.length) {
+      alert('Dağıtılacak talepleri seçin.');
+      return;
+    }
+
+    const prepared = [];
+    const lotDemand = new Map();
+    for (const purchase of selected) {
+      const item = displayItems.find((row) => row.id === purchase.itemId) || { id: purchase.itemId, name: purchase.itemName };
+      const targetUsername = purchase.requestedFor || purchase.requestedBy;
+      const tech = labTechs.find((row) => row.username === targetUsername);
+      if (!tech) {
+        alert(`Hedef lab teknisyeni bulunamadı: ${targetUsername}`);
+        return;
+      }
+      const packQty = Number(cepReqQty[purchase.id] ?? purchase.requestedQty);
+      const lots = getCepLotRows(purchase.id)
+        .filter((row) => row.lotId && Number(row.qty) > 0)
+        .map((row) => ({ lotId: row.lotId, qty: Number(row.qty) }));
+      const total = lots.reduce((sum, row) => sum + row.qty, 0);
+      if (!(packQty > 0) || !lots.length || Math.abs(total - packQty) > 0.001) {
+        alert(`${purchase.itemName}: parti toplamı (${total}) verilecek miktarla (${packQty || 0}) eşleşmiyor.`);
+        return;
+      }
+      lots.forEach((row) => lotDemand.set(row.lotId, (lotDemand.get(row.lotId) || 0) + row.qty));
+      prepared.push({ purchase, item, tech, packQty, lots });
+    }
+
+    for (const [lotId, demanded] of lotDemand) {
+      const lot = Object.values(itemLotsCache).flat().find((row) => row.id === lotId);
+      if (!lot || Number(lot.currentQuantity) < demanded) {
+        alert(`Parti ${lot?.lotNumber || lotId}: seçilen taleplerin toplamı ${demanded}, mevcut stok ${lot?.currentQuantity || 0}.`);
+        return;
+      }
+    }
+
+    const expiredLots = prepared.flatMap(({ item, lots }) => lots.map((row) => ({
+      item,
+      row,
+      lot: (itemLotsCache[item.id] || []).find((lot) => lot.id === row.lotId)
+    }))).filter(({ lot }) => lot?.expiryStatus === 'EXPIRED');
+    const warning = expiredLots.length ? `\n\n⚠ ${expiredLots.length} seçili parti için SKT geçmiş.` : '';
+    if (!confirm(`${prepared.length} talep tek işlemle onaylanıp dağıtılacak.${warning}\n\nDevam edilsin mi?`)) return;
+
+    setBatchCepDistributing(true);
+    const completed = [];
+    try {
+      for (const entry of prepared) {
+        if (entry.purchase.status === 'TALEP_EDILDI') {
+          await approvePurchase(entry.purchase.id, 'Toplu dağıtım anında onaylandı');
+        }
+        await distributeApprovedRequest({
+          purchaseId: entry.purchase.id,
+          labTechnicianId: entry.tech.id,
+          itemId: entry.item.id,
+          packQty: entry.packQty,
+          lots: entry.lots,
+          notes: `Toplu dağıtım · Talep #${entry.purchase.requestNumber || entry.purchase.id.slice(0, 8)}`
+        });
+        completed.push(entry.purchase.id);
+      }
+      alert(`${completed.length} talep başarıyla onaylandı ve dağıtıldı.`);
+    } catch (error) {
+      alert(`${completed.length} talep dağıtıldı; sonraki talepte işlem durdu.\n${error?.payload?.message || error?.message || 'HATA'}`);
+    } finally {
+      await Promise.all([loadUnifiedData(), loadAllActionData()]);
+      setSelectedCepRequestIds((current) => current.filter((id) => !completed.includes(id)));
+      setCepReqQty((state) => { const next = { ...state }; completed.forEach((id) => delete next[id]); return next; });
+      setCepReqLots((state) => { const next = { ...state }; completed.forEach((id) => delete next[id]); return next; });
+      setBatchCepDistributing(false);
     }
   };
 
@@ -1581,6 +1679,14 @@ const LabEquipmentTracker = () => {
 
   // Only buying requests (not CEP DEPO weekly distribution requests) appear in the Satın Alma tab and EBYS export.
   const buyingPurchases = purchases.filter(p => !Number(p.isCepDepoRequest) && !p.requestedFor);
+  const getEbysBatchProgress = (purchase) => {
+    if (!purchase.ebysBatchId) return null;
+    const lines = buyingPurchases.filter((row) => row.ebysBatchId === purchase.ebysBatchId);
+    return {
+      completed: lines.filter((row) => ['TESLIM_ALINDI', 'GELDI'].includes(row.status)).length,
+      total: lines.length
+    };
+  };
 
   const purchaseStatusCounts = {
     pending: buyingPurchases.filter(p => p.status === 'TALEP_EDILDI').length,
@@ -1590,23 +1696,35 @@ const LabEquipmentTracker = () => {
     rejected: buyingPurchases.filter(p => p.status === 'REDDEDILDI').length
   };
 
+  const matchesPurchaseViewFilters = (purchase) => {
+    if (purchaseDateFilter.startDate && new Date(purchase.requestedAt) < new Date(purchaseDateFilter.startDate)) return false;
+    if (purchaseDateFilter.endDate && new Date(purchase.requestedAt) > new Date(purchaseDateFilter.endDate + 'T23:59:59')) return false;
+    const ebysNeedle = ebysCodeFilter.trim().toLocaleLowerCase('tr-TR');
+    if (ebysNeedle && !(
+      String(purchase.ebysReference || '').toLocaleLowerCase('tr-TR').includes(ebysNeedle) ||
+      String(purchase.ebysBatchId || '').toLocaleLowerCase('tr-TR').includes(ebysNeedle)
+    )) return false;
+    return true;
+  };
+
   const filteredPurchases = (() => {
     let list = purchaseStatusFilter && PURCHASE_STATUS_FILTERS[purchaseStatusFilter]
       ? buyingPurchases.filter(p => PURCHASE_STATUS_FILTERS[purchaseStatusFilter].statuses.includes(p.status))
       : buyingPurchases;
-    if (purchaseDateFilter.startDate) {
-      const start = new Date(purchaseDateFilter.startDate);
-      list = list.filter(p => new Date(p.requestedAt) >= start);
-    }
-    if (purchaseDateFilter.endDate) {
-      const end = new Date(purchaseDateFilter.endDate + 'T23:59:59');
-      list = list.filter(p => new Date(p.requestedAt) <= end);
-    }
-    return list;
+    return list.filter(matchesPurchaseViewFilters);
   })();
   const readyForOrderCount = getReadyForOrderCount(buyingPurchases);
-  const orderReadyPurchases = buyingPurchases.filter(p => ['ONAYLANDI', 'SIPARIS_VERILDI', 'KISMI_TESLIM', 'KISMEN_GELDI'].includes(p.status));
+  const orderReadyPurchases = buyingPurchases
+    .filter(p => ['ONAYLANDI', 'SIPARIS_VERILDI', 'KISMI_TESLIM', 'KISMEN_GELDI'].includes(p.status))
+    .filter(matchesPurchaseViewFilters);
   const displayedPurchases = activeTab === 'orders' ? orderReadyPurchases : filteredPurchases;
+  const selectableEbysIds = displayedPurchases
+    .filter((purchase) => purchase.status === 'TALEP_EDILDI' && !purchase.ebysBatchId)
+    .map((purchase) => purchase.id);
+  const allVisibleEbysSelected = selectableEbysIds.length > 0 && selectableEbysIds.every((id) => selectedEbysPurchaseIds.includes(id));
+  const toggleEbysPurchase = (purchaseId) => setSelectedEbysPurchaseIds((current) => (
+    current.includes(purchaseId) ? current.filter((id) => id !== purchaseId) : [...current, purchaseId]
+  ));
 
   const statusCardDisplay = ['pending', 'approved', 'ordered', 'completed', 'rejected'].map((key) => ({
     key,
@@ -1743,7 +1861,7 @@ const LabEquipmentTracker = () => {
     }
   };
 
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
     const templateData = [
       {
         'Malzeme Kodu': 'M001',
@@ -1793,10 +1911,7 @@ const LabEquipmentTracker = () => {
       }
     ];
     
-    const ws = XLSX.utils.json_to_sheet(templateData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Malzeme Listesi');
-    XLSX.writeFile(wb, 'Malzeme_Sablonu.xlsx');
+    await downloadWorkbook([{ name: 'Malzeme Listesi', rows: templateData }], 'Malzeme_Sablonu.xlsx');
   };
 
   // Excel Export Helper Function
@@ -1811,10 +1926,7 @@ const LabEquipmentTracker = () => {
         return;
       }
       
-      const ws = XLSX.utils.json_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Veriler');
-      XLSX.writeFile(wb, filename);
+      await downloadWorkbook([{ name: 'Veriler', rows: data }], filename);
     } catch (error) {
       console.error('Excel export error:', error);
       alert('Excel dışa aktarma hatası: ' + (error.message || 'Bilinmeyen hata'));
@@ -1827,26 +1939,42 @@ const LabEquipmentTracker = () => {
 
   const handleEbysExport = async () => {
     const { date, department } = ebysExportForm;
-    if (!date) {
+    if (!selectedEbysPurchaseIds.length && !date) {
       alert('Lütfen bir tarih seçin');
       return;
     }
     try {
-      const result = await fetchTalepEbys({ date, department: department || undefined });
-      const rows = result?.rows || [];
-      if (rows.length === 0) {
-        alert(`${date} tarihine ait${department ? ` (${department})` : ''} talep bulunamadı.`);
-        return;
-      }
-      const ws = XLSX.utils.json_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Talepler');
-      const deptSuffix = department ? `_${department.replace(/\s+/g, '_')}` : '';
-      XLSX.writeFile(wb, `talepler${deptSuffix}_${date}.xlsx`);
+      const result = await createEbysExportBatch({
+        date,
+        department: department || undefined,
+        purchaseIds: selectedEbysPurchaseIds.length ? selectedEbysPurchaseIds : undefined
+      });
+      await loadAllActionData();
+      setSelectedEbysPurchaseIds([]);
       setShowEbysModal(false);
+      alert(`Resmi Medipol talep formu indirildi.\n\nTalep No: ${result.talepNo}\nPaket: ${result.batchId}\n\nDosyayı kontrol edip EBYS'ye manuel olarak yükleyebilirsiniz.`);
     } catch (error) {
       console.error('EBYS export error:', error);
       alert('EBYS dışa aktarma hatası: ' + (error?.message || 'Bilinmeyen hata'));
+    }
+  };
+
+  const approvePurchaseEbysBatch = async (purchase) => {
+    if (!canApproveEbysBatch || !purchase.ebysBatchId) return;
+    const ebysReference = String(purchase.ebysReference || '').trim();
+    if (!ebysReference) {
+      alert('Bu paket için Talep No bulunamadı. Resmi talep formunu yeniden oluşturun.');
+      return;
+    }
+    const supplierName = prompt('Tedarikçi (paketteki tüm kalemlere uygulanır, opsiyonel):', purchase.supplierName || '') ?? '';
+    const poNumber = prompt('PO / sipariş numarası (paketteki tüm kalemlere uygulanır, opsiyonel):', purchase.poNumber || '') ?? '';
+    if (!confirm(`${ebysReference} Talep No'lu paketteki tüm kalemler SIPARIS_VERILDI durumuna geçirilecek. Devam edilsin mi?`)) return;
+    try {
+      const result = await approveEbysBatch(purchase.ebysBatchId, { ebysReference, supplierName, poNumber });
+      await loadAllActionData();
+      alert(`${result.affected} kalem EBYS ${result.ebysReference} referansı ile siparişe alındı.`);
+    } catch (error) {
+      alert('EBYS paket onayı başarısız: ' + (error?.payload?.message || error?.message || 'Bilinmeyen hata'));
     }
   };
 
@@ -1911,7 +2039,7 @@ const LabEquipmentTracker = () => {
     }
   };
 
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
     // Sheet 1: Stok Takip (with laboratory fields) - USE UNIFIED STOCK
     const stockData = (unifiedStock.length > 0 ? unifiedStock : items).map((item, idx) => {
       const expiryStatus = getExpiryStatus(item.nearestExpiry || item.expiryDate);
@@ -2028,27 +2156,14 @@ const LabEquipmentTracker = () => {
       };
     });
 
-    const wb = XLSX.utils.book_new();
-    
-    const ws1 = XLSX.utils.json_to_sheet(stockData);
-    XLSX.utils.book_append_sheet(wb, ws1, 'Stok Takip');
-    
-    const ws2 = XLSX.utils.json_to_sheet(purchaseData);
-    XLSX.utils.book_append_sheet(wb, ws2, 'Satın Alma Talepleri');
-    
-    const ws3 = XLSX.utils.json_to_sheet(distData);
-    XLSX.utils.book_append_sheet(wb, ws3, 'Dağıtım Kayıtları');
-    
-    const ws4 = XLSX.utils.json_to_sheet(receiptsData);
-    XLSX.utils.book_append_sheet(wb, ws4, 'Teslim Kayıtları');
-    
-    const ws5 = XLSX.utils.json_to_sheet(wasteData);
-    XLSX.utils.book_append_sheet(wb, ws5, 'Atık Kayıtları');
-    
-    const ws6 = XLSX.utils.json_to_sheet(expiryAlertData);
-    XLSX.utils.book_append_sheet(wb, ws6, 'SKT Uyarı Raporu');
-    
-    XLSX.writeFile(wb, `Malzeme_Takip_${new Date().toISOString().slice(0,10)}.xlsx`);
+    await downloadWorkbook([
+      { name: 'Stok Takip', rows: stockData },
+      { name: 'Satın Alma Talepleri', rows: purchaseData },
+      { name: 'Dağıtım Kayıtları', rows: distData },
+      { name: 'Teslim Kayıtları', rows: receiptsData },
+      { name: 'Atık Kayıtları', rows: wasteData },
+      { name: 'SKT Uyarı Raporu', rows: expiryAlertData }
+    ], `Malzeme_Takip_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
 
   if (authLoading) {
@@ -4069,6 +4184,24 @@ const LabEquipmentTracker = () => {
                     className="px-2 py-1 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
                   >Temizle</button>
                 )}
+                <div className="flex items-center gap-1">
+                  <label className="text-xs text-gray-500 whitespace-nowrap">EBYS:</label>
+                  <input
+                    type="search"
+                    value={ebysCodeFilter}
+                    onChange={(e) => setEbysCodeFilter(e.target.value)}
+                    placeholder="Referans veya web paketi"
+                    className="px-2 py-1.5 border rounded-lg text-sm sm:w-52"
+                    aria-label="Talep No veya EBYS paketine göre filtrele"
+                  />
+                  {ebysCodeFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setEbysCodeFilter('')}
+                      className="px-2 py-1 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                    >Temizle</button>
+                  )}
+                </div>
                 <button
                   onClick={() => handleExcelExport(exportPurchases, 'Satin_Alma_Talepleri.xlsx')}
                   className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
@@ -4076,19 +4209,33 @@ const LabEquipmentTracker = () => {
                   <Download size={18} />
                   Excel'e Aktar
                 </button>
-                <button
-                  onClick={() => setShowEbysModal(true)}
-                  className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                >
-                  <Download size={18} />
-                  EBYS Excel
-                </button>
+                {canCreateEbysBatch && (
+                  <button
+                    onClick={() => setShowEbysModal(true)}
+                    className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                  >
+                    <Download size={18} />
+                    Resmi EBYS Formu{selectedEbysPurchaseIds.length ? ` (${selectedEbysPurchaseIds.length})` : ''}
+                  </button>
+                )}
               </div>
             </div>
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
+                    <th className="px-3 py-2 text-left text-xs font-semibold">
+                      {activeTab === 'requests' && canCreateEbysBatch && (
+                        <input
+                          type="checkbox"
+                          aria-label="Görünen EBYS taleplerinin tümünü seç"
+                          checked={allVisibleEbysSelected}
+                          onChange={() => setSelectedEbysPurchaseIds((current) => allVisibleEbysSelected
+                            ? current.filter((id) => !selectableEbysIds.includes(id))
+                            : [...new Set([...current, ...selectableEbysIds])])}
+                        />
+                      )}
+                    </th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">Talep No</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold">Miktar</th>
@@ -4100,8 +4247,19 @@ const LabEquipmentTracker = () => {
                 <tbody className="divide-y">
                   {displayedPurchases.map((purchase) => {
                     const statusBadge = getPurchaseStatusBadge(purchase.status);
+                    const batchProgress = getEbysBatchProgress(purchase);
                     return (
                     <tr key={purchase.id} className="hover:bg-gray-50">
+                      <td className="px-3 py-2">
+                        {activeTab === 'requests' && canCreateEbysBatch && purchase.status === 'TALEP_EDILDI' && !purchase.ebysBatchId && (
+                          <input
+                            type="checkbox"
+                            aria-label={`${purchase.itemName} EBYS paketine ekle`}
+                            checked={selectedEbysPurchaseIds.includes(purchase.id)}
+                            onChange={() => toggleEbysPurchase(purchase.id)}
+                          />
+                        )}
+                      </td>
                       <td className="px-3 py-2 font-medium">{purchase.requestNumber}</td>
                       <td className="px-3 py-2">
                         <div className="font-medium">{purchase.itemName}</div>
@@ -4117,6 +4275,9 @@ const LabEquipmentTracker = () => {
                         <span className={`status-pill ${statusBadge.className}`}>{statusBadge.label}</span>
                         {purchase.approvedBy && <div className="text-xs text-gray-500 mt-1">Onaylayan: {purchase.approvedBy}</div>}
                         {purchase.orderedBy && <div className="text-xs text-gray-500">Sipariş: {purchase.orderedBy} - {purchase.poNumber}</div>}
+                        {purchase.ebysBatchId && <div className="text-xs text-gray-500">Web paketi: {purchase.ebysBatchId}</div>}
+                        {purchase.ebysReference && <div className="text-xs font-medium text-indigo-700">Talep No: {purchase.ebysReference}</div>}
+                        {batchProgress && purchase.ebysReference && <div className="text-xs text-indigo-600">Paket teslim: {batchProgress.completed}/{batchProgress.total}</div>}
                         {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMEN_GELDI' || purchase.status === 'GELDI') && (
                           <div className="text-xs text-indigo-600 mt-1">
                             Gelen: {purchase.receivedQtyTotal || 0} / {purchase.orderedQty || purchase.requestedQty}
@@ -4127,6 +4288,9 @@ const LabEquipmentTracker = () => {
                         <div className="flex gap-1 flex-wrap">
                           {purchase.status === 'TALEP_EDILDI' && (
                             <>
+                              {canApproveEbysBatch && purchase.ebysBatchId && (
+                                <button onClick={() => approvePurchaseEbysBatch(purchase)} className="status-action status-action--approve">EBYS Onayla</button>
+                              )}
                               {canApprove && (
                                 <>
                                   <button onClick={() => approvePurchaseRequest(purchase)} className="status-action status-action--approve">Onayla</button>
@@ -4145,7 +4309,7 @@ const LabEquipmentTracker = () => {
                             >Siparişe Al →</button>
                           )}
                           {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
-                            <button onClick={() => setShowReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
+                            <button onClick={() => openReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
                           )}
                           {purchase.status === 'REDDEDILDI' && (
                             <div className="text-xs text-red-600 font-medium">
@@ -4174,9 +4338,20 @@ const LabEquipmentTracker = () => {
             <div className="sm:hidden divide-y divide-gray-100">
               {displayedPurchases.map((purchase) => {
                 const statusBadge = getPurchaseStatusBadge(purchase.status);
+                const batchProgress = getEbysBatchProgress(purchase);
                 const isExpanded = expandedPurchaseId === purchase.id;
                 return (
                   <div key={purchase.id} className="p-4 space-y-3">
+                    {activeTab === 'requests' && canCreateEbysBatch && purchase.status === 'TALEP_EDILDI' && !purchase.ebysBatchId && (
+                      <label className="flex items-center gap-2 text-xs font-medium text-indigo-700">
+                        <input
+                          type="checkbox"
+                          checked={selectedEbysPurchaseIds.includes(purchase.id)}
+                          onChange={() => toggleEbysPurchase(purchase.id)}
+                        />
+                        EBYS paketine ekle
+                      </label>
+                    )}
                     <button
                       type="button"
                       onClick={() => setExpandedPurchaseId((current) => current === purchase.id ? null : purchase.id)}
@@ -4211,6 +4386,9 @@ const LabEquipmentTracker = () => {
                       <div className="mobile-card-details">
                         {purchase.approvedBy && <div className="text-xs text-gray-500">Onaylayan: {purchase.approvedBy}</div>}
                         {purchase.orderedBy && <div className="text-xs text-gray-500">Sipariş: {purchase.orderedBy} - {purchase.poNumber}</div>}
+                        {purchase.ebysBatchId && <div className="text-xs text-gray-500">Web paketi: {purchase.ebysBatchId}</div>}
+                        {purchase.ebysReference && <div className="text-xs font-medium text-indigo-700">Talep No: {purchase.ebysReference}</div>}
+                        {batchProgress && purchase.ebysReference && <div className="text-xs text-indigo-600">Paket teslim: {batchProgress.completed}/{batchProgress.total}</div>}
                         {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMEN_GELDI' || purchase.status === 'GELDI') && (
                           <div className="text-xs text-indigo-600">
                             Gelen: {purchase.receivedQtyTotal || 0} / {purchase.orderedQty || purchase.requestedQty}
@@ -4220,6 +4398,9 @@ const LabEquipmentTracker = () => {
                         <div className="flex flex-wrap gap-2 pt-1">
                           {purchase.status === 'TALEP_EDILDI' && (
                             <>
+                              {canApproveEbysBatch && purchase.ebysBatchId && (
+                                <button onClick={() => approvePurchaseEbysBatch(purchase)} className="status-action status-action--approve">EBYS Onayla</button>
+                              )}
                               {canApprove && (
                                 <>
                                   <button onClick={() => approvePurchaseRequest(purchase)} className="status-action status-action--approve">Onayla</button>
@@ -4238,7 +4419,7 @@ const LabEquipmentTracker = () => {
                             >Siparişe Al →</button>
                           )}
                           {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
-                            <button onClick={() => setShowReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
+                            <button onClick={() => openReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
                           )}
                           {purchase.status === 'REDDEDILDI' && (
                             <div className="text-xs text-red-600 font-medium">
@@ -4690,6 +4871,8 @@ const LabEquipmentTracker = () => {
                 if (cepFilterTech && (p.requestedFor || p.requestedBy) !== cepFilterTech) return false;
                 return true;
               });
+              const selectedVisibleIds = cepRequests.filter((p) => selectedCepRequestIds.includes(p.id)).map((p) => p.id);
+              const allVisibleSelected = cepRequests.length > 0 && selectedVisibleIds.length === cepRequests.length;
               return (
                 <div className="bg-white rounded-xl shadow-lg overflow-hidden">
                   <div className="p-4 border-b bg-amber-50 flex flex-wrap items-center gap-2">
@@ -4709,6 +4892,16 @@ const LabEquipmentTracker = () => {
                         <option value="">Tüm Teknisyenler</option>
                         {techOptions.map((t) => <option key={t} value={t}>{t}</option>)}
                       </select>
+                      {canDistribute && selectedVisibleIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => approveAndDistributeSelectedCepRequests(cepRequests)}
+                          disabled={batchCepDistributing}
+                          className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-semibold disabled:opacity-50"
+                        >
+                          {batchCepDistributing ? 'Dağıtılıyor…' : `Seçilenleri Onayla & Dağıt (${selectedVisibleIds.length})`}
+                        </button>
+                      )}
                     </div>
                   </div>
                   {cepRequests.length === 0 ? (
@@ -4718,6 +4911,18 @@ const LabEquipmentTracker = () => {
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50">
                           <tr>
+                            {canDistribute && (
+                              <th className="px-3 py-2 text-left text-xs font-semibold">
+                                <input
+                                  type="checkbox"
+                                  aria-label="Görünen dağıtım taleplerinin tümünü seç"
+                                  checked={allVisibleSelected}
+                                  onChange={() => setSelectedCepRequestIds((current) => allVisibleSelected
+                                    ? current.filter((id) => !cepRequests.some((request) => request.id === id))
+                                    : [...new Set([...current, ...cepRequests.map((request) => request.id)])])}
+                                />
+                              </th>
+                            )}
                             <th className="px-3 py-2 text-left text-xs font-semibold">Talep No</th>
                             <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
                             <th className="px-3 py-2 text-left text-xs font-semibold">Talep Eden</th>
@@ -4735,6 +4940,18 @@ const LabEquipmentTracker = () => {
                             const qtyVal = cepReqQty[p.id] ?? String(p.requestedQty);
                             return (
                               <tr key={p.id} className="hover:bg-gray-50">
+                                {canDistribute && (
+                                  <td className="px-3 py-2">
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`${p.itemName} dağıtım talebini seç`}
+                                      checked={selectedCepRequestIds.includes(p.id)}
+                                      onChange={() => setSelectedCepRequestIds((current) => current.includes(p.id)
+                                        ? current.filter((id) => id !== p.id)
+                                        : [...current, p.id])}
+                                    />
+                                  </td>
+                                )}
                                 <td className="px-3 py-2 font-medium text-xs">{p.requestNumber}</td>
                                 <td className="px-3 py-2">
                                   <div className="font-medium">{p.itemName}</div>
@@ -5380,14 +5597,19 @@ const LabEquipmentTracker = () => {
         </div>
       )}
 
-      {/* EBYS Excel Export Modal */}
+      {/* Official Medipol macro-enabled EBYS form export modal */}
       {showEbysModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="text-lg font-bold mb-4">EBYS Talep Listesi İndir</h3>
+            <h3 className="text-lg font-bold mb-4">Resmi Medipol Talep Formu İndir</h3>
+            {selectedEbysPurchaseIds.length > 0 && (
+              <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-800">
+                Seçilen {selectedEbysPurchaseIds.length} talep resmi makrolu formda tek paket olarak indirilecek.
+              </div>
+            )}
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Talep Tarihi <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Talep Tarihi {selectedEbysPurchaseIds.length === 0 && <span className="text-red-500">*</span>}</label>
                 <input
                   type="date"
                   className="w-full px-3 py-2 border rounded-lg"
@@ -5412,7 +5634,7 @@ const LabEquipmentTracker = () => {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleEbysExport}
-                disabled={!ebysExportForm.date}
+                  disabled={!selectedEbysPurchaseIds.length && !ebysExportForm.date}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40"
               >
                 <Download size={16} />
