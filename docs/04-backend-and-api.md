@@ -58,9 +58,9 @@ JWT payload: `{ id, username, role }`. Signed with `JWT_SECRET`. Expires in `7d`
 | POST | `/api/distribute` | authRequired + canDistribute | Issue stock, FEFO default, writes `distributions` + `distribution_lots` + `usage_records`. |
 | POST | `/api/distribute/:id/confirm` | authRequired + canDistribute | Flip to `COMPLETED`. |
 | POST | `/api/purchases` | authRequired + canRequest | New purchase request. |
-| GET  | `/api/purchases` | authRequired | List + attached receipts. |
-| PATCH | `/api/purchases/:id/requested-quantity` | authRequired + LAB_TECHNICIAN | Change the positive integer quantity of the caller's pending CEP DEPO request. |
-| POST | `/api/purchases/:id/cancel` | authRequired + LAB_TECHNICIAN | Cancel the caller's pending CEP DEPO request (`IPTAL`). |
+| GET  | `/api/purchases` | authRequired | List + attached receipts. LAB_TECHNICIAN results are server-scoped to all requests in the caller's department memberships. |
+| PATCH | `/api/purchases/:id/requested-quantity` | authRequired + LAB_TECHNICIAN | Change the positive integer quantity of a pending CEP DEPO request created by the caller. |
+| POST | `/api/purchases/:id/cancel` | authRequired + LAB_TECHNICIAN | Cancel a pending CEP DEPO request created by the caller (`IPTAL`). |
 | POST | `/api/purchases/:id/approve` | authRequired + canApprove | Approve. |
 | POST | `/api/purchases/:id/reject` | authRequired + canReject | Reject (requires reason). |
 | POST | `/api/purchases/:id/order` | authRequired + canOrder | Mark as ordered (requires supplier+orderedQty). |

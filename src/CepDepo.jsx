@@ -50,7 +50,7 @@ export default function CepDepo({ currentUser }) {
   const [activeSubTab, setActiveSubTab] = useState(isLabTech ? 'my' : 'all');
 
   // Request-workflow data
-  const [myRequests, setMyRequests] = useState([]);            // lab tech: own requests
+  const [myRequests, setMyRequests] = useState([]);            // lab tech: department requests
   const [pendingRequests, setPendingRequests] = useState([]);  // admin/satinal: awaiting approval
   const [readyForDistribution, setReadyForDistribution] = useState([]); // approved CEP requests
   const [editingRequestId, setEditingRequestId] = useState(null);
@@ -93,9 +93,9 @@ export default function CepDepo({ currentUser }) {
         fetchCepDepoMovements({ limit: 200 }).catch(() => ({ movements: [] })),
         fetchUnifiedStock().catch(() => ({ items: [] })),
         isPrivileged ? fetchLabTechnicians().catch(() => ({ users: [] })) : Promise.resolve({ users: [] }),
-        // My requests — lab tech (or anyone who wants to see their own)
+        // Department requests — backend scopes lab techs from their authenticated memberships.
         isLabTech
-          ? fetchPurchasesFiltered({ forMe: true }).catch(() => ({ purchases: [] }))
+          ? fetchPurchasesFiltered({ scope: 'cep' }).catch(() => ({ purchases: [] }))
           : Promise.resolve({ purchases: [] }),
         // Pending approvals — admin/satinal
         canReviewCepRequests
@@ -442,7 +442,7 @@ export default function CepDepo({ currentUser }) {
             <td className="px-3 py-2 text-xs">{p.requestedAt ? new Date(p.requestedAt).toLocaleString('tr-TR') : '-'}</td>
             <td className="px-3 py-2">{p.itemName || p.itemId} {p.itemCode ? <span className="text-gray-500 text-xs">({p.itemCode})</span> : null}</td>
             <td className="px-3 py-2 text-right">
-              {showOwnerActions && editingRequestId === p.id ? (
+              {showOwnerActions && p.requestedBy === currentUser?.username && editingRequestId === p.id ? (
                 <input
                   type="number"
                   min="1"
@@ -479,7 +479,7 @@ export default function CepDepo({ currentUser }) {
                 {p.status === 'ONAYLANDI' && isPrivileged && (
                   <button onClick={() => handleDistributeApproved(p)} className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">Dağıt</button>
                 )}
-                {showOwnerActions && p.status === 'TALEP_EDILDI' && (
+                {showOwnerActions && p.requestedBy === currentUser?.username && p.status === 'TALEP_EDILDI' && (
                   <div className="flex flex-wrap gap-1">
                     {editingRequestId === p.id ? (
                       <>
@@ -727,8 +727,8 @@ export default function CepDepo({ currentUser }) {
       </section>
 
       <section className="bg-white rounded-xl shadow p-4 overflow-x-auto">
-        <h3 className="text-lg font-bold mb-3">Taleplerim</h3>
-        <p className="text-sm text-gray-500 mb-2">Onay bekleyen, onaylanan, dağıtılan, reddedilen ve iptal edilen taleplerimin geçmişi.</p>
+        <h3 className="text-lg font-bold mb-3">Departman Talepleri</h3>
+        <p className="text-sm text-gray-500 mb-2">Departmanınızdaki tüm kullanıcıların talepleri görünür. Yalnızca kendi oluşturduğunuz bekleyen talebi düzenleyebilir veya iptal edebilirsiniz.</p>
         {requestsTable(myRequests, { showOwnerActions: true })}
       </section>
 

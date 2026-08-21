@@ -255,6 +255,8 @@ const LabEquipmentTracker = () => {
   const canViewStock = true; // All roles can view stock
   const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
   const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isLabTechnician || isKalite;
+  const canManageStockItemActions = canModifyInventory && !isSatinalLojistik;
+  const canCreateStockRequest = canCreateRequest && !isSatinalLojistik;
   const canApprove = isAdmin || isSatinal || isKurumsal || isKalite;
   const canApproveEbysBatch = isAdmin || isSatinalLojistik;
   const canCreateEbysBatch = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
@@ -1725,6 +1727,10 @@ const LabEquipmentTracker = () => {
   const toggleEbysPurchase = (purchaseId) => setSelectedEbysPurchaseIds((current) => (
     current.includes(purchaseId) ? current.filter((id) => id !== purchaseId) : [...current, purchaseId]
   ));
+  const openEbysExportForPurchase = (purchaseId) => {
+    setSelectedEbysPurchaseIds([purchaseId]);
+    setShowEbysModal(true);
+  };
 
   const statusCardDisplay = ['pending', 'approved', 'ordered', 'completed', 'rejected'].map((key) => ({
     key,
@@ -2740,7 +2746,7 @@ const LabEquipmentTracker = () => {
                   onChange={(e) => setUserCreateForm({ ...userCreateForm, role: e.target.value, canReceive: false })}
                   className="px-4 py-2 border rounded-lg"
                 >
-                  <option value="SATINAL_LOJISTIK">SATINAL_LOJISTIK (Sipariş + Teslim Al + Dağıt)</option>
+                  <option value="SATINAL_LOJISTIK">SATINAL_LOJISTIK (EBYS Onay + Sipariş + Teslim Al + Dağıt)</option>
                   <option value="SATINAL">SATINAL (Talep + Onayla + Dağıt)</option>
                   <option value="KURUMSAL">KURUMSAL (Onayla + Dağıt + Fiyatlar)</option>
                   <option value="LAB_TECHNICIAN">LAB_TECHNICIAN (CEP DEPO sahibi)</option>
@@ -3601,7 +3607,7 @@ const LabEquipmentTracker = () => {
                         </div>
 
                         <div className="flex flex-wrap gap-2 pt-2">
-                          {canCreateRequest && (
+                          {canCreateStockRequest && (
                             <button onClick={() => setShowRequestForm(item)} className="status-action status-action--order">Talep</button>
                           )}
                           {canDistribute && (
@@ -3616,7 +3622,7 @@ const LabEquipmentTracker = () => {
                           {canDistribute && (
                             <button onClick={() => setShowWasteForm(item)} className="status-action status-action--muted">Atık</button>
                           )}
-                          {canModifyInventory && (
+                          {canManageStockItemActions && (
                             <button
                               onClick={() => {
                                 setUnitEditItem(item);
@@ -3642,7 +3648,7 @@ const LabEquipmentTracker = () => {
                               Düzelt
                             </button>
                           )}
-                          {canModifyInventory && (
+                          {canManageStockItemActions && (
                             <button onClick={() => deleteItem(item.id)} className="status-action status-action--reject">Sil</button>
                           )}
                           {!isLabTechnician && history.length > 0 && (
@@ -3794,7 +3800,7 @@ const LabEquipmentTracker = () => {
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex gap-1 flex-wrap">
-                            {canCreateRequest && (
+                            {canCreateStockRequest && (
                               <button onClick={() => setShowRequestForm(item)} className="px-2 py-1 bg-indigo-600 text-white rounded text-xs">Talep</button>
                             )}
                             {canDistribute && (() => {
@@ -3839,7 +3845,7 @@ const LabEquipmentTracker = () => {
                                 Belge
                               </button>
                             )}
-                            {canModifyInventory && (
+                            {canManageStockItemActions && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -3871,7 +3877,7 @@ const LabEquipmentTracker = () => {
                                 Düzelt
                               </button>
                             )}
-                            {canModifyInventory && (
+                            {canManageStockItemActions && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }}
                                 className="px-2 py-1 bg-red-100 text-red-600 rounded text-xs"
@@ -4288,9 +4294,11 @@ const LabEquipmentTracker = () => {
                         <div className="flex gap-1 flex-wrap">
                           {purchase.status === 'TALEP_EDILDI' && (
                             <>
-                              {canApproveEbysBatch && purchase.ebysBatchId && (
+                              {canApproveEbysBatch && (purchase.ebysBatchId ? (
                                 <button onClick={() => approvePurchaseEbysBatch(purchase)} className="status-action status-action--approve">EBYS Onayla</button>
-                              )}
+                              ) : (
+                                <button onClick={() => openEbysExportForPurchase(purchase.id)} className="status-action status-action--order">EBYS Formu Oluştur</button>
+                              ))}
                               {canApprove && (
                                 <>
                                   <button onClick={() => approvePurchaseRequest(purchase)} className="status-action status-action--approve">Onayla</button>
@@ -4398,9 +4406,11 @@ const LabEquipmentTracker = () => {
                         <div className="flex flex-wrap gap-2 pt-1">
                           {purchase.status === 'TALEP_EDILDI' && (
                             <>
-                              {canApproveEbysBatch && purchase.ebysBatchId && (
+                              {canApproveEbysBatch && (purchase.ebysBatchId ? (
                                 <button onClick={() => approvePurchaseEbysBatch(purchase)} className="status-action status-action--approve">EBYS Onayla</button>
-                              )}
+                              ) : (
+                                <button onClick={() => openEbysExportForPurchase(purchase.id)} className="status-action status-action--order">EBYS Formu Oluştur</button>
+                              ))}
                               {canApprove && (
                                 <>
                                   <button onClick={() => approvePurchaseRequest(purchase)} className="status-action status-action--approve">Onayla</button>

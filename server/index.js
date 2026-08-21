@@ -12,7 +12,7 @@ const { buildUnitCorrectionValues, resolveCepCorrectionTarget } = require('./uni
 const { validateLotSplit } = require('./lotSplit.cjs');
 const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause } = require('./departmentScope.cjs');
 const { resolveDepoGroup, buildLotPoolFilter } = require('./depoGroup.cjs');
-const { assertOwnPendingCepRequest } = require('./purchaseRequestPolicy.cjs');
+const { assertOwnPendingCepRequest, buildDepartmentPurchaseFilter } = require('./purchaseRequestPolicy.cjs');
 const { assertApprovableEbysBatch, resolveEbysExportBatchId } = require('./ebysBatchPolicy.cjs');
 const { buildMedipolTalepNo, populateMedipolWorkbook } = require('./ebysWorkbook.cjs');
 const { assertReturnLot, assertConsumableLot } = require('./stockPolicy.cjs');
@@ -2722,6 +2722,7 @@ app.post('/api/purchases', authRequired, async (req, res) => {
   // Determine the effective lab technician this request is for.
   let effectiveLabTechUsername = null;
   let effectiveLabTechId = null;
+  let effectiveRequestDepartment = department || '';
   let usedOverride = false;
 
   try {
@@ -2733,7 +2734,7 @@ app.post('/api/purchases', authRequired, async (req, res) => {
       if (!overrideReason || !String(overrideReason).trim()) {
         return res.status(400).json({ error: 'OVERRIDE_REASON_REQUIRED', message: 'Override için gerekçe zorunludur.' });
       }
-      const targetRows = await all(pool, 'SELECT id, username, role FROM users WHERE username = ?', [String(requestedFor)]);
+      const targetRows = await all(pool, 'SELECT id, username, role, department FROM users WHERE username = ?', [String(requestedFor)]);
       const target = targetRows?.[0];
       if (!target) {
         return res.status(404).json({ error: 'TARGET_USER_NOT_FOUND' });
@@ -2743,6 +2744,7 @@ app.post('/api/purchases', authRequired, async (req, res) => {
       }
       effectiveLabTechUsername = target.username;
       effectiveLabTechId = target.id;
+      effectiveRequestDepartment = target.department || effectiveRequestDepartment;
       usedOverride = true;
     } else if (isLabTech) {
       effectiveLabTechUsername = requesterUsername;
@@ -2753,6 +2755,7 @@ app.post('/api/purchases', authRequired, async (req, res) => {
       if (!deptName) {
         return res.status(409).json({ error: 'NO_DEPARTMENT', message: 'Talep oluşturmadan önce bir bölüme atanmalısınız.' });
       }
+      effectiveRequestDepartment = deptName;
       const balRows = await all(pool,
         'SELECT packQty, unitQty FROM cep_depo_balances WHERE department = ? AND itemId = ?',
         [deptName, itemId]);
@@ -2800,7 +2803,7 @@ app.post('/api/purchases', authRequired, async (req, res) => {
           status, supplierName, orderedQty, notes, urgency
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), CURDATE(), 'TALEP_EDILDI', ?, ?, ?, ?)
       `, [
-        purchaseId, requestNumber, itemId, itemCode || '', itemName || '', department || '',
+        purchaseId, requestNumber, itemId, itemCode || '', itemName || '', effectiveRequestDepartment,
         requestedQty, requesterUsername,
         effectiveLabTechUsername || null,
         usedOverride ? String(overrideReason).trim() : null,
@@ -2829,35 +2832,39 @@ app.post('/api/purchases', authRequired, async (req, res) => {
 
 // Get all purchases. Optional filters:
 //   ?for=me          Only rows where the caller is requester or `requestedFor` target.
-//                    For LAB_TECHNICIAN this filter is forced on.
+//   LAB_TECHNICIAN callers see all requests belonging to their department(s).
 //   ?status=CSV      One or more statuses (e.g. "ONAYLANDI" or "TALEP_EDILDI,ONAYLANDI").
 //   ?scope=cep       Only CEP DEPO requests (isCepDepoRequest=1 OR requestedFor IS NOT NULL).
 app.get('/api/purchases', authRequired, async (req, res) => {
   try {
     const role = req.user.role;
-    const forceMine = isLabTechnicianRole(role);
-    const wantsMine = forceMine || req.query.for === 'me';
+    const wantsMine = req.query.for === 'me';
     const scopeCep = req.query.scope === 'cep';
     const statusCsv = typeof req.query.status === 'string' ? req.query.status : '';
     const statuses = statusCsv.split(',').map((s) => s.trim()).filter(Boolean);
 
     const where = [];
     const params = [];
-    if (wantsMine) {
-      where.push('(requestedBy = ? OR requestedFor = ?)');
+    if (isLabTechnicianRole(role)) {
+      const departments = await getUserDepartments(req.user.id, role);
+      const departmentFilter = buildDepartmentPurchaseFilter(departments, 'p');
+      where.push(departmentFilter.clause);
+      params.push(...departmentFilter.params);
+    } else if (wantsMine) {
+      where.push('(p.requestedBy = ? OR p.requestedFor = ?)');
       params.push(req.user.username, req.user.username);
     }
     if (scopeCep) {
-      where.push('(isCepDepoRequest = 1 OR requestedFor IS NOT NULL)');
+      where.push('(p.isCepDepoRequest = 1 OR p.requestedFor IS NOT NULL)');
     }
     if (statuses.length) {
-      where.push(`status IN (${statuses.map(() => '?').join(',')})`);
+      where.push(`p.status IN (${statuses.map(() => '?').join(',')})`);
       params.push(...statuses);
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const [purchases, receipts] = await Promise.all([
-      all(pool, `SELECT * FROM purchases ${whereSql} ORDER BY requestedAt DESC`, params),
+      all(pool, `SELECT p.* FROM purchases p ${whereSql} ORDER BY p.requestedAt DESC`, params),
       all(pool, 'SELECT * FROM receipts ORDER BY receivedAt DESC')
     ]);
 
