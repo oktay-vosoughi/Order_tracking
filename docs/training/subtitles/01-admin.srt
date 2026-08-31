@@ -1,0 +1,47 @@
+1
+00:00:00,000 --> 00:01:00,000
+Bu videoda GTMLIMS'in yönetici hesabını baştan sona ele alacağız. ADMIN rolü bütün operasyon ekranlarını görür; silme, düzeltme ve ayar işlemleri kontrollü kullanılmalıdır.
+
+2
+00:01:00,000 --> 00:03:30,000
+Kullanıcılar bölümünde önce eğitim bölümünü ekliyoruz. Ardından kullanıcı adını giriyor, LAB_TECHNICIAN rolünü seçiyor ve ilgili bölümü işaretliyoruz. Lab teknisyenlerinin CEP DEPO kullanabilmesi için bölüm ataması zorunludur.
+
+3
+00:03:30,000 --> 00:05:00,000
+Düzenle düğmesiyle rol, şifre ve bölüm üyelikleri güncellenir. SATINAL için Teslim Al, uygun roller için Fiyat Görüntüleme ek yetkisi verilebilir. Yalnız görev için gereken yetkiyi açın.
+
+4
+00:05:00,000 --> 00:08:00,000
+Stok sayfasında Malzeme Ekle'yi açıyoruz. Kod ve adı giriyor, bölümü seçiyor, paket ile alt birim dönüşümünü, tüketim tipini, talep eşiğini ve stok hedeflerini tanımlıyoruz. Kaydetmeden önce bütün birimleri tekrar kontrol ediyoruz.
+
+5
+00:08:00,000 --> 00:10:00,000
+Malzeme tanımı ürün kartıdır; fiziksel stok LOT kayıtlarında tutulur. LOT numarası, miktar ve SKT'yi kutunun üzerindeki bilgilerden giriyoruz. Farklı SKT'ye sahip partileri tek LOT altında birleştirmiyoruz.
+
+6
+00:10:00,000 --> 00:12:30,000
+Stok ekranında ürünü arıyor, satırı genişletiyor ve FEFO görünümünü açıyoruz. Düzelt ekranı yalnız doğrulanmış sayım veya veri hatası sonrasında kullanılmalıdır. Birden fazla LOT varsa önce doğru LOT seçilir.
+
+7
+00:12:30,000 --> 00:14:30,000
+Talep düğmesiyle miktar, aciliyet ve notu giriyoruz. Talepler sayfasında kaydı bulup onaylıyoruz. Güncel standart akışta Onayla işlemi talebi doğrudan sipariş verilmiş durumuna taşır.
+
+8
+00:14:30,000 --> 00:16:30,000
+Resmi EBYS için bekleyen satırları seçiyoruz. GTMLIMS resmi Talep No'yu üretip forma ve pakete kaydeder. Dosya EBYS'ye manuel yüklenir; dış onaydan sonra yeni referans girmeden paket onaylanır.
+
+9
+00:16:30,000 --> 00:19:00,000
+Teslim Al işleminde gelen miktar, teslim alan ve LOT zorunludur. Dağıtım ve atıkta da doğru fiziksel parti seçilir. Her stok hareketi doğru malzeme, bölüm ve LOT ile ilişkilendirilmelidir.
+
+10
+00:19:00,000 --> 00:21:00,000
+Genel Stok, Fiyatlar ve ISO Formları ekranlarında sonuçları inceliyoruz. LY-F064 için bölüm; MG-F069 için bölüm ve yıl seçilir. SKT ayrıntısında LOT Stok içindeki Raporlar görünümünü esas alın.
+
+11
+00:21:00,000 --> 00:23:00,000
+Hesabım sayfasındaki teslim onayı, depo ayrımı ve modül anahtarları bütün sistemi etkiler. Barkod modülleri bu eğitimde kapalı kalır. Giriş kilitleri yalnız doğrulanmış durumda kaldırılır.
+
+12
+00:23:00,000 --> 00:24:00,000
+Tümünü Temizle ve kalıcı silme işlemleri üretim ortamında rutin değildir; videoda bu düğmeye tıklamıyoruz. Doğru rol, doğru bölüm ve doğru LOT sistem izlenebilirliğinin temelidir.

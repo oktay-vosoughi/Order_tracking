@@ -4,6 +4,7 @@ import { DEPARTMENTS, STORAGE_TEMPS, CHEMICAL_TYPES, formatDate, getExpiryColorC
 import { buildLotImportPayload } from './utils/lotExcelImporter';
 import { downloadWorkbook } from './utils/excel';
 import { apiRequest } from './api';
+import { matchesItemSearch } from './itemSearch.mjs';
 
 const LotStatusBadge = ({ status }) => {
   const styles = { ACTIVE: 'bg-green-100 text-green-700', DEPLETED: 'bg-gray-100 text-gray-600', EXPIRED: 'bg-red-100 text-red-700' };
@@ -45,7 +46,12 @@ const LotInventory = ({ currentUser }) => {
   const [newLot, setNewLot] = useState({ lotNumber: '', manufacturer: '', catalogNo: '', expiryDate: '', receivedDate: new Date().toISOString().split('T')[0], initialQuantity: 0, department: '', location: '', storageLocation: '', invoiceNo: '', notes: '', attachmentUrl: '', attachmentName: '' });
   const [consumeForm, setConsumeForm] = useState({ quantity: 0, lotId: '', department: '', purpose: '', notes: '', useFefo: true, receivedBy: '' });
 
-  const canEditLotSkt = currentUser?.role === 'ADMIN' || currentUser?.role === 'SATINAL_LOJISTIK' || currentUser?.role === 'KALITE' || !!currentUser?.canReceive;
+  const role = currentUser?.role;
+  const canManageItems = ['ADMIN', 'SATINAL', 'SATINAL_LOJISTIK', 'KURUMSAL'].includes(role);
+  const canReceiveGoods = role === 'ADMIN' || role === 'SATINAL_LOJISTIK' || !!currentUser?.canReceive;
+  const canDistribute = ['ADMIN', 'SATINAL', 'SATINAL_LOJISTIK', 'KURUMSAL'].includes(role);
+  const canDeleteItems = role === 'ADMIN';
+  const canEditLotSkt = canReceiveGoods;
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => { if (activeView === 'reports') loadReports(); }, [activeView]);
@@ -264,14 +270,20 @@ const LotInventory = ({ currentUser }) => {
     await downloadWorkbook([{ name: 'Stok', rows: templateData }], 'LOT_Stok_Sablonu.xlsx');
   };
 
+  const matchingItemIds = new Set(
+    itemDefinitions.filter((item) => matchesItemSearch(item, searchTerm)).map((item) => item.id)
+  );
+
   const filteredItems = itemDefinitions.filter(item => {
-    const matchesSearch = !searchTerm || item.name.toLowerCase().includes(searchTerm.toLowerCase()) || item.code.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = matchesItemSearch(item, searchTerm);
     const matchesDept = !filterDepartment || item.department === filterDepartment;
     return matchesSearch && matchesDept;
   });
 
   const filteredLots = lots.filter(lot => {
-    const matchesSearch = !searchTerm || lot.lotNumber.toLowerCase().includes(searchTerm.toLowerCase()) || lot.itemName?.toLowerCase().includes(searchTerm.toLowerCase());
+    const query = searchTerm.toLocaleLowerCase('tr-TR');
+    const matchesSearch = !searchTerm || lot.lotNumber.toLocaleLowerCase('tr-TR').includes(query) ||
+      lot.itemName?.toLocaleLowerCase('tr-TR').includes(query) || matchingItemIds.has(lot.itemId);
     const matchesStatus = !filterStatus || lot.status === filterStatus;
     const matchesDept = !filterDepartment || lot.department === filterDepartment;
     return matchesSearch && matchesStatus && matchesDept;
@@ -299,10 +311,10 @@ const LotInventory = ({ currentUser }) => {
 
       <div className="bg-white rounded-xl shadow-lg p-4">
         <div className="flex flex-wrap gap-4 items-center">
-          <div className="flex-1 min-w-[200px]"><div className="relative"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} /><input type="text" placeholder="Ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" /></div></div>
+          <div className="flex-1 min-w-[200px]"><div className="relative"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} /><input type="text" placeholder="Ürün adı, kodu, katalog no, barkod veya LOT ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" /></div></div>
           <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} className="px-4 py-2 border rounded-lg"><option value="">Tüm Departmanlar</option>{Object.values(DEPARTMENTS).map(dept => <option key={dept} value={dept}>{dept}</option>)}</select>
           {activeView === 'lots' && <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-4 py-2 border rounded-lg"><option value="">Tüm Durumlar</option><option value="ACTIVE">Aktif</option><option value="DEPLETED">Tükendi</option></select>}
-          {activeView === 'items' && (
+          {activeView === 'items' && canManageItems && (
             <>
               <button onClick={downloadExcelTemplate} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"><Download size={18} /> Şablon İndir</button>
               <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer">
@@ -345,9 +357,9 @@ const LotInventory = ({ currentUser }) => {
                       <td className="px-4 py-3">
                         <div className="flex justify-center gap-1">
                           <button onClick={() => setExpandedItem(isExpanded ? null : item.id)} className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded text-gray-600" title="LOT Detayları">{isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>
-                          <button onClick={() => setShowAddLotForm(item)} className="p-1.5 bg-green-100 hover:bg-green-200 rounded text-green-600" title="LOT Ekle"><Plus size={14} /></button>
-                          <button onClick={() => { setConsumeForm({ ...consumeForm, department: item.department || '' }); setShowConsumeForm(item); }} className="p-1.5 bg-blue-100 hover:bg-blue-200 rounded text-blue-600" title="Tüket"><ArrowDownCircle size={14} /></button>
-                          <button onClick={() => handleDeleteItem(item.id)} className="p-1.5 bg-red-100 hover:bg-red-200 rounded text-red-600" title="Sil"><Trash2 size={14} /></button>
+                          {canReceiveGoods && <button onClick={() => setShowAddLotForm(item)} className="p-1.5 bg-green-100 hover:bg-green-200 rounded text-green-600" title="LOT Ekle"><Plus size={14} /></button>}
+                          {canDistribute && <button onClick={() => { setConsumeForm({ ...consumeForm, department: item.department || '' }); setShowConsumeForm(item); }} className="p-1.5 bg-blue-100 hover:bg-blue-200 rounded text-blue-600" title="Tüket"><ArrowDownCircle size={14} /></button>}
+                          {canDeleteItems && <button onClick={() => handleDeleteItem(item.id)} className="p-1.5 bg-red-100 hover:bg-red-200 rounded text-red-600" title="Sil"><Trash2 size={14} /></button>}
                         </div>
                       </td>
                     </tr>

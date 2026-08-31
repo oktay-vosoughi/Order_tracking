@@ -1,0 +1,43 @@
+1
+00:00:00,000 --> 00:01:00,000
+SATINAL_LOJISTIK rolünün temel görevi resmi EBYS paketini siparişe almak, fiziksel mal kabulünü doğru LOT ile kaydetmek ve ana depo dağıtımını tamamlamaktır.
+
+2
+00:01:00,000 --> 00:02:30,000
+Talepler sayfasında durum, tarih ve EBYS aramasını kullanıyoruz. Web paketi toplu kayıt kimliğidir; form indirilirken GTMLIMS'in ürettiği resmi Talep No ayrı bilgidir.
+
+3
+00:02:30,000 --> 00:04:00,000
+Talep paketlenmemişse ilgili satırları işaretleyip resmi makrolu formu indiriyoruz. Talep No forma kaydedilir. Dosya dış EBYS'ye manuel yüklenir; dış onay tamamlanana kadar paket onayı verilmez.
+
+4
+00:04:00,000 --> 00:05:40,000
+EBYS Onayla işleminde kayıtlı Talep No'yu, tedarikçiyi ve varsa PO numarasını kontrol ediyoruz. Yeni referans girmiyoruz. Paket onayı bütün kalemleri sipariş verilmiş durumuna taşır.
+
+5
+00:05:40,000 --> 00:06:50,000
+Siparişler sayfasında sipariş edilen, daha önce gelen ve kalan miktarı birlikte görüyoruz. Fiziksel ürün ve irsaliye bu kayıtla uyumlu olmalıdır.
+
+6
+00:06:50,000 --> 00:09:30,000
+İlk kısmi teslimde yalnız gelen üç kutuyu kaydediyoruz. Teslim alan, LOT ve SKT'yi fiziksel etiketten giriyor; güvenli belgeyi ekliyoruz. Talep kısmi teslim durumunda kalır.
+
+7
+00:09:30,000 --> 00:11:00,000
+Kalan iki kutu farklı LOT ile geldiğinde ikinci teslim kaydı açıyoruz. Farklı parti ve SKT'yi ilk LOT ile birleştirmiyoruz. Toplam tamamlandığında sipariş kapanır.
+
+8
+00:11:00,000 --> 00:12:30,000
+LOT Stok sayfasında iki partiyi ayrı satırlarda doğruluyoruz. SKT düzeltmesi yalnız üretici etiketi veya teslim belgesiyle kanıtlandıktan sonra yapılmalıdır.
+
+9
+00:12:30,000 --> 00:14:30,000
+Bekleyen teknisyen talebinde hedef bölüm ve kişiyi kontrol ediyor, fiziksel LOT'u seçiyor ve miktar toplamını eşleştiriyoruz. Onayla ve Dağıt ana depodan düşerek CEP DEPO bakiyesini artırır.
+
+10
+00:14:30,000 --> 00:15:40,000
+Talep dışı genel dağıtımda bölüm, alan kişi ve amaç elle girilir. Hasarlı veya miadı dolmuş malzeme dağıtılmaz; doğru LOT üzerinden Atık kaydı açılır.
+
+11
+00:15:40,000 --> 00:18:00,000
+LY-F064 için bölüm, MG-F069 için bölüm ve yılı seçerek kontrollü formları indiriyoruz. Lojistik sürecinin başarısı, fiziksel ürün ile sistemdeki miktar, LOT, SKT ve belgenin birebir eşleşmesine bağlıdır.

@@ -1,0 +1,24 @@
+1
+00:00:00,000 --> 00:01:00,000
+GTMLIMS'e kendi kullanıcı adımız ve kişisel şifremizle giriş yapıyoruz. İlk kurulum bağlantısı yalnız boş sistemde ilk yönetici hesabı içindir; günlük kullanımda açılmaz.
+
+2
+00:01:00,000 --> 00:02:00,000
+Sol menü rolümüze ve açık modüllere göre değişir. Sol alttaki karttan kullanıcı adı ve rolü doğruluyor, çalışma sonunda aynı karttaki çıkış simgesini kullanıyoruz.
+
+3
+00:02:00,000 --> 00:03:10,000
+Ara alanı açık sayfadaki kayıtları daraltır. Stokta durum ve bölüm; taleplerde durum, tarih ve EBYS filtreleri bulunur. Sonuç yoksa filtreleri temizleyip tekrar deneyin.
+
+4
+00:03:10,000 --> 00:04:10,000
+Renkli rozetler hızlı özet verir. Yalnız renge bakmıyor; satırı açarak miktar, bölüm, LOT ve SKT ayrıntısını doğruluyoruz.
+
+5
+00:04:10,000 --> 00:05:00,000
+Excel çıktıları kurumsal veridir. Dosyayı kişisel e-postaya, yetkisiz bulut alanına veya eğitim dışı paylaşım kanalına göndermiyoruz.
+
+6
+00:05:00,000 --> 00:06:00,000
+Hesabım sayfasında kullanıcı adı ve rolü görüyoruz. Çoğu rol en az sekiz karakterli yeni şifre belirleyebilir. İşimiz bittiğinde güvenli çıkış yapıyoruz.
+

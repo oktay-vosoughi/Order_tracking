@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import BarcodeScanner from './BarcodeScanner';
 import { parseGs1, storageKey } from './gs1';
 import { fetchItemDefinitions, fetchItemBarcodes, registerBarcode, deleteBarcode } from './api';
+import { filterEnrollmentItems, findNextMissingItemId } from './barcodeEnrollment.mjs';
 
 // Toplu ilk-kayıt ekranı: her ürünü seçip barkodunu okutarak veritabanına eşleştir.
 export default function BarcodeEnroll({ currentUsername }) {
@@ -33,27 +34,30 @@ export default function BarcodeEnroll({ currentUsername }) {
     () => items.filter((it) => (byItem[it.id] || []).length > 0).length,
     [items, byItem]
   );
+  const identifierCount = useMemo(
+    () => Object.values(byItem).reduce((total, rows) => total + rows.length, 0),
+    [byItem]
+  );
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return items.filter((it) => {
-      if (onlyMissing && (byItem[it.id] || []).length > 0) return false;
-      if (!q) return true;
-      return [it.name, it.code, it.catalogNo].some((v) => (v || '').toLowerCase().includes(q));
-    });
-  }, [items, byItem, search, onlyMissing]);
+  const filtered = useMemo(() => filterEnrollmentItems({
+    items,
+    byItem,
+    search,
+    onlyMissing,
+    selectedId
+  }), [items, byItem, search, onlyMissing, selectedId]);
 
   const selected = items.find((it) => it.id === selectedId) || null;
 
-  const advanceToNextMissing = (afterId) => {
-    // Called right after setByItem(afterId), so byItem here is still the PRE-update
-    // snapshot where afterId looks unenrolled. The explicit `it.id !== afterId`
-    // exclusion is what keeps us from re-selecting the item we just enrolled —
-    // do not remove it.
-    const idx = filtered.findIndex((it) => it.id === afterId);
-    const rest = filtered.slice(idx + 1).concat(filtered.slice(0, idx + 1));
-    const next = rest.find((it) => (byItem[it.id] || []).length === 0 && it.id !== afterId);
-    setSelectedId(next ? next.id : null);
+  const selectNextMissing = () => {
+    const nextId = findNextMissingItemId({
+      items,
+      byItem,
+      search,
+      currentId: selectedId
+    });
+    setSelectedId(nextId);
+    if (!nextId) setMessage({ kind: 'ok', text: 'Bu aramada barkodu eksik ürün kalmadı.' });
   };
 
   const handleScan = async (code) => {
@@ -74,7 +78,6 @@ export default function BarcodeEnroll({ currentUsername }) {
         return { ...m, [selected.id]: [...rows, { id: saved.id, barcode }] };
       });
       setMessage({ kind: 'ok', text: `Eşleştirildi: ${selected.name} → ${barcode}` });
-      advanceToNextMissing(selected.id);
     } catch (err) {
       if (err.status === 409) {
         const name = err.payload && err.payload.mappedItem ? err.payload.mappedItem.name : '?';
@@ -105,16 +108,36 @@ export default function BarcodeEnroll({ currentUsername }) {
     <div className="bg-white rounded-xl shadow p-6 max-w-4xl">
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-xl font-bold">Barkod Eşleştirme</h2>
-        <span className="text-sm font-medium text-gray-600">{enrolledCount} / {items.length} barkodlı</span>
+        <span className="text-sm font-medium text-gray-600">
+          {enrolledCount} / {items.length} ürün · {identifierCount} tanımlayıcı
+        </span>
       </div>
       <p className="text-sm text-gray-600 mb-3">
-        Bir ürün seçin ve barkodunu okutun. Listede olmayan bir ürünü önce "Stok" ekranından ekleyin.
+        Aynı ürünün cam, plastik veya diğer ambalajlarına ait tüm barkodları aynı ürüne art arda okutabilirsiniz.
+        Alternatif katalog numarasını elle yazıp Enter'a basarak da aynı ürüne tanımlayabilirsiniz.
       </p>
+
+      {selected && (
+        <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2">
+          <div className="text-sm text-indigo-900">
+            <span className="font-semibold">Seçili ürün:</span> {selected.name}
+            <span className="ml-2 text-indigo-700">({(byItem[selected.id] || []).length} tanımlayıcı)</span>
+          </div>
+          <button
+            type="button"
+            onClick={selectNextMissing}
+            disabled={busy}
+            className="self-start sm:self-auto px-3 py-1.5 bg-white border border-indigo-300 text-indigo-700 rounded-lg text-sm disabled:opacity-50"
+          >
+            Sonraki eksik ürüne geç
+          </button>
+        </div>
+      )}
 
       <div className="mb-3">
         <BarcodeScanner
           autoFocus={false}
-          placeholder={selected ? `Seçili ürün: ${selected.name} — barkodu okutun` : 'Önce aşağıdan bir ürün seçin'}
+          placeholder={selected ? 'Barkod okutun veya alternatif katalog no yazıp Enter’a basın' : 'Önce aşağıdan bir ürün seçin'}
           onScan={handleScan}
         />
       </div>
@@ -128,7 +151,7 @@ export default function BarcodeEnroll({ currentUsername }) {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Ürün adı, kodu veya katalog no ile ara"
+          placeholder="Ürün adı, kodu, katalog no veya barkod ile ara"
           className="flex-1 px-4 py-2 border rounded-lg"
         />
         <label className="flex items-center gap-2 text-sm text-gray-700 whitespace-nowrap">
@@ -153,7 +176,7 @@ export default function BarcodeEnroll({ currentUsername }) {
                   {it.code}{it.catalogNo ? ` · Katalog: ${it.catalogNo}` : ''}
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex flex-wrap items-center justify-end gap-2 flex-shrink-0 max-w-[60%]">
                 {chips.length ? chips.map((c) => (
                   <span key={c.id} className="inline-flex items-center gap-1 bg-green-100 text-green-800 text-xs font-mono px-2 py-1 rounded">
                     {c.barcode}
@@ -172,6 +195,9 @@ export default function BarcodeEnroll({ currentUsername }) {
         })}
         {!filtered.length && <p className="text-sm text-gray-500 px-3 py-4">Eşleşen ürün yok</p>}
       </div>
+      <p className="text-xs text-gray-500 mt-3">
+        Listede olmayan bir ürünü önce "Stok" ekranından ekleyin; ardından tüm ambalaj barkodlarını burada aynı ürüne bağlayın.
+      </p>
     </div>
   );
 }

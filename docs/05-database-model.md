@@ -2,12 +2,13 @@
 
 > Source of truth for **runtime** schema: `server/schema.sql` + migrations in `server/migrations/` applied via `server/run-migration.js`. `server/complete_database_schema.sql` is an alternative destructive rebuild and **disagrees** with runtime in some places (notably `users.role`).
 
-## 1. Tables (confirmed — 14 core)
+## 1. Tables (confirmed — 15 core)
 
 | Table | Purpose | PK | Key FKs |
 |---|---|---|---|
 | `users` | Auth + RBAC | `id` (BIGINT AI) | — |
 | `item_definitions` | Master SKU | `id` (VARCHAR 64) | — |
+| `item_barcodes` | Many searchable barcodes/catalog aliases per master SKU | `id` (VARCHAR 64) | → `item_definitions.id` |
 | `lots` | Physical batches | `id` | → `item_definitions.id` |
 | `purchases` | Purchase request lifecycle | `id` | → `item_definitions.id` |
 | `receipts` | Goods receipt events | `receiptId` | → `purchases.id`, → `lots.id` (nullable) |
@@ -74,6 +75,7 @@ Plus legacy value `GELDI` (old "received") used by `migrateData` in `App.jsx`.
 1. **`UNIQUE (itemId, lotNumber)`** on `lots` — cannot create two identical lot numbers per item. Server returns `409 DUPLICATE_LOT`.
 2. **`UNIQUE (code)`** on `item_definitions`. Returns `409 DUPLICATE_CODE`.
 3. **`UNIQUE (requestNumber)`** on `purchases`.
+4. **`UNIQUE (barcode)`** on `item_barcodes` — many identifiers may point to one item, but one identifier cannot point to multiple items.
 
 ### EBYS batches
 
@@ -81,14 +83,14 @@ Plus legacy value `GELDI` (old "received") used by `migrateData` in `App.jsx`.
 `YYMMDD-HHMMSS` format as the official Medipol macro workbook. Purchase rows reference a
 batch through `purchases.ebysBatchId`; `purchases.ebysReference` keeps that Talep No as a
 denormalized display field. The unique key prevents two batches from claiming the same number.
-4. **Cascade deletes** (important to understand before deleting anything):
+5. **Cascade deletes** (important to understand before deleting anything):
    - `item_definitions` deletion → cascades to `lots`, `usage_records` (hard), and **restricts** `purchases`, `distributions`, `waste_records`.
    - `lots` deletion → cascades to `usage_records`, `distribution_lots`, `lot_adjustments`; sets `receipts.lotId = NULL`; sets `waste_records.lotId = NULL`.
    - `purchases` deletion → cascades to `receipts`.
    - `distributions` deletion → cascades to `distribution_lots`.
-5. **`totalStock`** and **`availableStock`** are **computed views**, never stored. Always `SUM(currentQuantity)` with filters.
-6. **FEFO ordering**: `ORDER BY (expiryDate IS NULL) ASC, expiryDate ASC, receivedDate ASC`. Null-expiry lots are used **last**.
-7. **Dates on disk**: `DATE` and `DATETIME` columns on new tables; but `schema.sql` legacy tables use `VARCHAR(40)` for dates. Migrations have partially unified these — verify each field before writing SQL.
+6. **`totalStock`** and **`availableStock`** are **computed views**, never stored. Always `SUM(currentQuantity)` with filters.
+7. **FEFO ordering**: `ORDER BY (expiryDate IS NULL) ASC, expiryDate ASC, receivedDate ASC`. Null-expiry lots are used **last**.
+8. **Dates on disk**: `DATE` and `DATETIME` columns on new tables; but `schema.sql` legacy tables use `VARCHAR(40)` for dates. Migrations have partially unified these — verify each field before writing SQL.
 
 ## 4. Views (confirmed in `complete_database_schema.sql`)
 

@@ -4,6 +4,11 @@
 **Branch:** `feature/barcode-receiving` (extends the barcode-receiving feature)
 **Status:** Approved by user (design conversation 2026-07-13 — chose the scan-through screen)
 
+> **2026-08-27 follow-up:** Enrollment now keeps the selected item active after a
+> successful scan so multiple package barcodes or alternate catalog identifiers can
+> be attached consecutively. Moving to the next missing item is an explicit button
+> action instead of automatic advancement.
+
 ## Problem
 
 The database currently has **no barcodes** for any of the ~300 items. The existing barcode-learning flow only attaches a barcode *during receiving*, which requires an open purchase — unusable for a proactive one-time sweep of the whole catalog. We need a dedicated screen to walk the shelves with a phone or 2D scanner and attach each item's barcode to its existing item record, so that from go-live every receiving scan is recognized immediately (no per-item "tanınmadı" step).

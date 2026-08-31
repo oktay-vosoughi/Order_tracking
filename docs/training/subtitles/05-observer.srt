@@ -1,0 +1,28 @@
+1
+00:00:00,000 --> 00:00:50,000
+OBSERVER hesabı yalnız görüntüleme içindir. Stok, talep, dağıtım veya kullanıcı verisini değiştirmez; arama, filtre ve raporlama araçlarını kullanırız.
+
+2
+00:00:50,000 --> 00:02:20,000
+Stok sayfasında ürün kodunu veya adını arıyor; durum ve bölüm filtreleriyle listeyi daraltıyoruz. Satır ayrıntısında LOT, miktar ve SKT'yi görüntülüyoruz.
+
+3
+00:02:20,000 --> 00:03:10,000
+Excel çıktısı görünür stok listesini raporlar ve kurumsal veri sayılır. Dosyayı yalnız yetkili ortamda saklayın. SKT denetiminde ilgili yetkili rolden LOT raporu isteyin.
+
+4
+00:03:10,000 --> 00:04:10,000
+Dağıtım sayfasında yalnız kullanıcı adımıza yapılan kayıtları görürüz. Bu tablo kurumun bütün dağıtımları değildir; miktar, amaç, tarih ve durum kişisel kapsamda gösterilir.
+
+5
+00:04:10,000 --> 00:05:10,000
+Genel Stok sayfasındaki Yenile düğmesi toplamları, kritik stokları ve son hareketleri günceller. Bu ekran izleme içindir; düzeltme gerektiğinde kayıt sahibine bildirilir.
+
+6
+00:05:10,000 --> 00:06:10,000
+CEP DEPO bakiyelerini ve hareket defterini ürün, tip ve tarihle filtreliyoruz. Dağıt, tüket, iade veya talep onayı Observer rolünde kullanılmaz.
+
+7
+00:06:10,000 --> 00:07:00,000
+Hesabım sayfasından güvenli şifre belirleyebiliriz. İnceleme bittiğinde çıkış yapıyoruz. Observer rolünün özeti: veriyi ara, filtrele ve raporla; operasyon kaydını değiştirme.
+

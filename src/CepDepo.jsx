@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Activity, ArrowDownCircle, CheckCircle2, ClipboardList, History, Package, RefreshCw, RotateCcw } from 'lucide-react';
 import {
   fetchCepDepoBalances,
   fetchMyCepDepoBalances,
@@ -19,6 +20,33 @@ import {
   cancelOwnCepRequest,
   updateItemDefinition
 } from './api';
+import { matchesItemSearch } from './itemSearch.mjs';
+
+const PURCHASE_STATUS_LABELS = {
+  TALEP_EDILDI: 'Onay bekliyor',
+  ONAYLANDI: 'Dağıtım bekliyor',
+  REDDEDILDI: 'Reddedildi',
+  SIPARIS_VERILDI: 'Sipariş verildi',
+  KISMI_TESLIM: 'Kısmen teslim',
+  KISMEN_GELDI: 'Kısmen teslim',
+  TESLIM_ALINDI: 'Tamamlandı',
+  GELDI: 'Tamamlandı',
+  IPTAL: 'İptal edildi'
+};
+
+const MOVEMENT_TYPE_LABELS = {
+  DISTRIBUTE_CEP: 'Dağıtım',
+  CONSUME: 'Tüketim',
+  RETURN_CEP: 'İade',
+  REQUEST_OVERRIDE: 'Gerekçeli talep'
+};
+
+const LOCATION_LABELS = {
+  MAIN_DEPOT: 'Ana Depo',
+  CEP_DEPO: 'Bölüm Stoğu',
+  CONSUMED: 'Kullanıldı',
+  RETURNED: 'İade Edildi'
+};
 
 /**
  * CEP DEPO panel.
@@ -32,12 +60,10 @@ export default function CepDepo({ currentUser }) {
   const isLabTech = role === 'LAB_TECHNICIAN';
   const isAdmin = role === 'ADMIN';
   const isSatinal = role === 'SATINAL';
-  const isKalite = role === 'KALITE';
-  const isPrivileged = isAdmin || isSatinal || role === 'SATINAL_LOJISTIK' || role === 'KURUMSAL' || isKalite;
-  // Narrower than isPrivileged: only ADMIN/SATINAL actually approve/reject/override
-  // CEP requests. KALITE gets the same buttons rendered (read-only role — every
-  // write call is blocked centrally in api.js and by the backend's role allowlist).
-  const canReviewCepRequests = isAdmin || isSatinal || isKalite;
+  const isPrivileged = isAdmin || isSatinal || role === 'SATINAL_LOJISTIK' || role === 'KURUMSAL';
+  // Only ADMIN/SATINAL may approve, reject, or override CEP requests.
+  // Read-only roles still see balances and movements without dead action buttons.
+  const canReviewCepRequests = isAdmin || isSatinal;
   const showDeptColumn = !isLabTech || (Array.isArray(currentUser?.departments) && currentUser.departments.length > 1);
 
   const [balances, setBalances] = useState([]);
@@ -47,7 +73,9 @@ export default function CepDepo({ currentUser }) {
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [activeSubTab, setActiveSubTab] = useState(isLabTech ? 'my' : 'all');
+  const [activeLabTask, setActiveLabTask] = useState('consume');
+  const [labFeedback, setLabFeedback] = useState(null);
+  const [labBusy, setLabBusy] = useState(false);
 
   // Request-workflow data
   const [myRequests, setMyRequests] = useState([]);            // lab tech: department requests
@@ -149,6 +177,8 @@ export default function CepDepo({ currentUser }) {
 
   const handleConsume = async (e) => {
     e.preventDefault();
+    setLabBusy(true);
+    setLabFeedback(null);
     try {
       await consumeFromCepDepo({
         itemId: consumeForm.itemId,
@@ -158,14 +188,18 @@ export default function CepDepo({ currentUser }) {
       });
       setConsumeForm({ itemId: '', consumptionUnitType: 'PACK', quantity: '', notes: '' });
       await loadAll();
-      alert('Tüketim kaydedildi.');
+      setLabFeedback({ type: 'success', message: 'Tüketim kaydedildi. Yeni bakiyen aşağıda görünüyor.' });
     } catch (err) {
-      alert('Tüketim başarısız: ' + (err?.payload?.message || err?.message || 'HATA'));
+      setLabFeedback({ type: 'error', message: err?.payload?.message || err?.message || 'Tüketim kaydedilemedi.' });
+    } finally {
+      setLabBusy(false);
     }
   };
 
   const handleReturn = async (e) => {
     e.preventDefault();
+    setLabBusy(true);
+    setLabFeedback(null);
     try {
       await returnFromCepDepo({
         itemId: returnForm.itemId,
@@ -174,14 +208,18 @@ export default function CepDepo({ currentUser }) {
       });
       setReturnForm({ itemId: '', packQty: '', notes: '' });
       await loadAll();
-      alert('İade başarılı.');
+      setLabFeedback({ type: 'success', message: 'İade kaydedildi. Bölüm bakiyesi güncellendi.' });
     } catch (err) {
-      alert('İade başarısız: ' + (err?.payload?.message || err?.message || 'HATA'));
+      setLabFeedback({ type: 'error', message: err?.payload?.message || err?.message || 'İade kaydedilemedi.' });
+    } finally {
+      setLabBusy(false);
     }
   };
 
   const handleRequest = async (e) => {
     e.preventDefault();
+    setLabBusy(true);
+    setLabFeedback(null);
     try {
       const it = itemById.get(reqForm.itemId);
       await createPurchaseRequestForLabTech({
@@ -193,14 +231,16 @@ export default function CepDepo({ currentUser }) {
       });
       setReqForm({ itemId: '', requestedQty: '', notes: '' });
       await loadAll();
-      alert('Talep oluşturuldu.');
+      setLabFeedback({ type: 'success', message: 'Talebin oluşturuldu. Onay durumunu “Taleplerim” bölümünden izleyebilirsin.' });
     } catch (err) {
       const code = err?.payload?.error;
       if (code === 'CEP_DEPO_HAS_STOCK') {
-        alert(err.payload.message + `\n\nKalan: ${err.payload.remainingPackQty} koli / ${err.payload.remainingUnitQty} birim`);
+        setLabFeedback({ type: 'error', message: err.payload.message });
       } else {
-        alert('Talep başarısız: ' + (err?.payload?.message || err?.message || 'HATA'));
+        setLabFeedback({ type: 'error', message: err?.payload?.message || err?.message || 'Talep oluşturulamadı.' });
       }
+    } finally {
+      setLabBusy(false);
     }
   };
 
@@ -338,11 +378,16 @@ export default function CepDepo({ currentUser }) {
   };
 
   const balanceTable = (rows) => {
-    const q = balanceSearch.trim().toLowerCase();
-    const filtered = q
-      ? rows.filter((b) =>
-          String(b.itemName || '').toLowerCase().includes(q) ||
-          String(b.itemCode || '').toLowerCase().includes(q))
+    const filtered = balanceSearch.trim()
+      ? rows.filter((balance) => matchesItemSearch(
+          itemById.get(balance.itemId) || {
+            name: balance.itemName,
+            code: balance.itemCode,
+            catalogNo: balance.catalogNo,
+            barcodes: []
+          },
+          balanceSearch
+        ))
       : rows;
     // Columns: [Bölüm if showDeptColumn] + Ürün + Miktar + Son Dağıtım + Durum + [action if privileged]
     const colSpan = 4 + (showDeptColumn ? 1 : 0) + (isPrivileged ? 1 : 0);
@@ -352,7 +397,7 @@ export default function CepDepo({ currentUser }) {
           type="text"
           value={balanceSearch}
           onChange={(e) => setBalanceSearch(e.target.value)}
-          placeholder="Ürün ara (ad veya kod)..."
+          placeholder="Ürün adı, kodu, katalog no veya barkod ara..."
           className="mb-3 w-full sm:w-72 px-3 py-2 border rounded text-sm"
         />
         <div className="overflow-x-auto -mx-4 sm:mx-0">
@@ -393,7 +438,7 @@ export default function CepDepo({ currentUser }) {
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-600">{b.lastDistributedAt ? new Date(b.lastDistributedAt).toLocaleString('tr-TR') : '-'}</td>
                   <td className="px-3 py-2">
-                    <span className={`px-2 py-1 rounded text-xs ${b.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>{b.status}</span>
+                      <span className={`px-2 py-1 rounded text-xs ${b.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>{b.status === 'ACTIVE' ? 'Stok var' : 'Stok bitti'}</span>
                   </td>
                   {isPrivileged && (
                     <td className="px-3 py-2">
@@ -463,7 +508,7 @@ export default function CepDepo({ currentUser }) {
                 : p.status === 'REDDEDILDI' ? 'bg-red-100 text-red-700'
                 : p.status === 'IPTAL' ? 'bg-gray-100 text-gray-600'
                 : 'bg-amber-100 text-amber-700'
-              }`}>{p.status}</span>
+              }`}>{PURCHASE_STATUS_LABELS[p.status] || p.status}</span>
             </td>
             <td className="px-3 py-2 text-xs max-w-xs truncate" title={p.notes || p.approvalNote || p.rejectionReason || ''}>
               {p.rejectionReason ? `RED: ${p.rejectionReason}` : (p.notes || p.approvalNote || '')}
@@ -528,8 +573,14 @@ export default function CepDepo({ currentUser }) {
       list = list.filter(m => new Date(m.createdAt) <= end);
     }
     if (movementsFilter.itemSearch) {
-      const q = movementsFilter.itemSearch.toLowerCase();
-      list = list.filter(m => (m.itemName || '').toLowerCase().includes(q));
+      list = list.filter((movement) => matchesItemSearch(
+        itemById.get(movement.itemId) || {
+          name: movement.itemName,
+          code: movement.itemCode,
+          barcodes: []
+        },
+        movementsFilter.itemSearch
+      ));
     }
     if (movementsFilter.typeFilter) {
       list = list.filter(m => m.movementType === movementsFilter.typeFilter);
@@ -544,7 +595,7 @@ export default function CepDepo({ currentUser }) {
       <div className="flex flex-wrap gap-2 mb-3">
         <input
           type="text"
-          placeholder="Ürün ara..."
+          placeholder="Ürün adı, kodu veya barkod ara..."
           value={movementsFilter.itemSearch}
           onChange={(e) => setMovementsFilter(f => ({ ...f, itemSearch: e.target.value }))}
           className="px-2 py-1 border rounded text-xs"
@@ -590,9 +641,9 @@ export default function CepDepo({ currentUser }) {
           {filteredMovements.map((m) => (
             <tr key={m.id} className="border-t">
               <td className="px-2 py-1">{m.createdAt ? new Date(m.createdAt).toLocaleString('tr-TR') : '-'}</td>
-              <td className="px-2 py-1 font-mono">{m.movementType}</td>
+              <td className="px-2 py-1 font-medium">{MOVEMENT_TYPE_LABELS[m.movementType] || m.movementType}</td>
               <td className="px-2 py-1">{m.itemName || m.itemId}</td>
-              <td className="px-2 py-1">{m.fromLocation} → {m.toLocation}</td>
+              <td className="px-2 py-1">{LOCATION_LABELS[m.fromLocation] || m.fromLocation} → {LOCATION_LABELS[m.toLocation] || m.toLocation}</td>
               <td className="px-2 py-1 text-right">{Number(m.packQty).toFixed(2)}</td>
               <td className="px-2 py-1 text-right">{Number(m.unitQty).toFixed(2)}</td>
               <td className="px-2 py-1">{m.performedByUsername || '-'}</td>
@@ -608,134 +659,185 @@ export default function CepDepo({ currentUser }) {
 
   // ---- views ----
 
+  const selectedConsumeBalance = balances.find((b) => b.itemId === consumeForm.itemId);
+  const consumeHasSubUnit = selectedConsumeBalance?.consumptionUnitType !== 'PACK' && selectedConsumeBalance?.consumptionUnit;
+  const consumeUnitLabel = selectedConsumeBalance
+    ? (consumeHasSubUnit ? selectedConsumeBalance.consumptionUnit : (selectedConsumeBalance.packageUnit || 'koli'))
+    : 'birim';
+  const consumeAvailable = selectedConsumeBalance
+    ? Number(consumeHasSubUnit ? selectedConsumeBalance.unitQty : selectedConsumeBalance.packQty) || 0
+    : 0;
+
+  const selectedRequestItem = itemById.get(reqForm.itemId);
+  const selectedRequestBalance = balances.find((b) => b.itemId === reqForm.itemId);
+  const requestIsReaction = /reax|reaks|reaction/.test(String(selectedRequestItem?.consumptionUnit || '').toLowerCase());
+  const requestThreshold = Number(selectedRequestItem?.minReactionThreshold) > 0 ? Number(selectedRequestItem.minReactionThreshold) : 3;
+  const requestRemaining = requestIsReaction
+    ? Number(selectedRequestBalance?.unitQty || 0)
+    : Number(selectedRequestBalance?.packQty || 0);
+  const requestAllowed = !selectedRequestBalance || (requestIsReaction
+    ? requestRemaining < requestThreshold
+    : Number(selectedRequestBalance.packQty || 0) <= 0 && Number(selectedRequestBalance.unitQty || 0) <= 0);
+
+  const filteredLabBalances = balanceSearch.trim()
+    ? balances.filter((balance) => matchesItemSearch(
+        itemById.get(balance.itemId) || { name: balance.itemName, code: balance.itemCode, barcodes: [] },
+        balanceSearch
+      ))
+    : balances;
+
+  const labTasks = [
+    { id: 'consume', label: 'Tüketim Kaydet', help: 'Kullandığın miktarı düş', icon: Activity },
+    { id: 'request', label: 'Malzeme İste', help: 'Yeni stok talebi aç', icon: ClipboardList },
+    { id: 'return', label: 'İade Et', help: 'Açılmamış paketi geri ver', icon: RotateCcw },
+    { id: 'history', label: 'Geçmişi Gör', help: 'Taleplerini ve hareketlerini izle', icon: History }
+  ];
+
   const myView = (
-    <div className="space-y-6">
-      <section className="bg-white rounded-xl shadow p-4">
-        <h3 className="text-lg font-bold mb-3">Bölüm CEP DEPO Bakiyesi</h3>
-        <p className="text-xs text-gray-500 mb-3">Bu bakiye bölümünüzle paylaşılır; aynı bölümdeki tüm teknisyenler aynı stoktan tüketir.</p>
-        {balanceTable(balances)}
+    <div className="lab-workspace">
+      <section className="lab-hero">
+        <div>
+          <p className="lab-eyebrow">Bölüm CEP DEPO</p>
+          <h3>Bugün ne yapmak istiyorsun?</h3>
+          <p>Bir işlem seç. Ekranda yalnız o iş için gereken alanlar açılacak.</p>
+        </div>
+        <div className="lab-task-grid" role="tablist" aria-label="Günlük işlemler">
+          {labTasks.map(({ id, label, help, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={activeLabTask === id}
+              className={`lab-task-button${activeLabTask === id ? ' is-active' : ''}`}
+              onClick={() => { setActiveLabTask(id); setLabFeedback(null); }}
+            >
+              <span className="lab-task-icon"><Icon size={22} /></span>
+              <span><strong>{label}</strong><small>{help}</small></span>
+            </button>
+          ))}
+        </div>
       </section>
 
-      <section className="bg-white rounded-xl shadow p-4">
-        <h3 className="text-lg font-bold mb-3">Tüketim Kaydı</h3>
-        <form onSubmit={handleConsume} className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Item selector */}
-            <select required className="px-3 py-2 border rounded" value={consumeForm.itemId} onChange={(e) => {
-              const b = balances.find((b) => b.itemId === e.target.value);
-              setConsumeForm({ ...consumeForm, itemId: e.target.value, quantity: '', consumptionUnitType: b?.consumptionUnitType || 'PACK' });
-            }}>
-              <option value="">Ürün seç…</option>
-              {balances.map((b) => {
-                const pkgLabel = b.packageUnit || 'koli';
-                const hasSubUnit = b.consumptionUnitType !== 'PACK' && b.consumptionUnit;
-                const line = hasSubUnit
-                  ? `${b.itemName || b.itemId} — ${Number(b.unitQty).toFixed(0)} ${b.consumptionUnit} (${Number(b.packQty).toFixed(2)} ${pkgLabel})`
-                  : `${b.itemName || b.itemId} — ${Number(b.packQty).toFixed(2)} ${pkgLabel}`;
-                return <option key={b.itemId} value={b.itemId}>{line}</option>;
-              })}
-            </select>
+      {labFeedback && (
+        <div className={`lab-feedback ${labFeedback.type === 'success' ? 'is-success' : 'is-error'}`} role="status">
+          {labFeedback.type === 'success' ? <CheckCircle2 size={20} /> : <Activity size={20} />}
+          <span>{labFeedback.message}</span>
+        </div>
+      )}
 
-            {/* Quantity info box */}
-            {consumeForm.itemId && (() => {
-              const b = balances.find((b) => b.itemId === consumeForm.itemId);
-              if (!b) return null;
-              const hasSubUnit = b.consumptionUnitType !== 'PACK' && b.consumptionUnit;
-              const consumeLabel = hasSubUnit ? b.consumptionUnit : (b.packageUnit || 'koli');
-              const remaining = hasSubUnit ? (isFinite(Number(b.unitQty)) ? Number(b.unitQty) : 0) : (isFinite(Number(b.packQty)) ? Number(b.packQty) : 0);
-              return (
-                <div className="px-3 py-2 rounded bg-indigo-50 border border-indigo-200 text-sm">
-                  <span className="text-gray-500">Tüketim birimi: </span>
-                  <strong className="text-indigo-700">{consumeLabel}</strong>
-                  <span className="ml-3 text-gray-500">Kalan: </span>
-                  <strong className="text-indigo-700">{remaining} {consumeLabel}</strong>
-                  {hasSubUnit && (
-                    <span className="ml-3 text-gray-400 text-xs">
-                      ({Number(b.packQty).toFixed(2)} {b.packageUnit || 'koli'} ana birim)
-                    </span>
-                  )}
-                </div>
-              );
-            })()}
+      {activeLabTask === 'consume' && (
+        <section className="lab-panel" role="tabpanel">
+          <div className="lab-panel-heading">
+            <div><span className="lab-step">En sık kullanılan işlem</span><h3>Tüketim Kaydet</h3></div>
+            <p>1. Ürünü seç&nbsp;&nbsp; 2. Miktarı yaz&nbsp;&nbsp; 3. Kaydet</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* Quantity input */}
+          <div className="lab-balance-block">
+            <div className="lab-balance-title">
+              <div><h4>Bölümündeki malzemeler</h4><p>Aynı bölümdeki teknisyenler bu bakiyeyi birlikte kullanır.</p></div>
+              <input type="search" value={balanceSearch} onChange={(e) => setBalanceSearch(e.target.value)} placeholder="Malzeme ara…" aria-label="Bölüm malzemelerinde ara" />
+            </div>
+            {filteredLabBalances.length === 0 ? (
+              <div className="lab-empty"><Package size={28} /><span>{balances.length ? 'Aramana uygun malzeme yok.' : 'Bölümünde kayıtlı malzeme yok.'}</span></div>
+            ) : (
+              <div className="lab-balance-grid">
+                {filteredLabBalances.map((b) => {
+                  const hasSubUnit = b.consumptionUnitType !== 'PACK' && b.consumptionUnit;
+                  const unit = hasSubUnit ? b.consumptionUnit : (b.packageUnit || 'koli');
+                  const quantity = Number(hasSubUnit ? b.unitQty : b.packQty) || 0;
+                  return (
+                    <button
+                      key={b.id || `${b.department}-${b.itemId}`}
+                      type="button"
+                      className={`lab-balance-card${consumeForm.itemId === b.itemId ? ' is-selected' : ''}`}
+                      onClick={() => setConsumeForm({ ...consumeForm, itemId: b.itemId, quantity: '', consumptionUnitType: b.consumptionUnitType || 'PACK' })}
+                    >
+                      <span><strong>{b.itemName || b.itemId}</strong><small>{b.itemCode || b.department || 'Bölüm malzemesi'}</small></span>
+                      <span className="lab-balance-amount"><strong>{quantity}</strong><small>{unit}</small></span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handleConsume} className="lab-form">
+            <label className="lab-field lab-field-wide"><span>1. Hangi malzeme kullanıldı?</span>
+              <select required value={consumeForm.itemId} onChange={(e) => {
+                const b = balances.find((balance) => balance.itemId === e.target.value);
+                setConsumeForm({ ...consumeForm, itemId: e.target.value, quantity: '', consumptionUnitType: b?.consumptionUnitType || 'PACK' });
+              }}>
+                <option value="">Malzeme seç</option>
+                {balances.map((b) => <option key={`${b.department}-${b.itemId}`} value={b.itemId}>{b.itemName || b.itemId}</option>)}
+              </select>
+            </label>
+            <label className="lab-field"><span>2. Kaç {consumeUnitLabel} kullanıldı?</span>
+              <input required type="number" min="1" step="1" max={consumeAvailable > 0 ? consumeAvailable : undefined} value={consumeForm.quantity} onChange={(e) => setConsumeForm({ ...consumeForm, quantity: e.target.value })} placeholder="Miktarı yaz" />
+            </label>
+            <label className="lab-field"><span>Not <em>isteğe bağlı</em></span>
+              <input type="text" value={consumeForm.notes} onChange={(e) => setConsumeForm({ ...consumeForm, notes: e.target.value })} placeholder="Örn. PCR çalışması" />
+            </label>
+            <div className="lab-form-summary">
+              {selectedConsumeBalance ? <><span>Şu an kullanılabilir</span><strong>{consumeAvailable} {consumeUnitLabel}</strong></> : <span>Önce malzeme seç</span>}
+            </div>
+            <button type="submit" className="lab-submit is-blue" disabled={!consumeForm.itemId || !consumeForm.quantity || labBusy}>
+              <ArrowDownCircle size={20} /> {labBusy ? 'Kaydediliyor…' : '3. Tüketimi Kaydet'}
+            </button>
+          </form>
+        </section>
+      )}
+
+      {activeLabTask === 'request' && (
+        <section className="lab-panel" role="tabpanel">
+          <div className="lab-panel-heading"><div><span className="lab-step">Yeni malzeme gerektiğinde</span><h3>Malzeme İste</h3></div><p>Stok kuralını sistem senin için kontrol eder.</p></div>
+          <form onSubmit={handleRequest} className="lab-form">
+            <label className="lab-field lab-field-wide"><span>1. Hangi malzeme gerekiyor?</span>
+              <select required value={reqForm.itemId} onChange={(e) => setReqForm({ ...reqForm, itemId: e.target.value, requestedQty: '' })}>
+                <option value="">Malzeme seç</option>
+                {items.map((it) => <option key={it.id} value={it.id}>{it.name} {it.code ? `(${it.code})` : ''}</option>)}
+              </select>
+            </label>
+            {reqForm.itemId && (
+              <div className={`lab-rule ${requestAllowed ? 'is-allowed' : 'is-blocked'}`}>
+                <strong>{requestAllowed ? 'Talep açabilirsin' : 'Önce mevcut stoğu kullan'}</strong>
+                <span>{requestIsReaction ? `Kalan ${requestRemaining} reaksiyon · Talep eşiği ${requestThreshold}` : `Bölüm bakiyesi: ${requestRemaining} ${selectedRequestBalance?.packageUnit || 'koli'}`}</span>
+              </div>
+            )}
+            <label className="lab-field"><span>2. Kaç koli gerekiyor?</span><input required type="number" min="1" step="1" value={reqForm.requestedQty} onChange={(e) => setReqForm({ ...reqForm, requestedQty: e.target.value })} placeholder="Koli sayısı" /></label>
+            <label className="lab-field"><span>Neden gerekiyor? <em>isteğe bağlı</em></span><input type="text" value={reqForm.notes} onChange={(e) => setReqForm({ ...reqForm, notes: e.target.value })} placeholder="Kısa açıklama" /></label>
+            <button type="submit" className="lab-submit is-green" disabled={!reqForm.itemId || !reqForm.requestedQty || !requestAllowed || labBusy}><ClipboardList size={20} /> {labBusy ? 'Oluşturuluyor…' : '3. Talebi Oluştur'}</button>
+          </form>
+          <div className="lab-subsection"><h4>Taleplerim</h4><p>Bekleyen kendi talebini düzenleyebilir veya iptal edebilirsin.</p>{requestsTable(myRequests, { showOwnerActions: true })}</div>
+        </section>
+      )}
+
+      {activeLabTask === 'return' && (
+        <section className="lab-panel" role="tabpanel">
+          <div className="lab-panel-heading"><div><span className="lab-step">Yalnız açılmamış tam paket</span><h3>Ana Depoya İade Et</h3></div><p>Fiziksel paketi teslim ettikten sonra kaydet.</p></div>
+          <form onSubmit={handleReturn} className="lab-form">
+            <label className="lab-field lab-field-wide"><span>1. Hangi malzeme iade ediliyor?</span>
+              <select required value={returnForm.itemId} onChange={(e) => setReturnForm({ ...returnForm, itemId: e.target.value, packQty: '' })}>
+                <option value="">Malzeme seç</option>
+                {balances.filter((b) => Number(b.packQty) >= 1).map((b) => <option key={`${b.department}-${b.itemId}`} value={b.itemId}>{b.itemName || b.itemId} · {Math.floor(Number(b.packQty))} {b.packageUnit || 'koli'} var</option>)}
+              </select>
+            </label>
             {(() => {
-              const b = balances.find((b) => b.itemId === consumeForm.itemId);
-              const hasSubUnit = b && b.consumptionUnitType !== 'PACK' && b.consumptionUnit;
-              const consumeLabel = b ? (hasSubUnit ? b.consumptionUnit : (b.packageUnit || 'koli')) : 'birim';
-              const maxQty = b ? (hasSubUnit ? Number(b.unitQty) : Number(b.packQty)) : undefined;
-              return (
-                <input
-                  required
-                  type="number"
-                  min="1"
-                  step="1"
-                  max={maxQty > 0 ? maxQty : undefined}
-                  placeholder={`Kaç ${consumeLabel} tüketildi?`}
-                  className="px-3 py-2 border rounded"
-                  value={consumeForm.quantity}
-                  onChange={(e) => setConsumeForm({ ...consumeForm, quantity: e.target.value })}
-                />
-              );
+              const balance = balances.find((b) => b.itemId === returnForm.itemId);
+              return <label className="lab-field"><span>2. Kaç tam {balance?.packageUnit || 'koli'} iade ediliyor?</span><input required type="number" min="1" step="1" max={balance ? Math.floor(Number(balance.packQty)) : undefined} value={returnForm.packQty} onChange={(e) => setReturnForm({ ...returnForm, packQty: e.target.value })} placeholder="Tam paket sayısı" /></label>;
             })()}
-            <input type="text" placeholder="Notlar (opsiyonel)" className="px-3 py-2 border rounded" value={consumeForm.notes} onChange={(e) => setConsumeForm({ ...consumeForm, notes: e.target.value })} />
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Tüketimi Kaydet</button>
-          </div>
-        </form>
-      </section>
+            <label className="lab-field"><span>Not <em>isteğe bağlı</em></span><input type="text" value={returnForm.notes} onChange={(e) => setReturnForm({ ...returnForm, notes: e.target.value })} placeholder="Örn. Açılmamış paket" /></label>
+            <button type="submit" className="lab-submit is-amber" disabled={!returnForm.itemId || !returnForm.packQty || labBusy}><RotateCcw size={20} /> {labBusy ? 'Kaydediliyor…' : '3. İadeyi Kaydet'}</button>
+          </form>
+        </section>
+      )}
 
-      <section className="bg-white rounded-xl shadow p-4">
-        <h3 className="text-lg font-bold mb-3">İade (CEP DEPO → Ana Depo)</h3>
-        <form onSubmit={handleReturn} className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <select required className="px-3 py-2 border rounded" value={returnForm.itemId} onChange={(e) => setReturnForm({ ...returnForm, itemId: e.target.value, packQty: '' })}>
-            <option value="">Ürün seç…</option>
-            {balances.filter((b) => b.packQty > 0).map((b) => (
-              <option key={b.itemId} value={b.itemId}>{b.itemName || b.itemId} ({Number(b.packQty).toFixed(2)} {b.packageUnit || 'koli'})</option>
-            ))}
-          </select>
-          {(() => {
-            const selBal = balances.find((b) => b.itemId === returnForm.itemId);
-            const pkgLabel = selBal?.packageUnit || 'koli';
-            return (
-              <input required type="number" min="0.01" step="0.01" max={selBal ? Number(selBal.packQty) : undefined}
-                placeholder={`İade ${pkgLabel} adedi`}
-                className="px-3 py-2 border rounded" value={returnForm.packQty}
-                onChange={(e) => setReturnForm({ ...returnForm, packQty: e.target.value })} />
-            );
-          })()}
-          <input type="text" placeholder="Notlar" className="px-3 py-2 border rounded" value={returnForm.notes} onChange={(e) => setReturnForm({ ...returnForm, notes: e.target.value })} />
-          <button type="submit" className="bg-amber-600 text-white px-4 py-2 rounded hover:bg-amber-700">İade Et</button>
-        </form>
-      </section>
-
-      <section className="bg-white rounded-xl shadow p-4">
-        <h3 className="text-lg font-bold mb-3">Yeni Stok Talebi</h3>
-        <p className="text-sm text-gray-500 mb-2">Bu üründe CEP DEPO bakiyeniz varsa talep engellenir.</p>
-        <form onSubmit={handleRequest} className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <select required className="px-3 py-2 border rounded" value={reqForm.itemId} onChange={(e) => setReqForm({ ...reqForm, itemId: e.target.value })}>
-            <option value="">Ürün seç…</option>
-            {items.map((it) => (
-              <option key={it.id} value={it.id}>{it.name} {it.code ? `(${it.code})` : ''}</option>
-            ))}
-          </select>
-          <input required type="number" min="1" placeholder="Koli adedi" className="px-3 py-2 border rounded" value={reqForm.requestedQty} onChange={(e) => setReqForm({ ...reqForm, requestedQty: e.target.value })} />
-          <input type="text" placeholder="Notlar" className="px-3 py-2 border rounded" value={reqForm.notes} onChange={(e) => setReqForm({ ...reqForm, notes: e.target.value })} />
-          <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Talep Oluştur</button>
-        </form>
-      </section>
-
-      <section className="bg-white rounded-xl shadow p-4 overflow-x-auto">
-        <h3 className="text-lg font-bold mb-3">Departman Talepleri</h3>
-        <p className="text-sm text-gray-500 mb-2">Departmanınızdaki tüm kullanıcıların talepleri görünür. Yalnızca kendi oluşturduğunuz bekleyen talebi düzenleyebilir veya iptal edebilirsiniz.</p>
-        {requestsTable(myRequests, { showOwnerActions: true })}
-      </section>
-
-      <section className="bg-white rounded-xl shadow p-4 overflow-x-auto">
-        <h3 className="text-lg font-bold mb-3">Hareket Geçmişim</h3>
-        {movementsTable}
-      </section>
+      {activeLabTask === 'history' && (
+        <section className="lab-panel" role="tabpanel">
+          <div className="lab-panel-heading"><div><span className="lab-step">Kayıt ve takip</span><h3>Geçmişim</h3></div><p>Taleplerini, tüketimlerini ve iadelerini burada bul.</p></div>
+          <div className="lab-subsection"><h4>Taleplerim</h4>{requestsTable(myRequests, { showOwnerActions: true })}</div>
+          <div className="lab-subsection"><h4>Stok hareketlerim</h4>{movementsTable}</div>
+        </section>
+      )}
     </div>
   );
 
@@ -818,22 +920,17 @@ export default function CepDepo({ currentUser }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">CEP DEPO</h2>
-        <button onClick={loadAll} className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm">Yenile</button>
+        <div>
+          <h2 className="text-2xl font-bold">{isLabTech ? 'Günlük İşlerim' : 'CEP DEPO'}</h2>
+          {isLabTech && <p className="text-sm text-gray-500 mt-1">Bölüm stoğunu kullan, iste veya iade et.</p>}
+        </div>
+        <button onClick={loadAll} disabled={loading} className="lab-refresh"><RefreshCw size={16} /> {loading ? 'Yenileniyor…' : 'Yenile'}</button>
       </div>
 
       {error && <div className="bg-red-100 text-red-700 p-3 rounded">{error}</div>}
       {loading && <div className="text-gray-500">Yükleniyor…</div>}
 
       {isLabTech ? myView : allView}
-
-      {isLabTech && isPrivileged && (
-        <div className="text-xs text-gray-500">
-          Tab: <button className={activeSubTab === 'my' ? 'underline' : ''} onClick={() => setActiveSubTab('my')}>Benim</button>
-          {' | '}
-          <button className={activeSubTab === 'all' ? 'underline' : ''} onClick={() => setActiveSubTab('all')}>Tümü</button>
-        </div>
-      )}
 
       {/* Unit fields edit modal — privileged only */}
       {unitEditBal && (

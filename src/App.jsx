@@ -37,6 +37,7 @@ import {
   getVisibleTabOptions
 } from './mobileUi.mjs';
 import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget, getDepoPoolRows } from './stockDisplay.mjs';
+import { matchesItemSearch } from './itemSearch.mjs';
 import './theme.css';
 import logoIcon from './logos/icon.png';
 
@@ -53,6 +54,7 @@ const RECEIVE_FORM_DEFAULT = {
 };
 
 const EXPIRY_WARNING_DAYS = 90;
+const getHomeTabForRole = (role) => role === 'LAB_TECHNICIAN' ? 'cep_depo' : 'stock';
 
 const getCorrectionCepQuantity = (balance, consumptionUnitType) => {
   if (!balance) return '';
@@ -231,18 +233,17 @@ const LabEquipmentTracker = () => {
   const isKurumsal = userRole === 'KURUMSAL';
   const isObserver = userRole === 'OBSERVER';
   const isLabTechnician = userRole === 'LAB_TECHNICIAN';
-  // Sees every section and every action button, but every write call is
-  // blocked centrally (src/api.js) and by the backend, which never grants
-  // KALITE any requireRole allowlist — buttons render, clicks no-op.
+  // KALITE can inspect every operational area, while write actions stay hidden
+  // and remain blocked centrally in api.js and by backend role allowlists.
   const isKalite = userRole === 'KALITE';
   const ROLE_LABELS = {
-    ADMIN: 'ADMIN',
-    SATINAL: 'SATINAL',
-    SATINAL_LOJISTIK: 'SATINAL_LOJISTIK',
-    KURUMSAL: 'KURUMSAL',
-    OBSERVER: 'OBSERVER',
-    LAB_TECHNICIAN: 'LAB_TECHNICIAN',
-    KALITE: 'KALITE'
+    ADMIN: 'Yönetici',
+    SATINAL: 'Satın Alma',
+    SATINAL_LOJISTIK: 'Satın Alma ve Lojistik',
+    KURUMSAL: 'Kurumsal',
+    OBSERVER: 'Görüntüleyici',
+    LAB_TECHNICIAN: 'Lab Teknisyeni',
+    KALITE: 'Kalite · Salt Okunur'
   };
 
   // Keep api.js's write-guard in sync with whoever is signed in.
@@ -251,19 +252,19 @@ const LabEquipmentTracker = () => {
   }, [currentUser?.role]);
 
   // Capability checks based on RBAC matrix
-  const canManageUsers = isAdmin || isKalite;
+  const canManageUsers = isAdmin;
   const canViewStock = true; // All roles can view stock
-  const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
-  const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isLabTechnician || isKalite;
+  const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
+  const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isLabTechnician;
   const canManageStockItemActions = canModifyInventory && !isSatinalLojistik;
-  const canCreateStockRequest = canCreateRequest && !isSatinalLojistik;
-  const canApprove = isAdmin || isSatinal || isKurumsal || isKalite;
+  const canCreateStockRequest = canCreateRequest && !isSatinalLojistik && !isLabTechnician;
+  const canApprove = isAdmin || isSatinal || isKurumsal;
   const canApproveEbysBatch = isAdmin || isSatinalLojistik;
   const canCreateEbysBatch = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
-  const canOrder = isAdmin || isSatinalLojistik || isKalite;
-  const canReceive = isAdmin || isSatinalLojistik || isKalite || !!currentUser?.canReceive;
+  const canOrder = isAdmin || isSatinalLojistik;
+  const canReceive = isAdmin || isSatinalLojistik || !!currentUser?.canReceive;
   const canExportIsoForm = isAdmin || isSatinalLojistik || isKalite;
-  const canDistribute = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
+  const canDistribute = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
   const canViewPrices = isAdmin || isKurumsal || isKalite || !!currentUser?.canViewPrices;
 
   // Fetch + cache distributable lots for an item (ACTIVE, qty > 0). Expired lots
@@ -346,6 +347,8 @@ const LabEquipmentTracker = () => {
   const canImportItems = canModifyInventory;
   const canViewAllDagit = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
   const canViewDagit = true; // Tab visible to all; content filtered per role
+  const canViewWaste = canDistribute || isKalite;
+  const canViewLotInventory = !isObserver && !isLabTechnician;
   // Two-step distribution receipt confirmation feature flag (ADMIN-toggled).
   const receiptConfirmationOn = appSettings.dist_receipt_confirmation === '1';
   const depoPoolSplitOn = appSettings.depo_pool_split === '1';
@@ -387,7 +390,7 @@ const LabEquipmentTracker = () => {
   };
 
   const canViewTalep = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
-  const canViewSiparis = canOrder;
+  const canViewSiparis = canOrder || isKalite;
   
   const username = currentUser?.username || '';
   
@@ -472,6 +475,7 @@ const LabEquipmentTracker = () => {
       setAuthLoading(true);
       const res = await fetchMe();
       setCurrentUser(res.user);
+      setActiveTab(getHomeTabForRole(res.user?.role));
       setAuthError(null);
       // Data loading is handled by the [currentUser] useEffect
     } catch (error) {
@@ -496,6 +500,7 @@ const LabEquipmentTracker = () => {
         : await login(loginForm.username.trim(), loginForm.password);
 
       setCurrentUser(result.user);
+      setActiveTab(getHomeTabForRole(result.user?.role));
       // Data loading is handled by the [currentUser] useEffect
     } catch (error) {
       if (error?.message === 'NO_USERS') {
@@ -1772,8 +1777,7 @@ const LabEquipmentTracker = () => {
 
   const filteredItems = (() => {
     let filtered = displayItems.filter(item => {
-      const matchesSearch = item.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           item.code?.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSearch = matchesItemSearch(item, searchTerm);
       const matchesFilter =
         filterStatus === 'all' ||
         normalizeStatus(item.status) === filterStatus ||
@@ -2229,7 +2233,7 @@ const LabEquipmentTracker = () => {
     orders: 'Siparişler', waste: 'Atık', total_stock: 'Genel Stok', lot_inventory: 'LOT Stok',
     barcode_receive: 'Barkodla Teslim Al',
     barcode_enroll: 'Barkod Eşleştirme',
-    cep_depo: 'CEP DEPO', users: 'Kullanıcılar', account: 'Hesabım',
+    cep_depo: isLabTechnician ? 'Günlük İşlerim' : 'CEP DEPO', users: 'Kullanıcılar', account: 'Hesabım',
     prices: 'Fiyatlar & Kullanım', iso_forms: 'ISO Formları'
   };
   const userInitials = username.slice(0, 2).toUpperCase() || '??';
@@ -2277,7 +2281,7 @@ const LabEquipmentTracker = () => {
         <div className="ssec">Ana Menü</div>
         {canViewStock && (
           <button className={`nv${activeTab === 'stock' ? ' on' : ''}`} onClick={() => navClick('stock')}>
-            <Package size={15} /><span>Stok</span>
+            <Package size={15} /><span>{isLabTechnician ? 'Ürünleri Gör' : 'Stok'}</span>
           </button>
         )}
         {canViewTalep && isFeatureOn('requests') && (
@@ -2310,7 +2314,7 @@ const LabEquipmentTracker = () => {
         )}
         {canViewDagit && isFeatureOn('distributions') && (
           <button className={`nv${activeTab === 'distributions' ? ' on' : ''}`} onClick={() => navClick('distributions')}>
-            <FileCheck size={15} /><span>Dağıtım</span>
+            <FileCheck size={15} /><span>{isLabTechnician ? 'Dağıtımlarım' : 'Dağıtım'}</span>
             {canViewAllDagit && pendingCepTotal > 0 && <span className="nbdg">{pendingCepTotal}</span>}
           </button>
         )}
@@ -2320,7 +2324,7 @@ const LabEquipmentTracker = () => {
             {pendingConfirmations.length > 0 && <span className="nbdg">{pendingConfirmations.length}</span>}
           </button>
         )}
-        {!isObserver && isFeatureOn('waste') && (
+        {canViewWaste && isFeatureOn('waste') && (
           <button className={`nv${activeTab === 'waste' ? ' on' : ''}`} onClick={() => navClick('waste')}>
             <Recycle size={15} /><span>Atık</span>
             {wasteRecords.length > 0 && <span className="nbdg">{wasteRecords.length}</span>}
@@ -2331,14 +2335,14 @@ const LabEquipmentTracker = () => {
             <BarChart2 size={15} /><span>Genel Stok</span>
           </button>
         )}
-        {!isObserver && isFeatureOn('lot_inventory') && (
+        {canViewLotInventory && isFeatureOn('lot_inventory') && (
           <button className={`nv${activeTab === 'lot_inventory' ? ' on' : ''}`} onClick={() => navClick('lot_inventory')}>
             <Package size={15} /><span>LOT Stok</span>
           </button>
         )}
         {isFeatureOn('cep_depo') && (
           <button className={`nv${activeTab === 'cep_depo' ? ' on' : ''}`} onClick={() => navClick('cep_depo')}>
-            <Droplet size={15} /><span>CEP DEPO</span>
+            <Droplet size={15} /><span>{isLabTechnician ? 'Günlük İşlerim' : 'CEP DEPO'}</span>
           </button>
         )}
         {canViewPrices && isFeatureOn('prices') && (
@@ -2366,7 +2370,7 @@ const LabEquipmentTracker = () => {
             <div className="uav">{userInitials}</div>
             <div className="uin">
               <strong>{username}</strong>
-              <span>{currentUser?.role}</span>
+              <span>{ROLE_LABELS[currentUser?.role] || currentUser?.role}</span>
             </div>
             <button className="ulogout" onClick={handleLogout} title="Çıkış">
               <LogOut size={15} />
@@ -2380,17 +2384,19 @@ const LabEquipmentTracker = () => {
             {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
           <span className="ttl">{tabTitles[activeTab] || ''}</span>
-          <div className="srch">
-            <Search size={14} />
-            <input
-              type="text"
-              placeholder="Ara..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+          {activeTab === 'stock' && (
+            <div className="srch">
+              <Search size={14} />
+              <input
+                type="text"
+                placeholder="Ürün adı, kodu, katalog no veya barkod ara..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          )}
           <div className="tact">
-            {(expiryStats.critical > 0 || expiryStats.expiringSoon > 0) && (
+            {activeTab === 'stock' && (expiryStats.critical > 0 || expiryStats.expiringSoon > 0) && (
               <button onClick={() => setShowExpiryAlert(true)} className="tbar-warn">
                 <AlertTriangle size={13} />
                 SKT {expiryStats.critical > 0 ? expiryStats.critical : expiryStats.expiringSoon}
@@ -2428,7 +2434,7 @@ const LabEquipmentTracker = () => {
                 >
                   <Calendar size={13} /> FEFO {fefoMode ? 'Açık' : 'Kapalı'}
                 </button>
-                {(isAdmin || isKalite) && (
+                {isAdmin && (
                   <label className="tbar-btn" style={{ cursor: 'pointer' }}>
                     <Upload size={13} /> Excel Yükle
                     <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} style={{ display: 'none' }} />
@@ -2585,7 +2591,7 @@ const LabEquipmentTracker = () => {
                   </div>
                   <div className="p-3 border rounded-lg">
                     <p className="text-xs text-gray-500">Rol</p>
-                    <p className="font-semibold text-gray-900">{currentUser.role}</p>
+                    <p className="font-semibold text-gray-900">{ROLE_LABELS[currentUser.role] || currentUser.role}</p>
                   </div>
                   <div className="p-3 border rounded-lg">
                     <p className="text-xs text-gray-500">Token Süresi</p>
@@ -3640,7 +3646,7 @@ const LabEquipmentTracker = () => {
                               Birim
                             </button>
                           )}
-                          {(isAdmin || isKalite) && (
+                          {isAdmin && (
                             <button
                               onClick={() => openUnitStockCorrection(item)}
                               className="status-action status-action--order"
@@ -3648,7 +3654,7 @@ const LabEquipmentTracker = () => {
                               Düzelt
                             </button>
                           )}
-                          {canManageStockItemActions && (
+                          {isAdmin && (
                             <button onClick={() => deleteItem(item.id)} className="status-action status-action--reject">Sil</button>
                           )}
                           {!isLabTechnician && history.length > 0 && (
@@ -3865,7 +3871,7 @@ const LabEquipmentTracker = () => {
                                 Birim
                               </button>
                             )}
-                            {(isAdmin || isKalite) && (
+                            {isAdmin && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -3877,7 +3883,7 @@ const LabEquipmentTracker = () => {
                                 Düzelt
                               </button>
                             )}
-                            {canManageStockItemActions && (
+                            {isAdmin && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }}
                                 className="px-2 py-1 bg-red-100 text-red-600 rounded text-xs"
@@ -4305,7 +4311,7 @@ const LabEquipmentTracker = () => {
                                   <button onClick={() => rejectPurchaseRequest(purchase.id)} className="status-action status-action--reject">Reddet</button>
                                 </>
                               )}
-                              {(isAdmin || isKalite) && (
+                              {isAdmin && (
                                 <button onClick={() => deletePurchaseRequest(purchase.id)} className="status-action status-action--muted">Sil</button>
                               )}
                             </>
@@ -4417,7 +4423,7 @@ const LabEquipmentTracker = () => {
                                   <button onClick={() => rejectPurchaseRequest(purchase.id)} className="status-action status-action--reject">Reddet</button>
                                 </>
                               )}
-                              {(isAdmin || isKalite) && (
+                              {isAdmin && (
                                 <button onClick={() => deletePurchaseRequest(purchase.id)} className="status-action status-action--muted">Sil</button>
                               )}
                             </>
@@ -5209,7 +5215,7 @@ const LabEquipmentTracker = () => {
         {/* Deprecated bottom boxes removed */}
 
         <div className="mt-6 flex justify-center gap-4 flex-wrap">
-          {(isAdmin || isKalite) && (
+          {isAdmin && (
             <button onClick={clearAllData} className="flex items-center gap-2 px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600">
               <Trash2 size={20} />
               Tümünü Temizle
@@ -5220,7 +5226,7 @@ const LabEquipmentTracker = () => {
       </div>
 
       {/* Admin Birim/Stok Düzeltme Modal */}
-      {correctionItem && (isAdmin || isKalite) && (
+      {correctionItem && isAdmin && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-1">Birim ve Stok Düzelt</h3>

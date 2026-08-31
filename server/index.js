@@ -49,10 +49,9 @@ const ROLES = {
   KURUMSAL: 'KURUMSAL',
   OBSERVER: 'OBSERVER',
   LAB_TECHNICIAN: 'LAB_TECHNICIAN',
-  // Full read visibility everywhere, zero mutation rights. Deliberately not
-  // added to any requireRole()/adminRequired allowlist below — that absence
-  // is what makes every write route 403 for this role, so the frontend can
-  // safely render every action button for it (see App.jsx isKalite).
+  // Full read visibility everywhere, zero operational mutation rights.
+  // Deliberately absent from write allowlists; the frontend mirrors this by
+  // showing audit pages without dead action buttons.
   KALITE: 'KALITE'
 };
 
@@ -841,6 +840,27 @@ const generateId = () => {
 
 // --- Item Definitions ---
 
+const attachBarcodesToItems = async (items) => {
+  if (!items.length) return items;
+  const itemIds = items.map((item) => item.id);
+  const placeholders = itemIds.map(() => '?').join(',');
+  const barcodeRows = await all(pool, `
+    SELECT itemId, barcode
+    FROM item_barcodes
+    WHERE itemId IN (${placeholders})
+    ORDER BY createdAt ASC
+  `, itemIds);
+  const barcodesByItem = new Map();
+  for (const row of barcodeRows) {
+    if (!barcodesByItem.has(row.itemId)) barcodesByItem.set(row.itemId, []);
+    barcodesByItem.get(row.itemId).push(row.barcode);
+  }
+  return items.map((item) => ({
+    ...item,
+    barcodes: barcodesByItem.get(item.id) || []
+  }));
+};
+
 // Get all item definitions with aggregated stock info
 app.get('/api/item-definitions', authRequired, async (_req, res) => {
   try {
@@ -865,7 +885,7 @@ app.get('/api/item-definitions', authRequired, async (_req, res) => {
       isGlobal: !!item.isGlobal,
       departments: deptsByItem.get(item.id) || [],
     }));
-    res.json({ items: mapped });
+    res.json({ items: await attachBarcodesToItems(mapped) });
   } catch (error) {
     console.error('Failed to get item definitions', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
@@ -1920,7 +1940,7 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
         pools: poolsObj,
       };
     });
-    res.json({ items: mapped });
+    res.json({ items: await attachBarcodesToItems(mapped) });
   } catch (error) {
     console.error('[/api/unified-stock] ERROR:', error);
     res.status(500).json({ error: 'SERVER_ERROR' });

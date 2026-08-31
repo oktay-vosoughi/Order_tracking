@@ -1,0 +1,39 @@
+1
+00:00:00,000 --> 00:00:50,000
+SATINAL hesabıyla giriş yaptığımızda stok, talep ve dağıtım süreçlerine erişiriz. Kullanıcı yönetimi, sistem ayarı ve ek yetki verilmedikçe teslim alma bu rolün sorumluluğunda değildir.
+
+2
+00:00:50,000 --> 00:02:20,000
+Satın Al ve bölüm filtreleriyle ürünü buluyoruz. Talep açmadan önce ana depo miktarını, hedef stoğu, bekleyen siparişi, CEP DEPO bakiyesini ve kullanılabilir LOT'ları birlikte kontrol ediyoruz.
+
+3
+00:02:20,000 --> 00:03:30,000
+Talep düğmesine tıklıyor, miktarı ve aciliyeti seçiyor, kısa bir gerekçe yazıyoruz. Talep Oluştur işleminden sonra sistem benzersiz talep numarasını üretir.
+
+4
+00:03:30,000 --> 00:05:00,000
+Talepler sayfasında durum, tarih ve EBYS filtrelerini kullanıyoruz. Onaydan önce malzeme, bölüm, talep eden, miktar ve varsa ACİL etiketi mutlaka kontrol edilmelidir.
+
+5
+00:05:00,000 --> 00:06:40,000
+Uygun talebi Onayla ile ilerletiyor ve karar notunu kaydediyoruz. Güncel standart akış kaydı doğrudan sipariş verilmiş durumuna taşır. Red işleminde ölçülebilir gerekçe zorunludur.
+
+6
+00:06:40,000 --> 00:08:40,000
+Bekleyen kalemleri seçip Resmi EBYS Formu'nu indiriyoruz. GTMLIMS resmi Talep No'yu üretip forma ve pakete kaydeder. Dosya EBYS'ye manuel yüklenir; dış onaydan sonra lojistik veya yönetici paketi onaylar.
+
+7
+00:08:40,000 --> 00:10:40,000
+CEP DEPO sayfasında teknisyenin ürün, miktar ve bölümünü inceliyoruz. Normal ürünlerde sıfır bakiye, reaksiyon ürünlerinde eşik kuralı uygulanır. Uygun talebi onaylıyoruz.
+
+8
+00:10:40,000 --> 00:12:20,000
+Dağıtımda fiziksel kutunun parti ve SKT'sini ekrandaki LOT ile eşleştiriyoruz. Onayla ve Dağıt işlemi ana depodan düşer, hedef bölüm CEP DEPOsuna eklenir ve hareket defterine kaydolur.
+
+9
+00:12:20,000 --> 00:13:40,000
+Genel dağıtımda bölüm, alan kişi ve amaç doldurulur. Kullanılamayan ürün doğru LOT üzerinden Atık kaydına alınır; sebep ve bertaraf yöntemi açıkça yazılır.
+
+10
+00:13:40,000 --> 00:15:00,000
+Genel Stok ekranında taleplerin sonucunu izliyoruz. SATINAL rolü kullanıcı ve sistem ayarı yapmaz; mevcut ek yetkiler olmadan teslim veya fiyat işlemi gerçekleştirmez. Çalışma sonunda güvenli çıkış yapıyoruz.

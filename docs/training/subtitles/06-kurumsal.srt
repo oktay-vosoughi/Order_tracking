@@ -1,0 +1,35 @@
+1
+00:00:00,000 --> 00:01:00,000
+Kurumsal rol bütün bölümlerin stoklarını görür; talep kararlarına, dağıtım süreçlerine ve fiyat raporlarına erişir. Canlı KURUMSAL hesabı doğrulanmadan bu video kaydedilmemelidir.
+
+2
+00:01:00,000 --> 00:02:20,000
+Satın Al ve bölüm filtreleriyle kritik stokları karşılaştırıyoruz. Ana depo, bekleyen sipariş, hedef stok ve CEP bakiyesi birlikte değerlendirilmelidir.
+
+3
+00:02:20,000 --> 00:04:00,000
+Bekleyen talebin malzeme, bölüm, kişi ve miktarını kontrol ediyoruz. Uygun kaydı gerekçeli olarak onaylıyor, uygun olmayan talebi ölçülebilir nedenle reddediyoruz.
+
+4
+00:04:00,000 --> 00:05:20,000
+Bekleyen kalemleri resmi forma paketliyoruz. GTMLIMS Talep No'yu üretip kaydeder. Dosyanın EBYS'ye yüklenmesi ve dış onaydan sonra paketin onaylanması lojistik veya yönetici sorumluluğundadır.
+
+5
+00:05:20,000 --> 00:07:10,000
+Dağıtımda hedef bölüm ve teknisyeni filtreliyor, fiziksel kutuyu doğru LOT ile eşleştiriyoruz. KURUMSAL talep ve override yolları mevcut API uyumsuzluğu nedeniyle kullanılmaz.
+
+6
+00:07:10,000 --> 00:08:20,000
+Atık kayıtlarının gerekçe ve bertaraf bilgisini inceliyor; Genel Stok sayfasında kritik seviyeleri ve son hareketleri yeniliyoruz.
+
+7
+00:08:20,000 --> 00:10:10,000
+Fiyat geçmişini malzeme, tedarikçi ve tarihle filtreliyoruz. Tedarikçi ve birim fiyat yalnız doğrulanmış teslim belgesine dayanarak güncellenir.
+
+8
+00:10:10,000 --> 00:11:20,000
+Kullanım raporunun Detay, Aylık ve Departman görünümleriyle dağıtım miktarlarını karşılaştırıyoruz. Rapor karar desteğidir; stok düzeltmesi yapmaz.
+
+9
+00:11:20,000 --> 00:12:00,000
+Kurumsal rol onay, dağıtım ve mali görünümü birleştirir. Kullanıcı veya sistem ayarına müdahale etmeden, belgeye dayalı kayıt oluşturup güvenli çıkış yapıyoruz.

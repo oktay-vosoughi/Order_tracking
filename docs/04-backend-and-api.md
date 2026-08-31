@@ -36,7 +36,7 @@ JWT payload: `{ id, username, role }`. Signed with `JWT_SECRET`. Expires in `7d`
 | PATCH| `/api/users/:id` | authRequired + adminRequired | Update username/role/password. |
 | GET  | `/api/state` | authRequired | Aggregate legacy state (purchases+receipts+distributions+waste). `items=[]` for legacy compat. |
 | POST | `/api/state` | authRequired | Bulk rewrite of purchases/distributions/waste (transactional DELETE+INSERT). ⚠ destructive. |
-| GET  | `/api/item-definitions` | authRequired | Items + aggregated `totalStock`, `activeLotCount`. |
+| GET  | `/api/item-definitions` | authRequired | Items + aggregated `totalStock`, `activeLotCount`, and registered `barcodes[]`. |
 | GET  | `/api/item-definitions/:id` | authRequired | One item + its lots. |
 | POST | `/api/item-definitions` | authRequired | Create item (requires code+name; 409 on dup code). |
 | PUT  | `/api/item-definitions/:id` | authRequired | Update (uses `COALESCE` preserving nulls). |
@@ -52,7 +52,7 @@ JWT payload: `{ id, username, role }`. Signed with `JWT_SECRET`. Expires in `7d`
 | GET  | `/api/reports/expiry` | authRequired | Expiring/expired lots. |
 | GET  | `/api/reports/low-stock` | authRequired | Below-minStock items. |
 | GET  | `/api/reports/department-stock` | authRequired | Per-department rollup. |
-| GET  | `/api/unified-stock` | authRequired | Item-level with aggregated lot stock (primary list for UI). |
+| GET  | `/api/unified-stock` | authRequired | Item-level with aggregated lot stock and registered `barcodes[]` (primary list for UI). |
 | GET  | `/api/unified-stock/:itemId/lots` | authRequired | Drill-down. |
 | POST | `/api/receive-goods` | authRequired + canOrder | Goods receipt → creates lot, updates purchase status. |
 | POST | `/api/distribute` | authRequired + canDistribute | Issue stock, FEFO default, writes `distributions` + `distribution_lots` + `usage_records`. |

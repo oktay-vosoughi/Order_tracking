@@ -1,0 +1,40 @@
+1
+00:00:00,000 --> 00:01:10,000
+Lab teknisyeni ana deponun yöneticisi değildir; kendi bölümünün CEP DEPO stoğunu kullanır ve gerçek tüketimini kaydeder. Görünmeyen ürünlerde bölüm üyeliği ve malzeme kapsamı kontrol edilmelidir.
+
+2
+00:01:10,000 --> 00:02:20,000
+Stok ekranında ana depo miktarı ile CEP DEPO bakiyesini birbirinden ayırıyoruz. Satırı açarak LOT ve SKT bilgilerini yalnız referans amacıyla inceliyoruz.
+
+3
+00:02:20,000 --> 00:03:30,000
+CEP DEPO'nun Benim görünümünde ürünü arıyoruz. Paket ve alt birim bakiyesi, son dağıtım tarihi ve durum bilgisi bölüm stoğunun güncel görünümünü verir.
+
+4
+00:03:30,000 --> 00:05:20,000
+Tüketim Kaydı bölümünde ürünü ve tanımlı tüketim tipini seçiyoruz. Gerçekte kullanılan test sayısını ve kısa notu yazıp kaydediyoruz. Sistem mevcut bakiyeden fazla tüketimi kabul etmez.
+
+5
+00:05:20,000 --> 00:06:50,000
+Reaksiyon stoğu tanımlı eşiğin altına düştüğünde yeni talep açabiliriz. Normal paket ürünlerinde herhangi bir bakiye varken talep engellenir; önce mevcut stok tüketilmeli veya iade edilmelidir.
+
+6
+00:06:50,000 --> 00:08:10,000
+Kendi oluşturduğumuz ve hâlâ bekleyen talebin miktarını Düzenle ile değiştirebiliriz. İptal de yalnız aynı koşullarda çalışır. Onaylanan veya dağıtılan talep artık değiştirilemez.
+
+7
+00:08:10,000 --> 00:09:00,000
+Talebi SATINAL veya yönetici onaylar; doğru LOT'tan dağıtımı lojistik ya da yetkili depo personeli yapar. Lab teknisyeni kendi talebini onaylamaz.
+
+8
+00:09:00,000 --> 00:10:10,000
+Dağıtımlarım sayfasında malzeme, miktar, dağıtan kişi ve tarihi fiziksel teslimle karşılaştırıyoruz. Mevcut ayarda iki adımlı teslim onayı kapalıdır; CEP DEPO bakiyesi doğrudan güncellenir.
+
+9
+00:10:10,000 --> 00:11:30,000
+Kullanılmamış ve fiziksel olarak ana depoya geri verilen tam paketi İade bölümünden kaydediyoruz. Fiziksel teslim gerçekleşmeden sistemde iade kaydı açmıyoruz.
+
+10
+00:11:30,000 --> 00:13:00,000
+Hareket geçmişinde dağıtım, tüketim ve iade kayıtlarını ürün, tip ve tarihle buluyoruz. CEP DEPO'nun doğru görünmesi, her gerçek hareketin aynı gün kaydedilmesine bağlıdır.
+

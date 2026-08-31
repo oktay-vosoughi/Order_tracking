@@ -29,11 +29,11 @@ export function getApiRole() {
   return currentApiRole;
 }
 
-// KALITE sees every button in the UI, but none of them may mutate data —
-// short-circuit here so a click never reaches the network, regardless of
-// which component fired it.
-function assertWriteAllowed(method) {
-  if (currentApiRole === 'KALITE' && method !== 'GET') {
+// KALITE is read-only for operational data. Account-password changes are the
+// one self-service exception; the authenticated backend route already allows it.
+function assertWriteAllowed(path, method) {
+  const isAccountPasswordChange = path === '/account/change-password';
+  if (currentApiRole === 'KALITE' && method !== 'GET' && !isAccountPasswordChange) {
     const message = 'KALITE rolü salt görüntüleme modundadır; bu işlem gerçekleştirilemez.';
     const err = new Error(message);
     err.status = 403;
@@ -43,7 +43,7 @@ function assertWriteAllowed(method) {
 }
 
 async function apiFetch(path, options = {}) {
-  assertWriteAllowed((options.method || 'GET').toUpperCase());
+  assertWriteAllowed(path, (options.method || 'GET').toUpperCase());
 
   const token = getAuthToken();
   const headers = {

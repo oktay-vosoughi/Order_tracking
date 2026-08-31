@@ -1,0 +1,35 @@
+1
+00:00:00,000 --> 00:01:10,000
+KALITE rolü sistemin bütün operasyon alanlarını görür, fakat hiçbir veriyi değiştirmez. Ekrandaki ekleme, onay, düzenleme, silme ve temizleme düğmelerine tıklamıyoruz.
+
+2
+00:01:10,000 --> 00:02:40,000
+Stok kartındaki toplam, hedef ve en yakın SKT'yi inceliyor; LOT Stok sayfasında fiziksel partileri ayrı satırlarda doğruluyoruz. SKT için LOT raporunu esas alıyoruz.
+
+3
+00:02:40,000 --> 00:04:00,000
+Talep numarası, web paketi, resmi form Talep No, onaylayan ve durum zincirini kontrol ediyoruz. Onay, red, EBYS onayı veya teslim düğmelerini kullanmıyoruz.
+
+4
+00:04:00,000 --> 00:05:10,000
+Dağıtım ve CEP hareketlerinde LOT, miktar, bölüm, veren, alan ve tarihi izliyoruz. Tutarsızlıkta kaydı değiştirmek yerine kanıtlı bulgu açıyoruz.
+
+5
+00:05:10,000 --> 00:06:00,000
+Atık kaydında miktar, tip, sebep, bertaraf yöntemi, işlemi yapan kişi, tarih ve varsa sertifika numarasının bütünlüğünü kontrol ediyoruz.
+
+6
+00:06:00,000 --> 00:07:20,000
+Fiyat ve kullanım raporlarını filtreliyor, toplamları teslim ve dağıtım kayıtlarıyla karşılaştırıyoruz. Düzenle düğmesine tıklamıyoruz.
+
+7
+00:07:20,000 --> 00:08:10,000
+Genel Stok özetindeki kritik veya SKT bulgusunu LOT Stok Raporları'nda ayrıntı düzeyinde doğruluyoruz. Fark varsa doğrudan düzeltme yapmıyoruz.
+
+8
+00:08:10,000 --> 00:09:20,000
+LY-F064 için bölüm, MG-F069 için bölüm ve yılı seçerek kontrollü formları indiriyoruz. Dosyanın tarihini, bölümünü ve sürümünü çalışma kâğıdına kaydediyoruz.
+
+9
+00:09:20,000 --> 00:10:00,000
+Mevcut uygulamada KALITE şifre değişikliği ve Kullanıcılar sayfası çalışmaz. Denetim sonunda çıkış yapıyor; bulguyu kanıtla kaydedip değişikliği süreç sahibine bırakıyoruz.
