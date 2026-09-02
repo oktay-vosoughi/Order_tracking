@@ -31,10 +31,10 @@ Stok, Talepler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO ve Hesabım. S
 
 ### Sahne 1 — Giriş ve menü (00:00-00:50)
 
-- **Tıklama:** Eğitim SATINAL hesabıyla giriş; kullanıcı kartı ve menü.
+- **Tıklama:** Eğitim SATINAL hesabıyla giriş; doğrudan açılan Satın Alma İş Merkezi, kullanıcı kartı ve menü.
 - **Vurgu:** Siparişler ve Kullanıcılar menüsünün olmaması.
 - **Ekran yazısı:** `SATINAL — Talep ve onay sorumlusu`
-- **Seslendirme:** “SATINAL hesabıyla giriş yaptığımızda stok, talep ve dağıtım süreçlerine erişiyoruz. Kullanıcı yönetimi ve sistem ayarları bu rolün sorumluluğunda değildir. Mevcut eğitim hesabında teslim alma ve fiyat görüntüleme ek yetkileri de kapalıdır.”
+- **Seslendirme:** “SATINAL hesabıyla giriş yaptığımızda doğrudan satın alma iş merkezine geliriz. Yeni Talep Aç, EBYS Formu Hazırla, Siparişleri İzle ve Tüm Süreci Gör görevlerinden yapmak istediğimizi seçeriz. Kullanıcı yönetimi ve sistem ayarları bu rolün sorumluluğunda değildir.”
 
 ![Sol menü ve kullanıcı kartı](../screenshots/02-satinal/sahne1-menu.jpg)
 
@@ -49,10 +49,10 @@ Stok, Talepler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO ve Hesabım. S
 
 ### Sahne 3 — Standart talep oluşturma (02:20-03:30)
 
-- **Tıklama/veri:** Talep; miktar `2`, aciliyet `Normal`, not `Eğitim stok tamamlama talebi`; Talep Oluştur.
+- **Tıklama/veri:** Satın Alma İş Merkezi > Yeni Talep Aç; malzemeyi ara/seç; miktar `2`, bölüm, aciliyet `Normal`, not `Eğitim stok tamamlama talebi`; Talebi Oluştur.
 - **Vurgu:** Miktar, aciliyet, not.
 - **Ekran yazısı:** `Gerekçeli ve ölçülü talep`
-- **Seslendirme:** “İhtiyaç doğrulandıktan sonra satırdaki Talep düğmesine tıklıyoruz. İki kutu giriyor, aciliyeti Normal bırakıyor ve talebin amacını kısa bir notla açıklıyoruz. Talep Oluştur’a bastığımızda sistem bir talep numarası üretir ve kayıt onay bekleyenler listesine geçer.”
+- **Seslendirme:** “İhtiyaç doğrulandıktan sonra Yeni Talep Aç’a tıklıyoruz. İlk adımda malzemeyi adı, kodu, katalog numarası veya barkoduyla buluyoruz. İkinci adımda miktarı, bölümü, aciliyeti ve kısa açıklamayı yazıyoruz. Sistem talep numarasını üretir ve yeni kaydı EBYS formu için otomatik seçer.”
 
 ![Talep oluşturma formu](../screenshots/02-satinal/sahne3-talep-olustur.jpg)
 
@@ -76,10 +76,10 @@ Stok, Talepler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO ve Hesabım. S
 
 ### Sahne 6 — Resmi EBYS formu (06:40-08:40)
 
-- **Tıklama:** Bekleyen iki eğitim talebini işaretle; Resmi EBYS Formu; tarih ve bölüm; İndir.
+- **Tıklama:** EBYS Formu Hazırla; Görünen Talepleri Seç; Seçilen Talepleri Form Yap; Resmi Formu İndir.
 - **Vurgu:** Toplu seçim, 343 satır sınırı, web paket kimliği ve resmi Talep No.
 - **Ekran yazısı:** `Form indir → EBYS'ye manuel yükle`
-- **Seslendirme:** “Resmi EBYS işlemi için bekleyen satırları seçim kutularıyla işaretliyoruz. Resmi EBYS Formu düğmesindeki sayı seçilen kalemleri gösterir. Tarih ve gerekirse bölüm seçip İndir’e tıklıyoruz. Sistem resmi Talep No’yu üretir; makrolu dosyaya ve paket satırlarına kaydeder. Dosya kurumun EBYS sistemine manuel yüklenir. Dış onay tamamlandığında lojistik veya yönetici aynı kayıtlı Talep No ile paketi onaylar.”
+- **Seslendirme:** “EBYS Formu Hazırla görevi yalnız paketlenmemiş talepleri gösterir. Görünen talepleri tek düğmeyle seçip Seçilen Talepleri Form Yap diyoruz. Penceredeki üç adım formu indirmeyi, kurumun dış EBYS sistemine yüklemeyi ve onay geldiğinde lojistiğin geri dönmesini açıkça gösterir. Sistem Talep No’yu üretip makrolu dosyaya ve paket satırlarına kaydeder.”
 
 ![Resmi EBYS Formu İndir](../screenshots/02-satinal/sahne6-ebys-form.jpg)
 
@@ -133,7 +133,7 @@ Stok, Talepler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO ve Hesabım. S
 - Aynı ürün için açık talep ve bekleyen sipariş varken mükerrer kayıt açmayın.
 - Resmi EBYS formunu indirmek EBYS'ye gönderim veya dış onay anlamına gelmez.
 - LOT Stok'taki LOT Ekle düğmesi ek Teslim Al yetkisi olmayan SATINAL için API tarafından reddedilir; videoda kullanılmaz.
-- Stok satırındaki Sil düğmesi görünse bile malzeme silme ADMIN işlemidir.
+- Yeni talep oluşturulduğunda kayıt EBYS formu için otomatik seçilir; aynı talebi yeniden seçmeye çalışmayın.
 - Fiyatlar ve ISO sayfası bu eğitim hesabında yoktur.
 - Red gerekçesini boş veya kişisel yorum şeklinde yazmayın; ölçülebilir nedeni belirtin.
 

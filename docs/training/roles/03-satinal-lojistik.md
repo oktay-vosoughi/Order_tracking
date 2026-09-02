@@ -10,6 +10,7 @@
 
 ## Görev ve sorumluluklar
 
+- Gerektiğinde görev merkezinden yeni standart satın alma talebi oluşturmak
 - Bekleyen talepler için resmi EBYS formu oluşturmak
 - GTMLIMS'in resmi form için ürettiği Talep No'yu kontrol edip, dış EBYS onayı tamamlanan paketi siparişe almak
 - Sipariş edilmiş malzemeleri kısmi veya tam teslim almak
@@ -21,48 +22,48 @@
 
 ## Gösterilecek sayfalar
 
-Stok, Talepler, Siparişler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, ISO Formları ve Hesabım. Fiyatlar ve Kullanıcılar görünmez; barkod modülleri kapalıdır.
+Stok, EBYS İşleri, Mal Kabul, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, ISO Formları ve Hesabım. Fiyatlar ve Kullanıcılar görünmez; barkod modülleri kapalıdır.
 
 ## Örnek senaryo
 
-Bekleyen `EGT-PCR-001` talebi resmi form olarak indirilmiş; GTMLIMS formda kullanılacak Talep No'yu üretmiş ve dosya dış EBYS'ye manuel yüklenerek onaylanmıştır. Lojistik bu paketi EBYS Onayla ile siparişe alır. Beş kutuluk siparişin önce üç, sonra iki kutusunu farklı LOT'larla teslim alır. Ardından iki kutuyu teknisyenin CEP DEPOsuna doğru LOT'tan dağıtır ve ISO takip formunu indirir.
+Bekleyen `EGT-PCR-001` talebi resmi form olarak indirilmiş; GTMLIMS formda kullanılacak Talep No'yu üretmiş ve dosya dış EBYS'ye manuel yüklenerek onaylanmıştır. Lojistik bu paketi Dış EBYS Onayı Geldi işlemiyle siparişe alır. Beş kutuluk siparişin önce üç, sonra iki kutusunu farklı LOT'larla teslim alır. Ardından iki kutuyu teknisyenin CEP DEPOsuna doğru LOT'tan dağıtır ve ISO takip formunu indirir.
 
 ## Sahne planı ve seslendirme
 
 ### Sahne 1 — Giriş ve görev ayrımı (00:00-01:00)
 
-- **Tıklama:** Lojistik eğitim hesabıyla giriş; Talepler ve Siparişler rozetlerini göster.
+- **Tıklama:** Lojistik eğitim hesabıyla giriş; doğrudan açılan üç sık kullanılan işlemi göster.
 - **Ekran yazısı:** `Lojistik — EBYS, teslim ve dağıtım`
-- **Seslendirme:** “SATINAL_LOJISTIK hesabıyla giriş yaptığımızda Talepler ve Siparişler sayfaları birlikte görünür. Bu rol standart talebin iş gerekçesini onaylayan taraf değildir. Temel sorumluluğumuz, resmi EBYS paketini siparişe almak, fiziksel mal kabulünü doğru LOT ile kaydetmek ve dağıtımı tamamlamaktır.”
+- **Seslendirme:** “SATINAL_LOJISTIK hesabıyla giriş yaptığımızda yalnız üç sık kullanılan işlem öne çıkar. Kullanım sırasına göre önce Mal Dağıtımı, sonra EBYS Sonrası Onay ve son olarak Mal Teslim Al bulunur. Yeni talep, EBYS formu hazırlama ve geçmiş kayıtlar kapalı Diğer İşlemler alanında kalır. Standart talebin iş gerekçisini onaylamak bu rolün görevi değildir.”
 
 ![Sol menü ve rol kapsamı](../screenshots/03-lojistik/sahne1-menu.jpg)
 
 ### Sahne 2 — Bekleyen talebi ve EBYS paketini bulma (01:00-02:30)
 
-- **Tıklama:** Talepler > Bekleyen; EBYS alanına paket/referans yaz; tarih filtresi.
+- **Tıklama:** EBYS Sonrası Onay görevini seç; gerekirse Diğer İşlemler > EBYS formu hazırla veya Filtre ve Excel > EBYS alanını kullan.
 - **Vurgu:** Talep No, web paketi, resmi form Talep No ve durum.
 - **Ekran yazısı:** `Web paketi ≠ EBYS Talep No`
-- **Seslendirme:** “Talepler sayfasında Bekleyen filtresini seçiyoruz. Tarih alanlarıyla dönemi daraltabilir, EBYS arama alanına web paketi kimliğini veya resmi Talep No’yu yazabiliriz. Web paketi GTMLIMS’in toplu kayıt kimliğidir; form indirilirken üretilen resmi Talep No ayrı bir bilgidir.”
+- **Seslendirme:** “Görev düğmeleri listeyi bizim için otomatik süzer. EBYS Formu Hazırla yalnız paketlenmemiş talepleri, Dış EBYS Onayı Geldi yalnız hazırlanmış paketleri gösterir. Eski bir kaydı bulmak gerekirse Filtre ve Excel alanından tarih veya EBYS aramasını açabiliriz.”
 
-![Talepler listesi — Teslim Al / EBYS Formu / EBYS Onayla](../screenshots/03-lojistik/sahne2-talep-liste.jpg)
+![Eski Talepler listesi referansı — yeni görev merkeziyle tekrar çekilmelidir](../screenshots/03-lojistik/sahne2-talep-liste.jpg)
 
 ### Sahne 3 — Resmi formu oluşturma (02:30-04:00)
 
-- **Tıklama:** Bekleyen eğitim kalemlerini seç; Resmi EBYS Formu; tarih/bölüm; İndir.
+- **Tıklama:** EBYS Formu Hazırla; Görünen Talepleri Seç; Seçilen Talepleri Form Yap; Resmi Formu İndir.
 - **Vurgu:** Toplu seçim ve manuel dış sistem yüklemesi.
 - **Ekran yazısı:** `Makrolu formu indirin`
-- **Seslendirme:** “Talep henüz paketlenmemişse ilgili kalemleri işaretliyor ve Resmi EBYS Formu’na tıklıyoruz. Tarihi ve gerekiyorsa bölümü seçip dosyayı indiriyoruz. GTMLIMS resmi Talep No’yu üretip forma ve paket satırlarına kaydeder. Dosyayı kurumun EBYS sistemine manuel yüklüyor ve dış onay tamamlanana kadar GTMLIMS paket onayını vermiyoruz.”
+- **Seslendirme:** “EBYS Formu Hazırla görevinde görünen talepleri tek düğmeyle seçiyoruz. Seçilen Talepleri Form Yap penceresi bize üç adımı gösterir: resmi formu indir, dış EBYS’ye yükle ve onay gelince geri dön. Dış onay tamamlanana kadar son adıma geçmiyoruz.”
 
 ![Resmi EBYS Formu İndir](../screenshots/03-lojistik/sahne3-resmi-form.jpg)
 
 ### Sahne 4 — EBYS paket onayı (04:00-05:40)
 
-- **Tıklama/veri:** Paketli satır > EBYS Onayla; kayıtlı Talep No'yu kontrol et; tedarikçi `Eğitim Medikal A.Ş.`, PO `EGT-PO-0001`; onayı eğitim verisiyle tamamla.
+- **Tıklama/veri:** Dış EBYS Onayı Geldi görevi > paket satırı > Dış EBYS Onayı Geldi; kayıtlı Talep No'yu kontrol et; tedarikçi `Eğitim Medikal A.Ş.`, PO `EGT-PO-0001`; Onay Geldi, Siparişe Al.
 - **Vurgu:** Paketteki bütün kalemlerin birlikte siparişe geçmesi.
 - **Ekran yazısı:** `Paket onayı tüm kalemleri etkiler`
-- **Seslendirme:** “Dış EBYS onayı tamamlandığında paket satırındaki EBYS Onayla düğmesini kullanıyoruz. Form indirilirken kaydedilen Talep No’yu kontrol ediyor, tedarikçi ve PO numarası varsa ekliyoruz. Yeni referans yazmıyoruz. Onay verdiğimizde paketteki bütün bekleyen kalemler tek işlemle sipariş verilmiş durumuna geçer.”
+- **Seslendirme:** “Dış onay tamamlandığında Dış EBYS Onayı Geldi görevini açıyoruz. Tek pencerede kayıtlı resmi Talep No’yu ve birlikte etkilenecek kalem sayısını kontrol ediyoruz. Tedarikçi ve PO numarası varsa ekleyip Onay Geldi, Siparişe Al diyoruz. Tarayıcıda ayrı ayrı soru pencereleri açılmaz.”
 
-![Paketli talep — EBYS Onayla düğmesi](../screenshots/03-lojistik/sahne2-talep-liste.jpg)
+![Eski paketli talep referansı — yeni dış EBYS onay penceresiyle tekrar çekilmelidir](../screenshots/03-lojistik/sahne2-talep-liste.jpg)
 
 ### Sahne 5 — Siparişler sayfası (05:40-06:50)
 
@@ -132,7 +133,7 @@ Bekleyen `EGT-PCR-001` talebi resmi form olarak indirilmiş; GTMLIMS formda kull
 ## Dikkat noktaları ve hatalar
 
 - Standart Onayla/Reddet düğmeleri lojistik rolünde görünmez; iş gerekçesi kararını SATINAL/ADMIN verir.
-- EBYS formunu indirmek sipariş onayı değildir; dış EBYS onayı tamamlanmadan EBYS Onayla yapılmaz.
+- EBYS formunu indirmek sipariş onayı değildir; dış EBYS onayı tamamlanmadan Dış EBYS Onayı Geldi işlemi yapılmaz.
 - Paket onayı paketteki tüm kalemleri etkiler.
 - Kısmi teslimde yalnız fiilen gelen miktar yazılır.
 - Farklı LOT veya SKT tek teslim kaydında birleştirilmez.

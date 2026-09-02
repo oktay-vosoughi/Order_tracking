@@ -201,6 +201,19 @@ const canReceiveGoods = (req, res, next) => {
   }
   res.status(403).json({ error: 'FORBIDDEN' });
 };
+// Barcode lookup is shared by receiving and distribution. Keep registration
+// restricted to receiving roles, but allow every role that may distribute to
+// resolve an already-registered barcode.
+const canLookupBarcode = (req, res, next) => {
+  const u = req.user;
+  if (
+    u?.canReceive === true ||
+    [ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL].includes(u?.role)
+  ) {
+    return next();
+  }
+  res.status(403).json({ error: 'FORBIDDEN' });
+};
 // Single-company feature toggles (mirror of the frontend). Stored in app_settings
 // as `module.<key>`. Barcode modules default OFF (opt-in). getSetting is a hoisted
 // function declaration, so it is available when these middlewares run per-request.
@@ -2349,7 +2362,7 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
 
 // --- Barcode lookup & registration (scan-based receiving) ---
 
-app.get('/api/barcodes/:code', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canReceiveGoods, async (req, res) => {
+app.get('/api/barcodes/:code', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canLookupBarcode, async (req, res) => {
   const parsed = parseGs1(String(req.params.code || ''));
   const keys = lookupKeys(parsed);
   if (!keys.length) {

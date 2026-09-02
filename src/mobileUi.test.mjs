@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   getReadyForOrderCount,
+  getPurchaseTaskCounts,
+  groupPurchasesByEbysBatch,
+  matchesPurchaseQuickView,
   getHiddenLotCount,
   getLotPreview,
   getPurchaseStatusFilterOptions,
@@ -43,6 +46,27 @@ test('builds the visible mobile navigation options from user capabilities', () =
   assert.equal(options.find((option) => option.value === 'waste').label, 'Atık (3)');
 });
 
+test('uses role-friendly purchasing labels in mobile navigation', () => {
+  const options = getVisibleTabOptions({
+    canViewStock: false,
+    canViewTalep: true,
+    canViewSiparis: true,
+    canViewDagit: true,
+    isObserver: true,
+    canManageUsers: false,
+    hasCurrentUser: false,
+    pendingRequestCount: 3,
+    readyForOrderCount: 2,
+    requestLabel: 'EBYS İşleri',
+    orderLabel: 'Mal Kabul',
+    prioritizeDistribution: true
+  });
+
+  assert.equal(options.find((option) => option.value === 'requests').label, 'EBYS İşleri (3)');
+  assert.equal(options.find((option) => option.value === 'orders').label, 'Mal Kabul (2)');
+  assert.deepEqual(options.slice(0, 3).map((option) => option.value), ['distributions', 'requests', 'orders']);
+});
+
 test('counts approved requests ready for logistics ordering', () => {
   assert.equal(getReadyForOrderCount([
     { id: 'p-1', status: 'ONAYLANDI' },
@@ -50,6 +74,53 @@ test('counts approved requests ready for logistics ordering', () => {
     { id: 'p-3', status: 'SIPARIS_VERILDI' },
     { id: 'p-4', status: 'ONAYLANDI' }
   ]), 2);
+});
+
+test('counts the purchasing tasks shown to buying and logistics roles', () => {
+  assert.deepEqual(getPurchaseTaskCounts([
+    { status: 'TALEP_EDILDI', ebysBatchId: null },
+    { status: 'TALEP_EDILDI', ebysBatchId: 'EBYS-1' },
+    { status: 'TALEP_EDILDI', ebysBatchId: 'EBYS-1' },
+    { status: 'SIPARIS_VERILDI', ebysBatchId: 'EBYS-1' },
+    { status: 'KISMI_TESLIM', ebysBatchId: 'EBYS-2' },
+    { status: 'TESLIM_ALINDI', ebysBatchId: 'EBYS-3' }
+  ]), {
+    ebysPrepare: 1,
+    ebysApproval: 1,
+    receiving: 2,
+    completed: 1
+  });
+});
+
+test('filters purchases for each task-first purchasing view', () => {
+  const unpacked = { status: 'TALEP_EDILDI', ebysBatchId: null };
+  const packed = { status: 'TALEP_EDILDI', ebysBatchId: 'EBYS-1' };
+  const ordered = { status: 'SIPARIS_VERILDI', ebysBatchId: 'EBYS-1' };
+
+  assert.equal(matchesPurchaseQuickView(unpacked, 'ebys_prepare'), true);
+  assert.equal(matchesPurchaseQuickView(packed, 'ebys_prepare'), false);
+  assert.equal(matchesPurchaseQuickView(packed, 'ebys_approval'), true);
+  assert.equal(matchesPurchaseQuickView(ordered, 'receiving'), true);
+});
+
+test('groups purchases from the same EBYS form into one batch', () => {
+  const groups = groupPurchasesByEbysBatch([
+    { id: 'p-1', ebysBatchId: 'EBYS-1', itemName: 'A' },
+    { id: 'p-2', ebysBatchId: 'EBYS-1', itemName: 'B' },
+    { id: 'p-3', ebysBatchId: 'EBYS-2', itemName: 'C' },
+    { id: 'p-4', ebysBatchId: null, itemName: 'D' }
+  ]);
+
+  assert.equal(groups.length, 3);
+  assert.deepEqual(groups[0], {
+    key: 'batch:EBYS-1',
+    batchId: 'EBYS-1',
+    purchases: [
+      { id: 'p-1', ebysBatchId: 'EBYS-1', itemName: 'A' },
+      { id: 'p-2', ebysBatchId: 'EBYS-1', itemName: 'B' }
+    ]
+  });
+  assert.equal(groups[2].key, 'purchase:p-4');
 });
 
 test('builds purchase status filter options including approved and rejected states', () => {

@@ -83,6 +83,59 @@ export function getReadyForOrderCount(purchases = []) {
   return purchases.filter((purchase) => purchase?.status === 'ONAYLANDI').length;
 }
 
+export function getPurchaseTaskCounts(purchases = []) {
+  if (!Array.isArray(purchases)) {
+    return { ebysPrepare: 0, ebysApproval: 0, receiving: 0, completed: 0 };
+  }
+
+  const counts = purchases.reduce((result, purchase) => {
+    if (purchase?.status === 'TALEP_EDILDI' && !purchase?.ebysBatchId) result.ebysPrepare += 1;
+    if (['SIPARIS_VERILDI', 'KISMI_TESLIM', 'KISMEN_GELDI'].includes(purchase?.status)) result.receiving += 1;
+    if (['TESLIM_ALINDI', 'GELDI'].includes(purchase?.status)) result.completed += 1;
+    return result;
+  }, { ebysPrepare: 0, ebysApproval: 0, receiving: 0, completed: 0 });
+
+  counts.ebysApproval = new Set(
+    purchases
+      .filter((purchase) => purchase?.status === 'TALEP_EDILDI' && purchase?.ebysBatchId)
+      .map((purchase) => String(purchase.ebysBatchId))
+  ).size;
+
+  return counts;
+}
+
+export function matchesPurchaseQuickView(purchase, quickView = 'all') {
+  if (!purchase || quickView === 'all') return true;
+  if (quickView === 'ebys_prepare') return purchase.status === 'TALEP_EDILDI' && !purchase.ebysBatchId;
+  if (quickView === 'ebys_approval') return purchase.status === 'TALEP_EDILDI' && !!purchase.ebysBatchId;
+  if (quickView === 'receiving') return ['SIPARIS_VERILDI', 'KISMI_TESLIM', 'KISMEN_GELDI'].includes(purchase.status);
+  if (quickView === 'completed') return ['TESLIM_ALINDI', 'GELDI'].includes(purchase.status);
+  return true;
+}
+
+export function groupPurchasesByEbysBatch(purchases = []) {
+  if (!Array.isArray(purchases)) return [];
+
+  const groups = [];
+  const groupIndexes = new Map();
+
+  purchases.forEach((purchase, purchaseIndex) => {
+    const batchId = String(purchase?.ebysBatchId || '').trim();
+    const key = batchId ? `batch:${batchId}` : `purchase:${purchase?.id ?? purchaseIndex}`;
+    const existingIndex = groupIndexes.get(key);
+
+    if (existingIndex !== undefined) {
+      groups[existingIndex].purchases.push(purchase);
+      return;
+    }
+
+    groupIndexes.set(key, groups.length);
+    groups.push({ key, batchId: batchId || null, purchases: [purchase] });
+  });
+
+  return groups;
+}
+
 export function getLotPreview(lots = [], limit = 3) {
   if (!Array.isArray(lots)) return [];
   return lots.slice(0, Math.max(0, limit));
@@ -101,6 +154,9 @@ export function getVisibleTabOptions({
   isObserver,
   canManageUsers,
   hasCurrentUser,
+  requestLabel = 'Talepler',
+  orderLabel = 'Siparişler',
+  prioritizeDistribution = false,
   pendingRequestCount = 0,
   readyForOrderCount = 0,
   wasteCount = 0
@@ -111,15 +167,19 @@ export function getVisibleTabOptions({
     options.push({ value: 'stock', label: 'Stok' });
   }
 
+  if (canViewDagit && prioritizeDistribution) {
+    options.push({ value: 'distributions', label: 'Dağıtım' });
+  }
+
   if (canViewTalep) {
-    options.push({ value: 'requests', label: `Talepler (${pendingRequestCount})` });
+    options.push({ value: 'requests', label: `${requestLabel} (${pendingRequestCount})` });
   }
 
   if (canViewSiparis) {
-    options.push({ value: 'orders', label: `Siparişler (${readyForOrderCount})` });
+    options.push({ value: 'orders', label: `${orderLabel} (${readyForOrderCount})` });
   }
 
-  if (canViewDagit) {
+  if (canViewDagit && !prioritizeDistribution) {
     options.push({ value: 'distributions', label: 'Dağıtım' });
   }
 

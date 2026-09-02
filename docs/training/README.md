@@ -9,7 +9,7 @@ Bu paket 25 Ağustos 2026 tarihinde aşağıdaki kaynaklar karşılaştırılara
 - Çalışan yerel uygulama: `http://localhost:3002`, API: `http://localhost:4000`
 - Çalışan veritabanındaki rol ve modül ayarları
 - Depodaki ekran görüntüleri ve eski eğitim sunumu (yalnızca yardımcı referans)
-- Otomatik testler ve üretim derlemesi: 89/89 test geçti, `npm run build` başarılı
+- Otomatik testler ve üretim derlemesi: 99/99 test geçti, `npm run build` başarılı
 
 Kanıt etiketleri:
 
@@ -58,7 +58,7 @@ Simgeler: **İ** işlem yapar, **G** görüntüler, **—** işlem veya menü g�
 | Malzeme birim/departman düzenleme | İ | İ | Sınırlı | — | — | İ | — |
 | Stok düzeltme ve LOT bölme | İ | — | — | — | — | — | — |
 | Malzeme silme / tüm veriyi temizleme | İ | — | — | — | — | — | — |
-| Standart satın alma talebi oluşturma | İ | İ | Arayüzde yok | CEP talebi | — | — | — |
+| Standart satın alma talebi oluşturma | İ | İ | İ | CEP talebi | — | — | — |
 | Talep onaylama/reddetme | İ | İ | — | — | — | İ | — |
 | Resmi EBYS formu oluşturma | İ | İ | İ | — | — | İ | — |
 | EBYS paketini onaylayıp siparişe alma | İ | — | İ | — | — | — | — |
@@ -86,8 +86,8 @@ Ek kullanıcı yetkileri:
 | Rol | Varsayılan açık modüllerle sol menü |
 |---|---|
 | ADMIN | Stok, Talepler, Siparişler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Fiyatlar, ISO Formları, Kullanıcılar, Hesabım |
-| SATINAL | Stok, Talepler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Hesabım |
-| SATINAL_LOJISTIK | Stok, Talepler, Siparişler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, ISO Formları, Hesabım |
+| SATINAL | Stok, Satın Alma İşleri, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Hesabım |
+| SATINAL_LOJISTIK | Stok, EBYS İşleri, Mal Kabul, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, ISO Formları, Hesabım |
 | LAB_TECHNICIAN | Ürünleri Gör, Dağıtımlarım, Genel Stok, Günlük İşlerim, Hesabım |
 | OBSERVER | Stok, Dağıtım, Genel Stok, CEP DEPO, Hesabım |
 | KURUMSAL | Stok, Talepler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Fiyatlar, Hesabım |
@@ -139,6 +139,9 @@ Malzeme Ekle alanları:
 
 ### Talepler ve Siparişler
 
+- SATINAL ve SATINAL_LOJISTIK için görev merkezi: Yeni Talep Aç, EBYS Formu Hazırla, Dış EBYS Onayı Geldi, Malzeme Teslim Al/Siparişleri İzle ve Dağıtım Yap
+- Yeni talep iki adımda tamamlanır: malzeme ara/seç; miktar, bölüm, aciliyet ve kısa açıklamayı gir
+- Yeni talep EBYS formu için otomatik seçilir
 - Talep durum filtresi: tümü, bekleyen, onaylanan, siparişte/kısmi, tamamlanan, reddedilen
 - Başlangıç/bitiş tarihi ve temizleme
 - EBYS referansı veya web paketi araması
@@ -146,7 +149,7 @@ Malzeme Ekle alanları:
 - Seçim kutuları ve görünenleri toplu seçme
 - Resmi EBYS Formu: tarih, isteğe bağlı bölüm, İndir/İptal
 - Tablo: Talep No, Malzeme, Miktar, Talep Eden, Durum, İşlem
-- İşlem düğmeleri: EBYS Formu Oluştur, EBYS Onayla, Onayla, Reddet, Siparişe Al, Teslim Al, Sil; rol ve duruma bağlıdır
+- İşlem düğmeleri: EBYS Formu Oluştur, Dış EBYS Onayı Geldi, Onayla, Reddet, Siparişe Al, Teslim Al, Sil; rol ve duruma bağlıdır
 - Teslim formu: gelen miktar, teslim alan, LOT/parti, SKT, fatura no, tedarikçi, birim fiyat, PDF/resim belge, Teslim Al/İptal
 
 Güncel standart onay düğmesi talebi doğrudan `SIPARIS_VERILDI` durumuna geçirir. Ayrı bir tedarikçi sipariş formu yoktur. Resmi EBYS paket akışında GTMLIMS `YYMMDD-HHMMSS` biçimindeki Talep No'yu üretip makrolu forma ve paket satırlarına kaydeder. Form kurumun EBYS sistemine manuel yüklenir; dış onay tamamlandıktan sonra paket aynı kayıtlı Talep No ile onaylanır.
