@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowDownCircle, CheckCircle2, ClipboardList, History, Package, RefreshCw, RotateCcw } from 'lucide-react';
+import { Activity, ArrowDownCircle, CheckCircle2, ChevronDown, ChevronUp, ClipboardList, History, Package, RefreshCw, RotateCcw, Star } from 'lucide-react';
 import {
   fetchCepDepoBalances,
   fetchMyCepDepoBalances,
@@ -21,6 +21,7 @@ import {
   updateItemDefinition
 } from './api';
 import { matchesItemSearch } from './itemSearch.mjs';
+import { readCepDepoPins, sortCepDepoBalancesByPins, writeCepDepoPins } from './cepDepoPins.mjs';
 
 const PURCHASE_STATUS_LABELS = {
   TALEP_EDILDI: 'Onay bekliyor',
@@ -76,6 +77,9 @@ export default function CepDepo({ currentUser }) {
   const [activeLabTask, setActiveLabTask] = useState('consume');
   const [labFeedback, setLabFeedback] = useState(null);
   const [labBusy, setLabBusy] = useState(false);
+  const [pinnedItemIds, setPinnedItemIds] = useState(() => (
+    typeof window === 'undefined' ? [] : readCepDepoPins(window.localStorage, currentUser?.username)
+  ));
 
   // Request-workflow data
   const [myRequests, setMyRequests] = useState([]);            // lab tech: department requests
@@ -150,6 +154,11 @@ export default function CepDepo({ currentUser }) {
 
   useEffect(() => { loadAll(); /* eslint-disable-next-line */ }, [role]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setPinnedItemIds(readCepDepoPins(window.localStorage, currentUser?.username));
+  }, [currentUser?.username]);
+
   const itemById = useMemo(() => {
     const m = new Map();
     items.forEach((it) => m.set(it.id, it));
@@ -194,6 +203,30 @@ export default function CepDepo({ currentUser }) {
     } finally {
       setLabBusy(false);
     }
+  };
+
+  const togglePinnedItem = (itemId) => {
+    setPinnedItemIds((current) => {
+      const next = current.includes(itemId)
+        ? current.filter((id) => id !== itemId)
+        : [...current, itemId];
+      if (typeof window !== 'undefined') {
+        writeCepDepoPins(window.localStorage, currentUser?.username, next);
+      }
+      return next;
+    });
+  };
+
+  const toggleConsumeMaterial = (balance) => {
+    setLabFeedback(null);
+    setConsumeForm((current) => current.itemId === balance.itemId
+      ? { itemId: '', consumptionUnitType: 'PACK', quantity: '', notes: '' }
+      : {
+          itemId: balance.itemId,
+          consumptionUnitType: balance.consumptionUnitType || 'PACK',
+          quantity: '',
+          notes: ''
+        });
   };
 
   const handleReturn = async (e) => {
@@ -679,12 +712,13 @@ export default function CepDepo({ currentUser }) {
     ? requestRemaining < requestThreshold
     : Number(selectedRequestBalance.packQty || 0) <= 0 && Number(selectedRequestBalance.unitQty || 0) <= 0);
 
-  const filteredLabBalances = balanceSearch.trim()
+  const searchedLabBalances = balanceSearch.trim()
     ? balances.filter((balance) => matchesItemSearch(
         itemById.get(balance.itemId) || { name: balance.itemName, code: balance.itemCode, barcodes: [] },
         balanceSearch
       ))
     : balances;
+  const filteredLabBalances = sortCepDepoBalancesByPins(searchedLabBalances, pinnedItemIds);
 
   const labTasks = [
     { id: 'consume', label: 'Tüketim Kaydet', help: 'Kullandığın miktarı düş', icon: Activity },
@@ -734,7 +768,7 @@ export default function CepDepo({ currentUser }) {
 
           <div className="lab-balance-block">
             <div className="lab-balance-title">
-              <div><h4>Bölümündeki malzemeler</h4><p>Aynı bölümdeki teknisyenler bu bakiyeyi birlikte kullanır.</p></div>
+              <div><h4>Bölümündeki malzemeler</h4><p>Malzemeye dokunup tüketimi kaydet. Sık kullandıklarını yıldızla üste sabitle.</p></div>
               <input type="search" value={balanceSearch} onChange={(e) => setBalanceSearch(e.target.value)} placeholder="Malzeme ara…" aria-label="Bölüm malzemelerinde ara" />
             </div>
             {filteredLabBalances.length === 0 ? (
@@ -745,45 +779,74 @@ export default function CepDepo({ currentUser }) {
                   const hasSubUnit = b.consumptionUnitType !== 'PACK' && b.consumptionUnit;
                   const unit = hasSubUnit ? b.consumptionUnit : (b.packageUnit || 'koli');
                   const quantity = Number(hasSubUnit ? b.unitQty : b.packQty) || 0;
+                  const isExpanded = consumeForm.itemId === b.itemId;
+                  const isPinned = pinnedItemIds.includes(b.itemId);
                   return (
-                    <button
+                    <article
                       key={b.id || `${b.department}-${b.itemId}`}
-                      type="button"
-                      className={`lab-balance-card${consumeForm.itemId === b.itemId ? ' is-selected' : ''}`}
-                      onClick={() => setConsumeForm({ ...consumeForm, itemId: b.itemId, quantity: '', consumptionUnitType: b.consumptionUnitType || 'PACK' })}
+                      className={`lab-balance-card${isExpanded ? ' is-selected' : ''}${isPinned ? ' is-pinned' : ''}`}
                     >
-                      <span><strong>{b.itemName || b.itemId}</strong><small>{b.itemCode || b.department || 'Bölüm malzemesi'}</small></span>
-                      <span className="lab-balance-amount"><strong>{quantity}</strong><small>{unit}</small></span>
-                    </button>
+                      <button
+                        type="button"
+                        className="lab-balance-toggle"
+                        aria-expanded={isExpanded}
+                        aria-controls={`consume-${b.id || b.itemId}`}
+                        onClick={() => toggleConsumeMaterial(b)}
+                      >
+                        <span className="lab-balance-name"><strong>{b.itemName || b.itemId}</strong><small>{b.itemCode || b.department || 'Bölüm malzemesi'}</small></span>
+                        <span className="lab-balance-amount"><strong>{quantity}</strong><small>{unit}</small></span>
+                        <span className="lab-balance-chevron" aria-hidden="true">{isExpanded ? <ChevronUp size={19} /> : <ChevronDown size={19} />}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`lab-pin-button${isPinned ? ' is-pinned' : ''}`}
+                        onClick={() => togglePinnedItem(b.itemId)}
+                        aria-label={isPinned ? `${b.itemName || 'Malzeme'} sabitlemesini kaldır` : `${b.itemName || 'Malzeme'} malzemesini üste sabitle`}
+                        title={isPinned ? 'Sabitlemeyi kaldır' : 'Üste sabitle'}
+                      >
+                        <Star size={20} fill={isPinned ? 'currentColor' : 'none'} />
+                      </button>
+
+                      {isExpanded && (
+                        <form id={`consume-${b.id || b.itemId}`} onSubmit={handleConsume} className="lab-inline-consume">
+                          <div className="lab-inline-consume-heading">
+                            <span>Tüketimi kaydet</span>
+                            <strong>Kullanılabilir: {consumeAvailable} {consumeUnitLabel}</strong>
+                          </div>
+                          <label className="lab-field">
+                            <span>Kaç {consumeUnitLabel} kullanıldı?</span>
+                            <input
+                              required
+                              autoFocus
+                              type="number"
+                              min="1"
+                              step="1"
+                              max={consumeAvailable > 0 ? consumeAvailable : undefined}
+                              value={consumeForm.quantity}
+                              onChange={(e) => setConsumeForm({ ...consumeForm, quantity: e.target.value })}
+                              placeholder="Miktarı yaz"
+                            />
+                          </label>
+                          <label className="lab-field">
+                            <span>Not <em>isteğe bağlı</em></span>
+                            <input
+                              type="text"
+                              value={consumeForm.notes}
+                              onChange={(e) => setConsumeForm({ ...consumeForm, notes: e.target.value })}
+                              placeholder="Örn. PCR çalışması"
+                            />
+                          </label>
+                          <button type="submit" className="lab-inline-consume-submit" disabled={!consumeForm.quantity || labBusy || consumeAvailable <= 0}>
+                            <ArrowDownCircle size={19} /> {labBusy ? 'Kaydediliyor…' : 'Tüketimi Kaydet'}
+                          </button>
+                        </form>
+                      )}
+                    </article>
                   );
                 })}
               </div>
             )}
           </div>
-
-          <form onSubmit={handleConsume} className="lab-form">
-            <label className="lab-field lab-field-wide"><span>1. Hangi malzeme kullanıldı?</span>
-              <select required value={consumeForm.itemId} onChange={(e) => {
-                const b = balances.find((balance) => balance.itemId === e.target.value);
-                setConsumeForm({ ...consumeForm, itemId: e.target.value, quantity: '', consumptionUnitType: b?.consumptionUnitType || 'PACK' });
-              }}>
-                <option value="">Malzeme seç</option>
-                {balances.map((b) => <option key={`${b.department}-${b.itemId}`} value={b.itemId}>{b.itemName || b.itemId}</option>)}
-              </select>
-            </label>
-            <label className="lab-field"><span>2. Kaç {consumeUnitLabel} kullanıldı?</span>
-              <input required type="number" min="1" step="1" max={consumeAvailable > 0 ? consumeAvailable : undefined} value={consumeForm.quantity} onChange={(e) => setConsumeForm({ ...consumeForm, quantity: e.target.value })} placeholder="Miktarı yaz" />
-            </label>
-            <label className="lab-field"><span>Not <em>isteğe bağlı</em></span>
-              <input type="text" value={consumeForm.notes} onChange={(e) => setConsumeForm({ ...consumeForm, notes: e.target.value })} placeholder="Örn. PCR çalışması" />
-            </label>
-            <div className="lab-form-summary">
-              {selectedConsumeBalance ? <><span>Şu an kullanılabilir</span><strong>{consumeAvailable} {consumeUnitLabel}</strong></> : <span>Önce malzeme seç</span>}
-            </div>
-            <button type="submit" className="lab-submit is-blue" disabled={!consumeForm.itemId || !consumeForm.quantity || labBusy}>
-              <ArrowDownCircle size={20} /> {labBusy ? 'Kaydediliyor…' : '3. Tüketimi Kaydet'}
-            </button>
-          </form>
         </section>
       )}
 
