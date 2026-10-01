@@ -10,7 +10,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { buildUnitCorrectionValues, resolveCepCorrectionTarget } = require('./unitCorrection.cjs');
 const { validateLotSplit } = require('./lotSplit.cjs');
-const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause } = require('./departmentScope.cjs');
+const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause, buildStockDepartmentFilter } = require('./departmentScope.cjs');
 const { resolveDepoGroup, buildLotPoolFilter } = require('./depoGroup.cjs');
 const { assertOwnPendingCepRequest, buildDepartmentPurchaseFilter } = require('./purchaseRequestPolicy.cjs');
 const { assertApprovableEbysBatch, resolveEbysExportBatchId } = require('./ebysBatchPolicy.cjs');
@@ -19,6 +19,9 @@ const { assertReturnLot, assertConsumableLot } = require('./stockPolicy.cjs');
 const { buildIsoRows, fillIsoCountForm } = require('./isoCountForm.cjs');
 const { buildTrackingRows, buildDistributionRows, buildMgWorkbook } = require('./mgTrackingForm.cjs');
 const { parseGs1, lookupKeys } = require('./gs1');
+const { isReadOnlyAuditRole, isReadOnlyWriteBlocked } = require('./readOnlyRole.cjs');
+const { normalizeImportDepartment } = require('./importDepartment.cjs');
+const { createStockWriteScope } = require('./stockWriteScope.cjs');
 
 const PORT = process.env.PORT || 4000;
 
@@ -64,6 +67,18 @@ const ALL_ROLES = [
   ROLES.LAB_TECHNICIAN,
   ROLES.KALITE
 ];
+
+// Department vocabulary is intentionally closed. Historical spelling variants
+// are consolidated by server/migrations/2026-09-24-canonical-departments.sql.
+const CANONICAL_DEPARTMENTS = Object.freeze([
+  'Moleküler Genetik',
+  'Moleküler Mikro',
+  'SİTOGENETİK',
+  'Numune Kabul'
+]);
+const CANONICAL_DEPARTMENT_SET = new Set(CANONICAL_DEPARTMENTS);
+const isCanonicalDepartment = (value) =>
+  value == null || value === '' || CANONICAL_DEPARTMENT_SET.has(String(value).trim());
 
 const pool = mysql.createPool({
   host: MYSQL_HOST,
@@ -162,6 +177,12 @@ const authRequired = async (req, res, next) => {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.user = payload;
+    if (isReadOnlyWriteBlocked({ role: payload.role, method: req.method, path: req.path })) {
+      return res.status(403).json({
+        error: 'READ_ONLY_ROLE',
+        message: `${payload.role} rolü salt görüntüleme modundadır; bu işlem gerçekleştirilemez.`
+      });
+    }
     next();
   } catch {
     res.status(401).json({ error: 'UNAUTHORIZED' });
@@ -185,18 +206,21 @@ const requireRole = (allowedRoles) => (req, res, next) => {
   next();
 };
 
+const canViewUsers = (req, res, next) =>
+  requireRole([ROLES.ADMIN, ROLES.KURUMSAL, ROLES.KALITE])(req, res, next);
+
 // Capability checks (aligned with updated SATINAL roles)
 const canApprove = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.KURUMSAL])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL])(req, res, next);
 const canApproveEbysBatch = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canCreateEbysBatch = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canOrder = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canReceiveGoods = (req, res, next) => {
   const u = req.user;
-  if (u?.role === ROLES.ADMIN || u?.role === ROLES.SATINAL_LOJISTIK || u?.canReceive === true) {
+  if (!isReadOnlyAuditRole(u?.role) && (u?.role === ROLES.ADMIN || u?.role === ROLES.SATINAL_LOJISTIK || u?.canReceive === true)) {
     return next();
   }
   res.status(403).json({ error: 'FORBIDDEN' });
@@ -208,7 +232,7 @@ const canLookupBarcode = (req, res, next) => {
   const u = req.user;
   if (
     u?.canReceive === true ||
-    [ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL].includes(u?.role)
+    [ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL, ROLES.KALITE].includes(u?.role)
   ) {
     return next();
   }
@@ -236,36 +260,40 @@ const requireAnyFeature = (...keys) => async (req, res, next) => {
 };
 
 const canDistribute = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canRequest = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canReject = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 
 const canManageItems = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 // Who can assign user<->department and item<->department memberships (distinct
-// from canManageItems, which is broader — SATINAL/KURUMSAL manage item catalog
-// fields but not department assignment scope).
+// from canManageItems, which is broader — SATINAL manages item catalog fields
+// but not department assignment scope).
 const canManageDepartmentMemberships = (req, res, next) =>
   requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK])(req, res, next);
 // Who can export the controlled ISO count form (LY-F064). Restricted to
 // ADMIN and SATINAL_LOJISTIK only (NOT SATINAL) per the design decision.
-// KALITE is also allowed — it's a read-only export (GET, no mutation), so
-// the quality role gets real (not just cosmetic) access to it.
+// KALITE and KURUMSAL are also allowed because exports do not mutate data.
 const canExportIsoForm = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK, ROLES.KALITE])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL, ROLES.KALITE])(req, res, next);
 const canViewPrices = (req, res, next) => {
   const u = req.user;
-  if (u?.role === ROLES.ADMIN || u?.role === ROLES.KURUMSAL || u?.canViewPrices === true) return next();
+  if (u?.role === ROLES.ADMIN || isReadOnlyAuditRole(u?.role) || u?.canViewPrices === true) return next();
+  res.status(403).json({ error: 'FORBIDDEN' });
+};
+const canEditPrices = (req, res, next) => {
+  const u = req.user;
+  if (!isReadOnlyAuditRole(u?.role) && (u?.role === ROLES.ADMIN || u?.canViewPrices === true)) return next();
   res.status(403).json({ error: 'FORBIDDEN' });
 };
 
 // CEP DEPO capability helpers
 const canDistributeToCepDepo = (req, res, next) =>
-  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK, ROLES.KURUMSAL])(req, res, next);
+  requireRole([ROLES.ADMIN, ROLES.SATINAL, ROLES.SATINAL_LOJISTIK])(req, res, next);
 const canOverrideRequestBlock = (role) =>
-  role === ROLES.ADMIN || role === ROLES.SATINAL || role === ROLES.KURUMSAL;
+  role === ROLES.ADMIN || role === ROLES.SATINAL;
 const isLabTechnicianRole = (role) => role === ROLES.LAB_TECHNICIAN;
 
 const countUsers = async () => {
@@ -326,6 +354,7 @@ const buildStateResponse = async () => {
 };
 
 const app = express();
+const stockWriteScope = createStockWriteScope({ all, pool });
 
 // Restrict CORS to an explicit allowlist in production (CORS_ORIGIN=comma,separated).
 // In development, reflect any origin so the Vite dev server / LAN testing keeps working.
@@ -470,8 +499,11 @@ app.patch('/api/users/:id', authRequired, adminRequired, async (req, res) => {
   const params = [];
 
   if (department !== undefined) {
+    if (!isCanonicalDepartment(department)) {
+      return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Geçersiz departman.' });
+    }
     updates.push('department = ?');
-    params.push(department ? String(department) : null);
+    params.push(department ? String(department).trim() : null);
   }
 
   if (username) {
@@ -538,6 +570,9 @@ app.put('/api/users/:id/departments', authRequired, canManageDepartmentMembershi
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'departments must be an array' });
   }
   const cleaned = [...new Set(departments.map((d) => String(d).trim()).filter(Boolean))];
+  if (cleaned.some((department) => !CANONICAL_DEPARTMENT_SET.has(department))) {
+    return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Geçersiz departman.' });
+  }
   try {
     await withTransaction(async (conn) => {
       await run(conn, 'DELETE FROM user_departments WHERE userId = ?', [req.params.id]);
@@ -647,7 +682,7 @@ app.get('/api/auth/me', authRequired, async (req, res) => {
   }
 });
 
-app.get('/api/users', authRequired, adminRequired, async (_req, res) => {
+app.get('/api/users', authRequired, canViewUsers, async (_req, res) => {
   try {
     const users = await all(pool, 'SELECT id, username, role, department, can_receive, can_view_prices, createdAt, createdBy FROM users ORDER BY createdAt DESC');
     const deptRows = await all(pool, 'SELECT userId, department FROM user_departments');
@@ -677,6 +712,9 @@ app.post('/api/users', authRequired, adminRequired, async (req, res) => {
   if (!ALL_ROLES.includes(role)) {
     res.status(400).json({ error: 'INVALID_ROLE' });
     return;
+  }
+  if (!isCanonicalDepartment(department)) {
+    return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Geçersiz departman.' });
   }
 
   try {
@@ -928,7 +966,7 @@ app.get('/api/item-definitions/:id', authRequired, async (req, res) => {
 });
 
 // Create item definition
-app.post('/api/item-definitions', authRequired, canManageItems, async (req, res) => {
+app.post('/api/item-definitions', authRequired, canManageItems, stockWriteScope, async (req, res) => {
   const {
     code, name, category, department, unit, minStock, ideal_stock, max_stock,
     supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType,
@@ -937,6 +975,9 @@ app.post('/api/item-definitions', authRequired, canManageItems, async (req, res)
   } = req.body || {};
   if (!code || !name) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Code and name are required' });
+  }
+  if (!isCanonicalDepartment(department)) {
+    return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Geçersiz departman.' });
   }
   const mrt = (minReactionThreshold != null && minReactionThreshold !== '' && Number(minReactionThreshold) >= 0)
     ? Math.floor(Number(minReactionThreshold)) : 3;
@@ -977,13 +1018,17 @@ app.post('/api/item-definitions', authRequired, canManageItems, async (req, res)
 });
 
 // Update item definition
-app.put('/api/item-definitions/:id', authRequired, canManageItems, async (req, res) => {
+app.put('/api/item-definitions/:id', authRequired, canManageItems, stockWriteScope, async (req, res) => {
   const {
     code, name, category, department, unit, minStock, ideal_stock, max_stock,
     supplier, catalogNo, brand, storageLocation, storageTemp, chemicalType,
     msdsUrl, notes, status,
     packageUnit, consumptionUnit, unitsPerPackage, consumptionUnitType, minReactionThreshold
   } = req.body || {};
+
+  if (!isCanonicalDepartment(department)) {
+    return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Geçersiz departman.' });
+  }
 
   const mrt = (minReactionThreshold !== undefined && minReactionThreshold !== null && minReactionThreshold !== '' && Number(minReactionThreshold) >= 0)
     ? Math.floor(Number(minReactionThreshold)) : null;
@@ -1080,12 +1125,15 @@ app.put('/api/item-definitions/:id', authRequired, canManageItems, async (req, r
 });
 
 // PUT /api/item-definitions/:id/departments — replace an item's department tags + global flag.
-app.put('/api/item-definitions/:id/departments', authRequired, canManageDepartmentMemberships, async (req, res) => {
+app.put('/api/item-definitions/:id/departments', authRequired, canManageDepartmentMemberships, stockWriteScope, async (req, res) => {
   const { departments, isGlobal } = req.body || {};
   if (!Array.isArray(departments)) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'departments must be an array' });
   }
   const cleaned = [...new Set(departments.map((d) => String(d).trim()).filter(Boolean))];
+  if (cleaned.some((department) => !CANONICAL_DEPARTMENT_SET.has(department))) {
+    return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Geçersiz departman.' });
+  }
   try {
     await withTransaction(async (conn) => {
       await run(conn, 'UPDATE item_definitions SET isGlobal = ? WHERE id = ?', [isGlobal ? 1 : 0, req.params.id]);
@@ -1338,8 +1386,9 @@ app.delete('/api/item-definitions/:id', authRequired, adminRequired, async (req,
 // Get all lots (with item info)
 app.get('/api/lots', authRequired, async (req, res) => {
   try {
-    const departments = await getUserDepartments(req.user.id, req.user.role);
+    const departments = await getStockViewDepartments(req.user.id, req.user.role);
     const deptFilter = buildItemDepartmentFilter(departments);
+    const lotFilter = buildStockDepartmentFilter(departments, 'l.department');
     const { itemId, status, expiringSoon } = req.query;
     let sql = `
       SELECT l.*, id.name AS itemName, id.code AS itemCode, id.unit AS itemUnit
@@ -1365,7 +1414,8 @@ app.get('/api/lots', authRequired, async (req, res) => {
       params.push(...deptFilter.params);
     }
 
-    sql += ' ORDER BY l.expiryDate ASC, l.receivedDate ASC';
+    sql += ` ${lotFilter.clause} ORDER BY l.expiryDate ASC, l.receivedDate ASC`;
+    params.push(...lotFilter.params);
     
     const lots = await all(pool, sql, params);
     res.json({ lots });
@@ -1376,11 +1426,14 @@ app.get('/api/lots', authRequired, async (req, res) => {
 });
 
 // Create lot (receive stock)
-app.post('/api/lots', authRequired, canReceiveGoods, async (req, res) => {
+app.post('/api/lots', authRequired, canReceiveGoods, stockWriteScope, async (req, res) => {
   const { itemId, lotNumber, manufacturer, catalogNo, expiryDate, receivedDate, initialQuantity, department, location, storageLocation, invoiceNo, attachmentUrl, attachmentName, notes } = req.body || {};
   
   if (!itemId || !lotNumber || !initialQuantity || initialQuantity <= 0) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Item ID, lot number, and quantity are required' });
+  }
+  if (!isCanonicalDepartment(department)) {
+    return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Geçersiz departman.' });
   }
 
   try {
@@ -1408,11 +1461,18 @@ app.post('/api/lots', authRequired, canReceiveGoods, async (req, res) => {
 });
 
 // Update lot
-app.put('/api/lots/:id', authRequired, canReceiveGoods, async (req, res) => {
+app.put('/api/lots/:id', authRequired, canReceiveGoods, stockWriteScope, async (req, res) => {
   const { lotNumber, manufacturer, catalogNo, expiryDate, department, location, storageLocation, invoiceNo, attachmentUrl, attachmentName, notes, status } = req.body || {};
+  if (!isCanonicalDepartment(department)) {
+    return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Geçersiz departman.' });
+  }
   
   try {
-    await run(pool, `
+    const updatedLot = await withTransaction(async (conn) => {
+    const locked = await all(conn, 'SELECT * FROM lots WHERE id = ? FOR UPDATE', [req.params.id]);
+    req.assertStockLot(locked[0], null);
+    if (department !== undefined) req.assertStockDepartment(department);
+    await run(conn, `
       UPDATE lots SET 
         lotNumber = COALESCE(?, lotNumber),
         manufacturer = COALESCE(?, manufacturer),
@@ -1430,9 +1490,12 @@ app.put('/api/lots/:id', authRequired, canReceiveGoods, async (req, res) => {
       WHERE id = ?
     `, [lotNumber, manufacturer, catalogNo, expiryDate, department, location, storageLocation, invoiceNo, attachmentUrl, attachmentName, notes, status, req.user.username, req.params.id]);
 
-    const lots = await all(pool, 'SELECT * FROM lots WHERE id = ?', [req.params.id]);
-    res.json({ lot: lots[0] });
+    const lots = await all(conn, 'SELECT * FROM lots WHERE id = ?', [req.params.id]);
+    return lots[0];
+    });
+    res.json({ lot: updatedLot });
   } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
     console.error('Failed to update lot', error);
     res.status(500).json({ error: 'SERVER_ERROR' });
   }
@@ -1524,7 +1587,7 @@ app.post('/api/lots/:id/split', authRequired, adminRequired, async (req, res) =>
 // --- Consumption (Usage) with FEFO Logic ---
 
 // Consume from item (FEFO auto-selection or manual lot selection)
-app.post('/api/consume', authRequired, canDistribute, async (req, res) => {
+app.post('/api/consume', authRequired, canDistribute, stockWriteScope, async (req, res) => {
   const { itemId, lotId, quantity, department, purpose, notes, receivedBy } = req.body || {};
   const quantityNum = Number(quantity);
   
@@ -1545,6 +1608,7 @@ app.post('/api/consume', authRequired, canDistribute, async (req, res) => {
         }
         const lot = lots[0];
         assertConsumableLot(lot);
+        req.assertStockLot(lot);
         if (lot.currentQuantity < quantityNum) {
           throw { status: 400, error: 'INSUFFICIENT_STOCK', message: `LOT ${lot.lotNumber} has only ${lot.currentQuantity} available` };
         }
@@ -1560,10 +1624,8 @@ app.post('/api/consume', authRequired, canDistribute, async (req, res) => {
         
         usageRecords.push({ usageId, lotId, lotNumber: lot.lotNumber, quantityUsed: quantityNum });
       } else {
-        // FEFO auto-selection, scoped to the target department's depo pool once
-        // depo_pool_split is enabled (see server/depoGroup.cjs).
-        const poolOn = (await getSetting('depo_pool_split', '0')) === '1';
-        const poolFilter = poolOn ? buildLotPoolFilter(resolveDepoGroup(department), 'l') : { clause: '', params: [] };
+        // FEFO always stays within the operation's department.
+        const poolFilter = buildLotPoolFilter(resolveDepoGroup(department), 'l');
         const availableLots = await all(conn, `
           SELECT l.* FROM lots l
           WHERE l.itemId = ? AND l.status = 'ACTIVE' AND l.currentQuantity > 0
@@ -1660,7 +1722,7 @@ app.get('/api/usage-records', authRequired, async (req, res) => {
 
 // --- Lot Adjustments (for corrections, waste, etc.) ---
 
-app.post('/api/lot-adjustments', authRequired, canDistribute, async (req, res) => {
+app.post('/api/lot-adjustments', authRequired, canDistribute, stockWriteScope, async (req, res) => {
   const { lotId, adjustmentType, quantityChange, reason, notes } = req.body || {};
   
   if (!lotId || !adjustmentType || quantityChange === undefined) {
@@ -1673,8 +1735,8 @@ app.post('/api/lot-adjustments', authRequired, canDistribute, async (req, res) =
       if (!lots.length) {
         throw { status: 404, error: 'LOT_NOT_FOUND' };
       }
-
-      const newQty = lots[0].currentQuantity + quantityChange;
+      req.assertStockLot(lots[0]);
+      const newQty = Number(lots[0].currentQuantity) + Number(quantityChange);
       if (newQty < 0) {
         throw { status: 400, error: 'NEGATIVE_QUANTITY', message: 'Adjustment would result in negative quantity' };
       }
@@ -1804,8 +1866,11 @@ app.get('/api/reports/department-stock', authRequired, async (_req, res) => {
 // Get unified stock view (items with aggregated lot data)
 app.get('/api/unified-stock', authRequired, async (req, res) => {
   try {
-    const departments = await getUserDepartments(req.user.id, req.user.role);
+    const departments = await getStockViewDepartments(req.user.id, req.user.role);
     const deptFilter = buildItemDepartmentFilter(departments);
+    const lotFilter = buildStockDepartmentFilter(departments, 'l.department');
+    const purchaseFilter = buildStockDepartmentFilter(departments, 'p.department');
+    const balanceFilter = buildStockDepartmentFilter(departments, 'b.department');
     const items = await all(pool, `
       SELECT
         id.id,
@@ -1844,18 +1909,21 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
            FROM purchases p
            WHERE p.itemId = id.id AND p.status IN ('ONAYLANDI', 'SIPARIS_VERILDI', 'KISMI_TESLIM')
              AND p.orderedQty > COALESCE(p.receivedQtyTotal, 0)
+             ${purchaseFilter.clause}
           ), 0
         ) AS pendingOrderQty,
         COALESCE(
           (SELECT SUM(b.packQty)
            FROM cep_depo_balances b
            WHERE b.itemId = id.id AND b.status = 'ACTIVE'
+             ${balanceFilter.clause}
           ), 0
         ) AS cepDepoTotal,
         COALESCE(
           (SELECT SUM(b.unitQty)
            FROM cep_depo_balances b
            WHERE b.itemId = id.id AND b.status = 'ACTIVE'
+             ${balanceFilter.clause}
           ), 0
         ) AS cepDepoUnitTotal,
         CASE 
@@ -1866,12 +1934,12 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
           ELSE 'STOKTA'
         END AS stockStatus
       FROM item_definitions id
-      LEFT JOIN lots l ON id.id = l.itemId
+      LEFT JOIN lots l ON id.id = l.itemId ${lotFilter.clause}
       WHERE id.status = 'ACTIVE'
       ${deptFilter.clause}
       GROUP BY id.id
       ORDER BY id.name ASC
-    `, deptFilter.params);
+    `, [...purchaseFilter.params, ...balanceFilter.params, ...balanceFilter.params, ...lotFilter.params, ...deptFilter.params]);
 
     // Per-department depo pools — every department works like its own lab with
     // its own stock and its own buying process (see server/depoGroup.cjs).
@@ -1888,15 +1956,17 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
           COUNT(DISTINCT CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 THEN l.id END) AS activeLotCount,
           MIN(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND l.expiryDate >= CURDATE() THEN l.expiryDate END) AS nearestExpiry
         FROM lots l
+        WHERE 1 = 1 ${lotFilter.clause}
         GROUP BY l.itemId, l.department
-      `),
+      `, lotFilter.params),
       all(pool, `
         SELECT p.itemId, p.department, SUM(p.orderedQty - COALESCE(p.receivedQtyTotal, 0)) AS pendingOrderQty
         FROM purchases p
         WHERE p.status IN ('ONAYLANDI', 'SIPARIS_VERILDI', 'KISMI_TESLIM')
           AND p.orderedQty > COALESCE(p.receivedQtyTotal, 0)
+          ${purchaseFilter.clause}
         GROUP BY p.itemId, p.department
-      `),
+      `, purchaseFilter.params),
     ]);
 
     const lotPoolsByItem = new Map();
@@ -1949,7 +2019,8 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
       return {
         ...rest,
         isGlobal: !!item.isGlobal,
-        departments: departmentsRaw ? departmentsRaw.split('||') : [],
+        department: departments === null || departments.includes(item.department) ? item.department : '',
+        departments: (departmentsRaw ? departmentsRaw.split('||') : []).filter((department) => departments === null || departments.includes(department)),
         pools: poolsObj,
       };
     });
@@ -1963,8 +2034,9 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
 // Get item lots (for drill-down)
 app.get('/api/unified-stock/:itemId/lots', authRequired, async (req, res) => {
   try {
-    const departments = await getUserDepartments(req.user.id, req.user.role);
+    const departments = await getStockViewDepartments(req.user.id, req.user.role);
     const deptFilter = buildItemDepartmentFilter(departments);
+    const lotFilter = buildStockDepartmentFilter(departments, 'l.department');
     const params = [req.params.itemId];
     let sql = `
       SELECT l.*,
@@ -1981,7 +2053,8 @@ app.get('/api/unified-stock/:itemId/lots', authRequired, async (req, res) => {
       sql += ` ${deptFilter.clause}`;
       params.push(...deptFilter.params);
     }
-    sql += `
+    params.push(...lotFilter.params);
+    sql += ` ${lotFilter.clause}
       ORDER BY
         CASE WHEN l.status = 'ACTIVE' THEN 0 ELSE 1 END,
         CASE WHEN l.expiryDate IS NULL THEN 1 ELSE 0 END,
@@ -2224,7 +2297,7 @@ app.get('/api/mg-tracking-form', authRequired, canExportIsoForm, async (req, res
 // ============================================================
 
 // Receive goods (PROCUREMENT + ADMIN)
-app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) => {
+app.post('/api/receive-goods', authRequired, canReceiveGoods, stockWriteScope, async (req, res) => {
   const {
     purchaseId,
     receiptId,
@@ -2261,6 +2334,8 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
         throw { status: 404, error: 'PURCHASE_NOT_FOUND' };
       }
       const purchase = purchases[0];
+      req.assertStockDepartment(purchase.department);
+      if (String(purchase.itemId) !== String(itemId)) throw { status: 409, error: 'ITEM_MISMATCH', message: 'Sipariş ve malzeme eşleşmiyor.' };
 
       const normalizedReceiptId = receiptId || generateId();
       const receiptTimestamp = toMySQLDateTime(receivedAt) || toMySQLDateTime(new Date());
@@ -2270,6 +2345,7 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, async (req, res) =
 
       let lotId;
       if (existingLots.length) {
+        req.assertStockLot(existingLots[0], purchase.department);
         // Add to existing lot — its department (depo pool) was fixed at creation, don't touch it here.
         lotId = existingLots[0].id;
         await run(conn, `
@@ -2403,7 +2479,7 @@ app.get('/api/barcodes/:code', authRequired, requireAnyFeature('barcode_receivin
   }
 });
 
-app.post('/api/barcodes', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canReceiveGoods, async (req, res) => {
+app.post('/api/barcodes', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canReceiveGoods, stockWriteScope, async (req, res) => {
   const { barcode, itemId, barcodeType } = req.body || {};
   const normalized = typeof barcode === 'string' ? barcode.trim() : '';
   if (!normalized || !itemId) {
@@ -2439,7 +2515,7 @@ app.post('/api/barcodes', authRequired, requireAnyFeature('barcode_receiving','b
 });
 
 // List all barcode→item mappings (for the enrollment screen)
-app.get('/api/item-barcodes', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canReceiveGoods, async (_req, res) => {
+app.get('/api/item-barcodes', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canLookupBarcode, async (_req, res) => {
   try {
     const rows = await all(pool, 'SELECT id, itemId, barcode, barcodeType FROM item_barcodes ORDER BY createdAt DESC');
     res.json({ barcodes: rows });
@@ -2450,7 +2526,7 @@ app.get('/api/item-barcodes', authRequired, requireAnyFeature('barcode_receiving
 });
 
 // Remove one barcode mapping (fix a mis-scan during enrollment)
-app.delete('/api/barcodes/:id', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canReceiveGoods, async (req, res) => {
+app.delete('/api/barcodes/:id', authRequired, requireAnyFeature('barcode_receiving','barcode_distribution'), canReceiveGoods, stockWriteScope, async (req, res) => {
   try {
     const result = await run(pool, 'DELETE FROM item_barcodes WHERE id = ?', [req.params.id]);
     if (!result.affectedRows) {
@@ -2468,11 +2544,14 @@ app.delete('/api/barcodes/:id', authRequired, requireAnyFeature('barcode_receivi
 // ============================================================
 
 // Distribute (LAB_MANAGER + PROCUREMENT + ADMIN)
-app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
+app.post('/api/distribute', authRequired, canDistribute, stockWriteScope, async (req, res) => {
   const { itemId, quantity, receivedBy, department, purpose, useFefo = true, lotId, purchaseId, labTechnicianId, lots } = req.body || {};
   
   if (!itemId || !quantity || quantity <= 0 || !receivedBy) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Item ID, quantity, and receiver are required' });
+  }
+  if (!isCanonicalDepartment(department)) {
+    return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Geçersiz departman.' });
   }
 
   try {
@@ -2502,6 +2581,7 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
             [row.lotId, itemId]);
           const lot = lotRow?.[0];
           if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Parti bulunamadı veya aktif değil.' };
+          req.assertStockLot(lot);
           if (Number(lot.currentQuantity) < rowQty) throw { status: 400, error: 'INSUFFICIENT_LOT_STOCK', message: `Parti ${lot.lotNumber}: mevcut ${lot.currentQuantity}, istenen ${rowQty}.` };
           const newQty = Number(lot.currentQuantity) - rowQty;
           await run(conn, 'UPDATE lots SET currentQuantity = ?, status = ?, updatedBy = ? WHERE id = ?',
@@ -2514,6 +2594,7 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
         const lots = await all(conn, 'SELECT * FROM lots WHERE id = ? AND itemId = ? FOR UPDATE', [lotId, itemId]);
         if (!lots.length) throw { status: 404, error: 'LOT_NOT_FOUND' };
         const lot = lots[0];
+        req.assertStockLot(lot);
 
         const takeFromSelected = Math.min(Number(lot.currentQuantity), quantity);
         let remaining = quantity - takeFromSelected;
@@ -2521,8 +2602,8 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
         let otherLots = [];
         if (remaining > 0) {
           otherLots = await all(conn,
-            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND status = 'ACTIVE' AND currentQuantity > 0 ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
-            [itemId, lotId]);
+            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND department = ? AND status = 'ACTIVE' AND currentQuantity > 0 ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
+            [itemId, lotId, department]);
           const otherAvailable = otherLots.reduce((s, l) => s + Number(l.currentQuantity), 0);
           if (takeFromSelected + otherAvailable < quantity) {
             throw { status: 400, error: 'INSUFFICIENT_TOTAL_STOCK', message: `Total available: ${takeFromSelected + otherAvailable}, requested: ${quantity}` };
@@ -2544,10 +2625,8 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
           remainingQty -= take;
         }
       } else {
-        // FEFO auto-selection, scoped to the target department's depo pool once
-        // depo_pool_split is enabled (see server/depoGroup.cjs).
-        const poolOn = (await getSetting('depo_pool_split', '0')) === '1';
-        const poolFilter = poolOn ? buildLotPoolFilter(resolveDepoGroup(department), 'l') : { clause: '', params: [] };
+        // FEFO always stays within the operation's department.
+        const poolFilter = buildLotPoolFilter(resolveDepoGroup(department), 'l');
         const availableLots = await all(conn, `
           SELECT l.* FROM lots l
           WHERE l.itemId = ? AND l.status = 'ACTIVE' AND l.currentQuantity > 0
@@ -2620,6 +2699,8 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
       if (targetTech) {
         const targetDept = targetTech.department;
         if (!targetDept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Teknisyenin bağlı olduğu bölüm yok. Önce kullanıcıya bir bölüm atayın.' };
+        req.assertStockDepartment(targetDept);
+        if (targetDept !== department) throw { status: 409, error: 'DEPARTMENT_MISMATCH', message: 'Alıcı ve LOT departmanı eşleşmiyor.' };
         // Idempotency guard (same rule as /api/cep-depo/distribute).
         if (purchaseId) {
           const prows = await all(conn, 'SELECT id, status FROM purchases WHERE id = ? FOR UPDATE', [purchaseId]);
@@ -2712,7 +2793,7 @@ app.post('/api/distribute', authRequired, canDistribute, async (req, res) => {
 });
 
 // Confirm distribution (LAB_MANAGER + PROCUREMENT + ADMIN)
-app.post('/api/distribute/:id/confirm', authRequired, canDistribute, async (req, res) => {
+app.post('/api/distribute/:id/confirm', authRequired, canDistribute, stockWriteScope, async (req, res) => {
   try {
     await run(pool, `
       UPDATE distributions SET status = 'COMPLETED', completedDate = NOW(), completedBy = ?
@@ -2732,7 +2813,7 @@ app.post('/api/distribute/:id/confirm', authRequired, canDistribute, async (req,
 //   - LAB_TECHNICIAN may request only if their CEP DEPO balance for the item is zero.
 //   - ADMIN / SATINAL may file on behalf of a lab tech with { requestedFor, overrideReason }
 //     in which case the block is bypassed and a REQUEST_OVERRIDE movement is logged.
-app.post('/api/purchases', authRequired, async (req, res) => {
+app.post('/api/purchases', authRequired, stockWriteScope, async (req, res) => {
   const {
     itemId, itemCode, itemName, department,
     requestedQty, notes, urgency, supplierName,
@@ -2741,6 +2822,9 @@ app.post('/api/purchases', authRequired, async (req, res) => {
 
   if (!itemId || !requestedQty || requestedQty <= 0) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Item ID and quantity are required' });
+  }
+  if (!isCanonicalDepartment(department)) {
+    return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Geçersiz departman.' });
   }
 
   const role = req.user?.role;
@@ -2920,7 +3004,7 @@ app.get('/api/purchases', authRequired, async (req, res) => {
 });
 
 // Lab technicians may correct the quantity of their own pending CEP DEPO request.
-app.patch('/api/purchases/:id/requested-quantity', authRequired, requireRole([ROLES.LAB_TECHNICIAN]), async (req, res) => {
+app.patch('/api/purchases/:id/requested-quantity', authRequired, requireRole([ROLES.LAB_TECHNICIAN]), stockWriteScope, async (req, res) => {
   const requestedQty = Number(req.body?.requestedQty);
   if (!Number.isInteger(requestedQty) || requestedQty <= 0) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Talep miktarı pozitif bir tam sayı olmalıdır.' });
@@ -2947,7 +3031,7 @@ app.patch('/api/purchases/:id/requested-quantity', authRequired, requireRole([RO
 });
 
 // Cancellation keeps an audit-visible history row but removes the request from pending queues.
-app.post('/api/purchases/:id/cancel', authRequired, requireRole([ROLES.LAB_TECHNICIAN]), async (req, res) => {
+app.post('/api/purchases/:id/cancel', authRequired, requireRole([ROLES.LAB_TECHNICIAN]), stockWriteScope, async (req, res) => {
   try {
     const purchase = await withTransaction(async (conn) => {
       const purchases = await all(conn, 'SELECT * FROM purchases WHERE id = ? FOR UPDATE', [req.params.id]);
@@ -2970,7 +3054,7 @@ app.post('/api/purchases/:id/cancel', authRequired, requireRole([ROLES.LAB_TECHN
 
 // Approve purchase request (LAB_MANAGER + ADMIN + SATINAL_YONETICI)
 // When supplierName + orderedQty are provided, jumps directly to SIPARIS_VERILDI
-app.post('/api/purchases/:id/approve', authRequired, canApprove, async (req, res) => {
+app.post('/api/purchases/:id/approve', authRequired, canApprove, stockWriteScope, async (req, res) => {
   const { approvalNote, autoOrder, supplierName, poNumber, orderedQty, unitPrice } = req.body || {};
   
   try {
@@ -3040,7 +3124,7 @@ app.post('/api/purchases/:id/approve', authRequired, canApprove, async (req, res
 // Attach the reference returned by EBYS and approve every buying request in
 // the website batch as one atomic operation. EBYS approval is also the order
 // transition in the current workflow, so all lines go directly to SIPARIS_VERILDI.
-app.post('/api/purchases/ebys-batches/:batchId/approve', authRequired, canApproveEbysBatch, async (req, res) => {
+app.post('/api/purchases/ebys-batches/:batchId/approve', authRequired, canApproveEbysBatch, stockWriteScope, async (req, res) => {
   const batchId = String(req.params.batchId || '').trim();
   const ebysReference = String(req.body?.ebysReference || '').trim();
   const supplierName = String(req.body?.supplierName || '').trim();
@@ -3111,7 +3195,7 @@ app.post('/api/purchases/ebys-batches/:batchId/approve', authRequired, canApprov
 });
 
 // Reject purchase request (LAB_MANAGER + ADMIN)
-app.post('/api/purchases/:id/reject', authRequired, canReject, async (req, res) => {
+app.post('/api/purchases/:id/reject', authRequired, canReject, stockWriteScope, async (req, res) => {
   const { rejectionReason } = req.body || {};
   
   if (!rejectionReason) {
@@ -3146,7 +3230,7 @@ app.post('/api/purchases/:id/reject', authRequired, canReject, async (req, res) 
 });
 
 // Mark purchase as ordered (PROCUREMENT + ADMIN)
-app.post('/api/purchases/:id/order', authRequired, canOrder, async (req, res) => {
+app.post('/api/purchases/:id/order', authRequired, canOrder, stockWriteScope, async (req, res) => {
   const { supplierName, poNumber, orderedQty } = req.body || {};
   
   if (!supplierName || !orderedQty || orderedQty <= 0) {
@@ -3247,7 +3331,7 @@ app.get('/api/distributions-detailed', authRequired, async (_req, res) => {
 // ============================================================
 
 // Record waste (LAB_MANAGER + PROCUREMENT + ADMIN)
-app.post('/api/waste-with-lot', authRequired, canDistribute, async (req, res) => {
+app.post('/api/waste-with-lot', authRequired, canDistribute, stockWriteScope, async (req, res) => {
   const { itemId, lotId, quantity, wasteType, reason, disposalMethod, notes } = req.body || {};
   
   if (!itemId || !quantity || quantity <= 0 || !wasteType) {
@@ -3273,6 +3357,7 @@ app.post('/api/waste-with-lot', authRequired, canDistribute, async (req, res) =>
           throw { status: 404, error: 'LOT_NOT_FOUND' };
         }
         const lot = lots[0];
+        req.assertStockLot(lot);
         if (lot.currentQuantity < quantity) {
           throw { status: 400, error: 'INSUFFICIENT_STOCK', message: `LOT ${lot.lotNumber} has only ${lot.currentQuantity}` };
         }
@@ -3283,12 +3368,12 @@ app.post('/api/waste-with-lot', authRequired, canDistribute, async (req, res) =>
         // Use FEFO to select lots for waste (e.g., expired items first)
         const expiredLots = await all(conn, `
           SELECT * FROM lots 
-          WHERE itemId = ? AND status = 'ACTIVE' AND currentQuantity > 0
+          WHERE itemId = ? AND department = ? AND status = 'ACTIVE' AND currentQuantity > 0
           ORDER BY 
             CASE WHEN expiryDate IS NOT NULL AND expiryDate < CURDATE() THEN 0 ELSE 1 END,
             expiryDate ASC
           FOR UPDATE
-        `, [itemId]);
+        `, [itemId, req.stockDepartment]);
 
         if (!expiredLots.length) {
           throw { status: 400, error: 'NO_STOCK_AVAILABLE' };
@@ -3367,11 +3452,21 @@ app.get('/api/attachments/:entityType/:entityId', authRequired, async (req, res)
 // EXCEL IMPORT - Items with optional initial stock
 // ============================================================
 
-app.post('/api/import-items', authRequired, canManageItems, async (req, res) => {
+app.post('/api/import-items', authRequired, canManageItems, stockWriteScope, async (req, res) => {
   const { items } = req.body || {};
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: 'Items array is required' });
+  }
+
+  const invalidDepartmentRows = items.flatMap((item, index) =>
+    normalizeImportDepartment(item?.department) === null
+      ? [`Satır ${index + 1}: ${String(item.department)}`] : []);
+  if (invalidDepartmentRows.length) {
+    return res.status(400).json({
+      error: 'INVALID_DEPARTMENT',
+      message: `Yalnızca SİTOGENETİK, Moleküler Genetik, Moleküler Mikro ve Numune Kabul kullanılabilir.\n${invalidDepartmentRows.join('\n')}`
+    });
   }
 
   const normalizeString = (value) => (value === undefined || value === null ? '' : String(value).trim());
@@ -3407,10 +3502,11 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
       let updated = 0;
       let lotsCreated = 0;
       let lotsUpdated = 0;
+      let departmentsCreated = 0;
       const errors = [];
 
       // Normalize rows and group by code
-      const itemsByCode = {};
+      const itemsByCode = Object.create(null);
       items.forEach((raw, idx) => {
         const code = normalizeString(raw.code);
         const name = normalizeString(raw.name);
@@ -3436,7 +3532,7 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
           code,
           name,
           category: normalizeString(raw.category),
-          department: normalizeString(raw.department),
+          department: normalizeImportDepartment(raw.department),
           unit: normalizeString(raw.unit) || 'adet',
           minStock: parseInteger(raw.minStock) ?? 0,
           ideal_stock: parseDecimal(raw.ideal_stock),
@@ -3445,11 +3541,13 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
           catalogNo: normalizeString(raw.catalogNo),
           brand: normalizeString(raw.brand),
           storageLocation: normalizeString(raw.storageLocation),
+          lotLocation: normalizeString(raw.lotLocation),
+          lotStorageLocation: normalizeString(raw.lotStorageLocation || raw.storageLocation),
           storageTemp: normalizeString(raw.storageTemp),
           chemicalType: normalizeString(raw.chemicalType),
           notes: normalizeString(raw.notes),
           lotNumber,
-          initialStock: parseInteger(raw.initialStock) ?? 0,
+          initialStock: parseDecimal(raw.initialStock) ?? 1,
           expiryDate: parseDate(raw.expiryDate),
           receivedDate: parseDate(raw.receivedDate) || new Date().toISOString().slice(0, 10),
           packageUnit: rawPkgUnit || null,
@@ -3469,7 +3567,15 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
       for (const [code, itemRows] of Object.entries(itemsByCode)) {
         const masterItem = itemRows[0];
 
-        const existing = await all(conn, 'SELECT * FROM item_definitions WHERE code = ?', [code]);
+        const existing = await all(conn, 'SELECT * FROM item_definitions WHERE code = ? FOR UPDATE', [code]);
+        // A count form does not contain every master-data field. Preserve
+        // fields absent from the upload when updating an existing material.
+        if (existing.length) {
+          const previous = existing[0];
+          for (const field of ['category', 'supplier', 'catalogNo', 'storageTemp', 'chemicalType', 'notes']) {
+            if (!masterItem[field]) masterItem[field] = previous[field];
+          }
+        }
 
         let itemId;
         if (existing.length) {
@@ -3549,10 +3655,15 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
           created++;
         }
 
-        if (masterItem.department) {
+        for (const department of new Set(itemRows.map((row) => row.department).filter(Boolean))) {
+          const known = await all(conn, 'SELECT id FROM departments WHERE name = ?', [department]);
+          if (!known.length) {
+            await run(conn, 'INSERT INTO departments (id, name, active) VALUES (?, ?, 1)', [generateId(), department]);
+            departmentsCreated++;
+          }
           await run(conn,
             'INSERT IGNORE INTO item_departments (itemDefinitionId, department) VALUES (?, ?)',
-            [itemId, masterItem.department]
+            [itemId, department]
           );
         }
 
@@ -3565,19 +3676,23 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
 
           const qty = Math.max(item.initialStock || 0, 0);
           const status = qty > 0 ? 'ACTIVE' : 'DEPLETED';
-          const existingLot = await all(conn, 'SELECT * FROM lots WHERE itemId = ? AND lotNumber = ?', [itemId, lotNumber]);
+          const existingLot = await all(conn, 'SELECT * FROM lots WHERE itemId = ? AND lotNumber = ? FOR UPDATE', [itemId, lotNumber]);
 
           if (existingLot.length) {
+            req.assertStockLot(existingLot[0], item.department, itemId);
             const lotId = existingLot[0].id;
             await run(conn, `
               UPDATE lots SET 
                 currentQuantity = ?,
                 initialQuantity = ?,
-                expiryDate = COALESCE(?, expiryDate),
+                expiryDate = ?,
                 receivedDate = COALESCE(?, receivedDate),
                 department = ?,
                 status = ?,
-                updatedBy = ?
+                updatedBy = ?,
+                location = COALESCE(NULLIF(?, ''), location),
+                storageLocation = COALESCE(NULLIF(?, ''), storageLocation),
+                notes = COALESCE(NULLIF(?, ''), notes)
               WHERE id = ?
             `, [
               qty,
@@ -3587,14 +3702,17 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
               item.department || '',
               status,
               req.user.username,
+              item.lotLocation,
+              item.lotStorageLocation,
+              item.notes,
               lotId
             ]);
             lotsUpdated++;
           } else {
             const lotId = generateId();
             await run(conn, `
-              INSERT INTO lots (id, itemId, lotNumber, expiryDate, receivedDate, initialQuantity, currentQuantity, department, notes, createdBy, status)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Excel import', ?, ?)
+              INSERT INTO lots (id, itemId, lotNumber, expiryDate, receivedDate, initialQuantity, currentQuantity, department, notes, createdBy, status, location, storageLocation)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
               lotId,
               itemId,
@@ -3604,19 +3722,23 @@ app.post('/api/import-items', authRequired, canManageItems, async (req, res) => 
               qty,
               qty,
               item.department || '',
+              item.notes || 'Excel import',
               req.user.username,
-              status
+              status,
+              item.lotLocation,
+              item.lotStorageLocation
             ]);
             lotsCreated++;
           }
         }
       }
 
-      return { created, updated, lotsCreated, lotsUpdated, errors };
+      return { created, updated, lotsCreated, lotsUpdated, departmentsCreated, errors };
     });
 
     res.json({ success: true, ...result });
   } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
     console.error('Failed to import items', error);
     res.status(500).json({ error: 'SERVER_ERROR', message: error.message });
   }
@@ -4237,7 +4359,7 @@ const ensureCepDepoTables = async () => {
   try {
     const [seedRows] = await pool.query('SELECT COUNT(*) AS n FROM departments');
     if (!seedRows?.[0]?.n) {
-      const seed = ['Cytogenetic', 'Molecular Micro', 'Molecular Genetic', 'Numune Kabul', 'Diğer'];
+      const seed = CANONICAL_DEPARTMENTS;
       for (const name of seed) {
         await pool.query('INSERT IGNORE INTO departments (id, name, active) VALUES (?, ?, 1)', [generateId(), name]);
       }
@@ -4335,7 +4457,7 @@ const ensureCepDepoTables = async () => {
   await pool.query("INSERT IGNORE INTO app_settings (settingKey, settingValue) VALUES ('dist_receipt_confirmation', '0')");
   // SİTOGENETİK depo-pool split — gates FEFO lot scoping in /api/consume,
   // /api/distribute, /api/cep-depo/distribute. Off by default (today's behavior).
-  await pool.query("INSERT IGNORE INTO app_settings (settingKey, settingValue) VALUES ('depo_pool_split', '0')");
+  await pool.query("INSERT IGNORE INTO app_settings (settingKey, settingValue) VALUES ('depo_pool_split', '1')");
 
   // One-time backfill: rows that predate this feature have NULL receivedConfirmedAt.
   // Treat them as already confirmed so enabling the toggle later does not resurface
@@ -4376,9 +4498,17 @@ async function getUserDepartments(userId, role) {
   return rows.map((r) => r.department);
 }
 
+// Stock views show all departments only to ADMIN. Other users see the sum
+// of their current memberships, resolved from the database on every request.
+async function getStockViewDepartments(userId, role) {
+  if (role === ROLES.ADMIN) return null;
+  const rows = await all(pool, 'SELECT department FROM user_departments WHERE userId = ?', [userId]);
+  return [...new Set(rows.map((row) => row.department).filter(Boolean))];
+}
+
 // GET /api/cep-depo/balances — shared department pools. Department scoping is
 // always resolved server-side from the caller's identity (getUserDepartments);
-// bypass roles (ADMIN/SATINAL/SATINAL_LOJISTIK/KURUMSAL) see all departments.
+// bypass roles (including read-only KURUMSAL/KALITE) see all departments.
 app.get('/api/cep-depo/balances', authRequired, async (req, res) => {
   try {
     const departments = await getUserDepartments(req.user.id, req.user.role);
@@ -4422,7 +4552,7 @@ app.get('/api/cep-depo/my-balances', authRequired, async (req, res) => {
 // POST /api/cep-depo/distribute — Main Depot → Lab Technician's CEP DEPO
 //   Body: { labTechnicianId, itemId, packQty, purchaseId?, notes?, lotId? }
 //   Uses FEFO across active lots of itemId; deducts lots; upserts cep_depo_balances.
-app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async (req, res) => {
+app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, stockWriteScope, async (req, res) => {
   const { labTechnicianId, itemId, packQty, purchaseId, notes, lotId, lots } = req.body || {};
   const packQtyNum = Number(packQty);
   if (!labTechnicianId || !itemId || !(packQtyNum > 0)) {
@@ -4437,6 +4567,7 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
       if (!isLabTechnicianRole(tech.role)) throw { status: 400, error: 'LAB_TECHNICIAN_REQUIRED' };
       const dept = tech.department;
       if (!dept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Teknisyenin bağlı olduğu bölüm yok. Önce kullanıcıya bir bölüm atayın.' };
+      req.assertStockDepartment(dept);
 
       // Idempotency guard: if a purchaseId is supplied and that purchase is already
       // in a terminal "delivered" state, reject to prevent duplicate CEP DEPO distribution.
@@ -4476,6 +4607,7 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
             [row.lotId, itemId]);
           const lot = lotRow?.[0];
           if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Parti bulunamadı veya aktif değil.' };
+          req.assertStockLot(lot, dept);
           if (Number(lot.currentQuantity) < rowQty) throw { status: 409, error: 'INSUFFICIENT_LOT_STOCK', message: `Parti ${lot.lotNumber}: mevcut ${lot.currentQuantity}, istenen ${rowQty}.` };
           const factor = resolveUnitFactor(item, lot);
           const takeUnits = rowQty * factor;
@@ -4496,6 +4628,7 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
           [lotId, itemId]);
         const lot = lotRows?.[0];
         if (!lot) throw { status: 404, error: 'LOT_NOT_FOUND', message: 'Seçilen parti bulunamadı veya aktif değil.' };
+        req.assertStockLot(lot, dept);
 
         const takeFromSelected = Math.min(Number(lot.currentQuantity), packQtyNum);
         let remaining = packQtyNum - takeFromSelected;
@@ -4504,8 +4637,8 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
         let otherLots = [];
         if (remaining > 0) {
           otherLots = await all(conn,
-            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND status = 'ACTIVE' AND currentQuantity > 0 ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
-            [itemId, lotId]);
+            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND department = ? AND status = 'ACTIVE' AND currentQuantity > 0 ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
+            [itemId, lotId, dept]);
           const otherAvailable = otherLots.reduce((s, l) => s + Number(l.currentQuantity), 0);
           if (takeFromSelected + otherAvailable < packQtyNum) {
             throw { status: 409, error: 'INSUFFICIENT_TOTAL_STOCK', message: `Toplam yeterli stok yok. Seçilen parti: ${takeFromSelected}, diğer lotlar: ${otherAvailable}, talep: ${packQtyNum}.` };
@@ -4545,10 +4678,8 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, async
           remaining -= take;
         }
       } else {
-        // FEFO fallback (no lotId supplied), scoped to the recipient technician's
-        // depo pool once depo_pool_split is enabled (see server/depoGroup.cjs).
-        const poolOn = (await getSetting('depo_pool_split', '0')) === '1';
-        const poolFilter = poolOn ? buildLotPoolFilter(resolveDepoGroup(dept), 'l') : { clause: '', params: [] };
+        // FEFO always stays within the recipient's department.
+        const poolFilter = buildLotPoolFilter(resolveDepoGroup(dept), 'l');
         const lots = await all(conn, `
           SELECT l.* FROM lots l
           WHERE l.itemId = ? AND l.status = 'ACTIVE' AND l.currentQuantity > 0
@@ -4641,6 +4772,7 @@ app.get('/api/settings', authRequired, async (_req, res) => {
     const rows = await all(pool, 'SELECT settingKey, settingValue FROM app_settings');
     const settings = {};
     for (const r of rows) settings[r.settingKey] = r.settingValue;
+    settings.depo_pool_split = '1';
     res.json({ settings });
   } catch (error) {
     console.error('Failed to load settings', error);
@@ -4652,6 +4784,9 @@ app.get('/api/settings', authRequired, async (_req, res) => {
 app.put('/api/settings/:key', authRequired, requireRole([ROLES.ADMIN]), async (req, res) => {
   const key = req.params.key;
   const value = req.body?.value;
+  if (key === 'depo_pool_split' && String(value) !== '1') {
+    return res.status(400).json({ error: 'DEPARTMENT_SCOPE_REQUIRED', message: 'Departman bazlı stok ayrımı zorunludur.' });
+  }
   if (typeof value === 'undefined') return res.status(400).json({ error: 'INVALID_INPUT', message: 'value zorunludur.' });
   try {
     await run(pool, `
@@ -4686,7 +4821,7 @@ app.get('/api/cep-depo/pending-confirmations', authRequired, async (req, res) =>
 
 // POST /api/cep-depo/distributions/:id/confirm — the recipient technician (or a
 // privileged/bypass role) acknowledges receipt. Idempotent.
-app.post('/api/cep-depo/distributions/:id/confirm', authRequired, async (req, res) => {
+app.post('/api/cep-depo/distributions/:id/confirm', authRequired, stockWriteScope, async (req, res) => {
   try {
     const rows = await all(pool, 'SELECT * FROM cep_depo_distributions WHERE id = ?', [req.params.id]);
     const dist = rows?.[0];
@@ -4708,7 +4843,7 @@ app.post('/api/cep-depo/distributions/:id/confirm', authRequired, async (req, re
 // POST /api/cep-depo/consume — Lab tech records consumption
 //   Body: { itemId, consumptionUnitType: 'PACK'|'UNIT'|'TEST', quantity, testCount?, notes? }
 //   Lab tech can only consume their own; ADMIN may pass labTechnicianId to adjust on behalf.
-app.post('/api/cep-depo/consume', authRequired, async (req, res) => {
+app.post('/api/cep-depo/consume', authRequired, stockWriteScope, async (req, res) => {
   const role = req.user.role;
   const isLabTech = isLabTechnicianRole(role);
   const isAdmin = role === ROLES.ADMIN;
@@ -4735,6 +4870,7 @@ app.post('/api/cep-depo/consume', authRequired, async (req, res) => {
       // ADMIN may target a specific department pool directly; otherwise use the tech's department.
       const dept = (isAdmin && req.body?.department) ? String(req.body.department) : tech.department;
       if (!dept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Bir bölüme atanmış olmalısınız.' };
+      req.assertStockDepartment(dept);
 
       const balRows = await all(conn,
         'SELECT * FROM cep_depo_balances WHERE department = ? AND itemId = ? FOR UPDATE',
@@ -4819,7 +4955,7 @@ app.post('/api/cep-depo/consume', authRequired, async (req, res) => {
 
 // POST /api/cep-depo/return — Lab tech returns unused stock back to Main Depot
 //   Body: { itemId, packQty, lotId? (target lot to credit; if absent, uses latest active lot or creates "RETURN" lot), notes? }
-app.post('/api/cep-depo/return', authRequired, async (req, res) => {
+app.post('/api/cep-depo/return', authRequired, stockWriteScope, async (req, res) => {
   const role = req.user.role;
   const allowed = role === ROLES.ADMIN || role === ROLES.SATINAL || role === ROLES.SATINAL_LOJISTIK || isLabTechnicianRole(role);
   if (!allowed) return res.status(403).json({ error: 'FORBIDDEN' });
@@ -4838,6 +4974,7 @@ app.post('/api/cep-depo/return', authRequired, async (req, res) => {
       if (!tech || !isLabTechnicianRole(tech.role)) throw { status: 400, error: 'LAB_TECHNICIAN_REQUIRED' };
       const dept = (role === ROLES.ADMIN && req.body?.department) ? String(req.body.department) : tech.department;
       if (!dept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Bir bölüme atanmış olmalısınız.' };
+      req.assertStockDepartment(dept);
 
       const balRows = await all(conn,
         'SELECT * FROM cep_depo_balances WHERE department = ? AND itemId = ? FOR UPDATE',
@@ -4856,13 +4993,14 @@ app.post('/api/cep-depo/return', authRequired, async (req, res) => {
       // Credit a lot
       let creditLotId = lotId || null;
       if (creditLotId) {
-        const returnLots = await all(conn, 'SELECT id, itemId FROM lots WHERE id = ? AND itemId = ? FOR UPDATE', [creditLotId, itemId]);
+        const returnLots = await all(conn, 'SELECT id, itemId, department FROM lots WHERE id = ? AND itemId = ? FOR UPDATE', [creditLotId, itemId]);
         assertReturnLot(returnLots[0], itemId);
+        req.assertStockLot(returnLots[0], dept);
         await run(conn, "UPDATE lots SET currentQuantity = currentQuantity + ?, status = 'ACTIVE', updatedBy = ? WHERE id = ?",
           [packQtyNum, req.user.username, creditLotId]);
       } else {
         // Pick latest active lot or create a RETURN lot
-        const lots = await all(conn, "SELECT id FROM lots WHERE itemId = ? AND status IN ('ACTIVE','DEPLETED') ORDER BY receivedDate DESC LIMIT 1 FOR UPDATE", [itemId]);
+        const lots = await all(conn, "SELECT id FROM lots WHERE itemId = ? AND department = ? AND status IN ('ACTIVE','DEPLETED') ORDER BY receivedDate DESC LIMIT 1 FOR UPDATE", [itemId, dept]);
         if (lots.length) {
           creditLotId = lots[0].id;
           await run(conn, "UPDATE lots SET currentQuantity = currentQuantity + ?, status = 'ACTIVE', updatedBy = ? WHERE id = ?",
@@ -4870,9 +5008,9 @@ app.post('/api/cep-depo/return', authRequired, async (req, res) => {
         } else {
           creditLotId = generateId();
           await run(conn, `
-            INSERT INTO lots (id, itemId, lotNumber, receivedDate, initialQuantity, currentQuantity, status, notes, createdBy)
-            VALUES (?, ?, ?, CURDATE(), ?, ?, 'ACTIVE', ?, ?)
-          `, [creditLotId, itemId, 'RETURN-' + Date.now().toString().slice(-6), packQtyNum, packQtyNum, 'CEP DEPO return', req.user.username]);
+            INSERT INTO lots (id, itemId, lotNumber, receivedDate, initialQuantity, currentQuantity, status, notes, createdBy, department)
+            VALUES (?, ?, ?, CURDATE(), ?, ?, 'ACTIVE', ?, ?, ?)
+          `, [creditLotId, itemId, 'RETURN-' + Date.now().toString().slice(-6), packQtyNum, packQtyNum, 'CEP DEPO return', req.user.username, dept]);
         }
       }
 
@@ -4997,6 +5135,9 @@ app.get('/api/departments', authRequired, async (_req, res) => {
 app.post('/api/departments', authRequired, adminRequired, async (req, res) => {
   const name = String(req.body?.name || '').trim();
   if (!name) return res.status(400).json({ error: 'INVALID_INPUT', message: 'Bölüm adı zorunludur.' });
+  if (!CANONICAL_DEPARTMENT_SET.has(name)) {
+    return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Yalnızca tanımlı dört departman kullanılabilir.' });
+  }
   try {
     const id = generateId();
     await run(pool, 'INSERT INTO departments (id, name, active) VALUES (?, ?, 1)', [id, name]);
@@ -5013,7 +5154,14 @@ app.put('/api/departments/:id', authRequired, adminRequired, async (req, res) =>
   const { name, active } = req.body || {};
   const updates = [];
   const params = [];
-  if (name !== undefined) { updates.push('name = ?'); params.push(String(name).trim()); }
+  if (name !== undefined) {
+    const cleanedName = String(name).trim();
+    if (!CANONICAL_DEPARTMENT_SET.has(cleanedName)) {
+      return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Yalnızca tanımlı dört departman kullanılabilir.' });
+    }
+    updates.push('name = ?');
+    params.push(cleanedName);
+  }
   if (active !== undefined) { updates.push('active = ?'); params.push(active ? 1 : 0); }
   if (!updates.length) return res.status(400).json({ error: 'INVALID_INPUT' });
   params.push(req.params.id);
@@ -5031,7 +5179,7 @@ app.put('/api/departments/:id', authRequired, adminRequired, async (req, res) =>
 // RECEIPT PRICE EDIT (SATINAL_YONETICI + ADMIN)
 // ============================================================
 
-app.patch('/api/receipts/:receiptId', authRequired, canViewPrices, async (req, res) => {
+app.patch('/api/receipts/:receiptId', authRequired, canEditPrices, stockWriteScope, async (req, res) => {
   const { price, supplierFirmName } = req.body || {};
   try {
     await run(pool,

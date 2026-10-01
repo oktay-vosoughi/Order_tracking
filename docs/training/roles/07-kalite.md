@@ -6,23 +6,24 @@
 - **Hedef kitle:** Kalite güvence, iç denetim ve ISO dokümantasyon personeli
 - **Amaç:** Tüm bölümlerde stok, talep, teslim, dağıtım, atık, fiyat ve ISO kayıtlarını değiştirmeden incelemek
 - **Tahmini süre:** 9-10 dakika
-- **Doğrulama:** 25 Ağustos 2026'da `egitim_kalite` eğitim hesabıyla canlı doğrulandı. 27 Ağustos rol-odaklı tasarımında başarısız yazma düğmeleri ve Kullanıcılar menüsü kaldırıldı; yeni ekran görüntüsü çekilmesi bekleniyor.
+- **Doğrulama:** 3 Eylül 2026'da KALITE/KURUMSAL ortak salt-okunur politikası test ve canlı API smoke testiyle doğrulandı.
 
 ## Rolün gerçek sınırı
 
-KALITE bütün operasyon kayıtlarını görür, fakat yazma işlemleri arayüzde gösterilmez. `src/api.js` operasyonel GET dışı çağrıları istemcide engeller; sunucu da KALITE'yi yazma izin listelerine eklemez. Güvenilir kapsam:
+KALITE bütün operasyon kayıtlarını görür, fakat yazma işlemleri arayüzde gösterilmez. `src/api.js` operasyonel GET dışı çağrıları istemcide engeller; sunucu aynı kuralı merkezi olarak ayrıca uygular. Güvenilir kapsam:
 
 - Tüm bölümlerin stok ve raporlarını görüntüleme
 - Talep, sipariş, dağıtım ve atık kayıtlarını inceleme
 - Fiyat ve kullanım raporlarını salt-okunur inceleme
+- Kullanıcı ve barkod eşleştirme listelerini salt-okunur inceleme
 - LY-F064 ve MG-F069 dosyalarını indirme
 - Veri değiştirmeme
 
-Kullanıcılar sayfası bu role gösterilmez. Hesabım içindeki şifre değiştirme, operasyonel veri yazımı sayılmayan güvenli bir kişisel hesap işlemi olarak çalışır.
+Hesabım içindeki şifre değiştirme, operasyonel veri yazımı sayılmayan güvenli bir kişisel hesap işlemi olarak çalışır.
 
 ## Gösterilecek sayfalar
 
-Stok, Talepler, Siparişler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Fiyatlar, ISO Formları ve Hesabım. Kullanıcılar ve bütün operasyonel yazma düğmeleri menüde yer almaz.
+Stok, Talepler, Siparişler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Fiyatlar, ISO Formları, Kullanıcılar ve Hesabım. Barkod modülü açıksa Barkod Eşleştirme listesi de salt-okunur görünür. Bütün operasyonel yazma düğmeleri gizlidir.
 
 ## Örnek senaryo
 
@@ -105,7 +106,7 @@ Kalite kullanıcısı `EGT-PCR-001` için stok kartından LOT/SKT'yi kontrol ede
 
 - Canlı KALITE hesabı 25.08.2026'da doğrulandı.
 - Operasyonel yazma düğmeleri KALITE rolünde gösterilmez; doğrudan API çağrıları da engellenmeye devam eder.
-- Kullanıcılar menüsü bu role kapalıdır.
+- Kullanıcılar menüsü salt-okunur liste olarak açıktır; kullanıcı/bölüm düzenleme alanları gösterilmez.
 - Kişisel şifre değişimi Hesabım sayfasından yapılabilir.
 - Üst SKT sayacını LOT raporuyla çapraz doğrulayın.
 

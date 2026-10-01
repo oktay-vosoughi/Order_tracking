@@ -59,7 +59,7 @@
 - **Tıklama:** Hesabım; kullanıcı adı/rol; şifre formu; Temizle; çıkış.
 - **Vurgu:** Sekiz karakter ve KALITE istisnası.
 - **Ekran yazısı:** `Çalışma sonunda güvenli çıkış`
-- **Seslendirme:** “Hesabım sayfası kullanıcı adımızı ve rolümüzü gösterir. Çoğu rol mevcut şifresini doğrulayarak en az sekiz karakterli yeni şifre belirleyebilir. KALITE rolündeki mevcut şifre formu bilinen bir tutarsızlık nedeniyle çalışmaz. İşimiz bittiğinde sol alttaki çıkış simgesini kullanıyoruz.”
+- **Seslendirme:** “Hesabım sayfası kullanıcı adımızı ve rolümüzü gösterir. Mevcut şifremizi doğrulayarak en az sekiz karakterli yeni şifre belirleyebiliriz. Bu kişisel güvenlik işlemi KALITE ve KURUMSAL salt-okunur rollerinde de kullanılabilir. İşimiz bittiğinde sol alttaki çıkış simgesini kullanıyoruz.”
 
 ![Hesabım sayfası](../screenshots/00-ortak/sahne6-hesabim.jpg)
 
@@ -75,4 +75,3 @@
 ## Kapanış
 
 “GTMLIMS’in ortak kullanımını tamamladık. Kendi rol videonuzda yalnız görevinize ait işlem adımlarını izleyin; görünmeyen veya yetkiniz dışında kalan işlevleri başka hesapla denemeyin.”
-

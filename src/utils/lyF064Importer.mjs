@@ -18,7 +18,13 @@ function isoDate(year, month = 12, day = null) {
 }
 
 export function parseLyF064Date(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return isoDate(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
+  }
   const text = normalizeText(value).replace(/^\./, '');
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return isoDate(iso[1], iso[2], iso[3]);
   let match = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
   if (match) return isoDate(match[3], match[2], match[1]);
 
@@ -36,34 +42,22 @@ export function parseLyF064Date(value) {
   return null;
 }
 
-function allocateQuantities(entries, totalStock) {
-  if (!entries.length) return entries;
-  const total = Math.max(0, Math.round(Number(totalStock) || 0));
-  const weights = entries.map((entry) => entry.quantity == null ? 1 : Math.max(0, entry.quantity));
-  const weightTotal = weights.reduce((sum, value) => sum + value, 0) || entries.length;
-  const exact = weights.map((weight) => total * weight / weightTotal);
-  const allocated = exact.map(Math.floor);
-  let remainder = total - allocated.reduce((sum, value) => sum + value, 0);
-  exact
-    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
-    .sort((a, b) => b.fraction - a.fraction || a.index - b.index)
-    .forEach(({ index }) => {
-      if (remainder > 0) {
-        allocated[index] += 1;
-        remainder -= 1;
-      }
-    });
-  return entries.map((entry, index) => ({ ...entry, quantity: allocated[index] }));
-}
-
 export function parseLyF064Lots(value, totalStock) {
+  const fallbackQuantity = totalStock === '' || totalStock == null ? 1 : Number(String(totalStock).replace(',', '.'));
+  if (!Number.isFinite(fallbackQuantity) || fallbackQuantity < 0) throw new Error('Depo miktarı geçersiz.');
+  if (value instanceof Date) {
+    const expiryDate = parseLyF064Date(value);
+    if (!expiryDate) throw new Error(`Geçersiz SKT: ${value.toISOString().slice(0, 10)}`);
+    return [{ expiryDate, quantity: fallbackQuantity, marker: '' }];
+  }
   const original = normalizeText(value);
   if (!original || /^yok$/i.test(original)) {
-    return [{ expiryDate: '', quantity: Math.max(0, Math.round(Number(totalStock) || 0)), marker: 'NOEXP' }];
+    return [{ expiryDate: '', quantity: fallbackQuantity, marker: 'NOEXP' }];
   }
 
   const normalized = original.replace(/[×]/g, 'X');
   const entries = [];
+  let splitAcrossYears = false;
   const tokenPattern = /(YOK|\.?\d{1,2}\.\d{1,2}\.\d{2,4}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{1,2}\.\d{4}|\d{4})(?:\s*\(([-+]?\d+)\))?\s*(?:X\s*(\d+))?(?:\s*\(([-+]?\d+)\))?/gi;
   let match;
   while ((match = tokenPattern.exec(normalized)) !== null) {
@@ -71,12 +65,12 @@ export function parseLyF064Lots(value, totalStock) {
     let quantity = match[3] ? Number(match[3]) : null;
     const temperature = match[2] || match[4] || '';
     const expiryDate = /^yok$/i.test(rawDate) ? '' : parseLyF064Date(rawDate);
-    if (expiryDate === null) continue;
+    if (expiryDate === null) throw new Error(`Geçersiz SKT: ${rawDate}`);
 
-    // In values such as 2020X2025 or 1.10.2026X2030, the value after X is
-    // another expiry year, not a quantity. The form has no counts for these
-    // LOTs, so their quantities are allocated evenly from Depo below.
+    // In this count form X followed by a year separates two expiry dates.
+    // The user explicitly assigns equal shares of Depo stock to those dates.
     if (quantity >= 1900 && quantity <= 2200) {
+      splitAcrossYears = true;
       entries.push({ expiryDate, quantity: null, marker: temperature ? `T${temperature}` : '' });
       entries.push({ expiryDate: isoDate(quantity), quantity: null, marker: '' });
     } else {
@@ -89,9 +83,23 @@ export function parseLyF064Lots(value, totalStock) {
   }
 
   if (!entries.length) {
-    return [{ expiryDate: '', quantity: Math.max(0, Math.round(Number(totalStock) || 0)), marker: 'NOEXP' }];
+    throw new Error(`SKT okunamadı: ${original}`);
   }
-  return allocateQuantities(entries, totalStock);
+  const remainder = normalized.replace(tokenPattern, '').replace(/[\s;,]+/g, '');
+  if (remainder) throw new Error(`SKT ifadesi okunamadı: ${original}`);
+  if (splitAcrossYears) {
+    const unspecified = entries.filter((entry) => entry.quantity === null).length;
+    const explicitTotal = entries.reduce((sum, entry) => sum + (entry.quantity ?? 0), 0);
+    const remaining = Math.round((fallbackQuantity - explicitTotal) * 100);
+    if (remaining < 0) throw new Error('LOT miktarları Depo miktarını aşıyor.');
+    const share = Math.floor(remaining / unspecified);
+    let extra = remaining % unspecified;
+    return entries.map((entry) => ({
+      ...entry,
+      quantity: entry.quantity ?? ((share + (extra-- > 0 ? 1 : 0)) / 100)
+    }));
+  }
+  return entries.map((entry) => ({ ...entry, quantity: entry.quantity ?? (entries.length === 1 ? fallbackQuantity : 1) }));
 }
 
 const slug = (value) => normalizeText(value)
@@ -109,13 +117,13 @@ function uniqueCode(rawCode, name) {
   // The form uses YOK in place of a catalog number for more than one material.
   // Item codes are unique in the database, so keep those materials separate.
   if (code.toLocaleUpperCase('tr-TR') === 'YOK') return `YOK-${slug(name)}`;
-  return code || 'CHANGEME';
+  return code || `KODSUZ-${slug(name)}`;
 }
 
 export function isLyF064Sheet(rows) {
   return rows.some((row) => (
     normalizeText(row?.[0]).toLocaleUpperCase('tr-TR') === 'SIRA NO' &&
-    normalizeText(row?.[1]).toLocaleUpperCase('tr-TR').includes('KATOLOG NUMARASI') &&
+    /KAT[AO]LOG NUMARASI/.test(normalizeText(row?.[1]).toLocaleUpperCase('tr-TR')) &&
     normalizeText(row?.[4]).toLocaleUpperCase('tr-TR') === 'DEPO'
   ));
 }
@@ -126,17 +134,25 @@ export function buildLyF064Rows(rows, sheetName = '') {
   const headers = rows[headerIndex].map((header) => normalizeText(header).toLocaleUpperCase('tr-TR'));
   const departmentIndex = headers.findIndex((header) => header === 'DEPARTMENT' || header === 'DEPARTMAN');
   const result = [];
+  const errors = [];
 
   for (let index = headerIndex + 1; index < rows.length; index += 1) {
     const source = rows[index] || [];
     const name = normalizeText(source[2]);
-    if (!name) continue;
+    if (!name || !/^\d+$/.test(normalizeText(source[0]))) continue;
     const code = uniqueCode(source[1], name);
-    const totalStock = Math.max(0, Math.round(Number(String(source[4] ?? '').replace(',', '.')) || 0));
-    const lots = parseLyF064Lots(source[7], totalStock);
+    const totalStock = source[4];
+    let lots;
+    try {
+      lots = parseLyF064Lots(source[7], totalStock);
+    } catch (error) {
+      errors.push(`${sheetName}, sıra ${source[0]} (${code}): ${error.message}`);
+      continue;
+    }
     const occurrence = new Map();
 
     lots.forEach((lot) => {
+      const temperature = /^T/.test(lot.marker) ? `${lot.marker.slice(1)} °C` : '';
       const baseMarker = lot.expiryDate || 'NOEXP';
       const duplicateKey = `${baseMarker}-${lot.marker || ''}`;
       const ordinal = (occurrence.get(duplicateKey) || 0) + 1;
@@ -148,12 +164,16 @@ export function buildLyF064Rows(rows, sheetName = '') {
       ].filter(Boolean).join('-');
       result.push({
         code,
+        catalogNo: normalizeText(source[1]),
         name,
         department: departmentIndex >= 0 ? normalizeText(source[departmentIndex]) : '',
         brand: normalizeText(source[3]),
         unit: normalizeText(source[5]) || 'adet',
         initialStock: lot.quantity,
         storageLocation: normalizeText(source[6]),
+        lotLocation: temperature,
+        lotStorageLocation: [normalizeText(source[6]), temperature].filter(Boolean).join(' / '),
+        notes: `LY-F064 sıra: ${source[0]}; SKT kaynağı: ${source[7] instanceof Date ? source[7].toISOString().slice(0, 10) : normalizeText(source[7])}; Depo: ${normalizeText(totalStock)}`,
         expiryDate: lot.expiryDate,
         receivedDate: parseLyF064Date(sheetName) || '',
         minStock: source[8],
@@ -163,5 +183,6 @@ export function buildLyF064Rows(rows, sheetName = '') {
       });
     });
   }
+  if (errors.length) throw new Error(`Excel içe aktarılmadı. Şu satırları düzeltin:\n${errors.join('\n')}`);
   return result;
 }

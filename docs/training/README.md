@@ -54,31 +54,31 @@ Simgeler: **İ** işlem yapar, **G** görüntüler, **—** işlem veya menü g�
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | Stok listesini görüntüleme/arama/filtre | G | G | G | G (bölüm kapsamı) | G (kapsamlı) | G | G |
 | Stok Excel dışa aktarma | İ | İ | İ | G/İ | İ | İ | İ |
-| Malzeme tanımı ekleme | İ | İ | İ | — | — | İ | — |
-| Malzeme birim/departman düzenleme | İ | İ | Sınırlı | — | — | İ | — |
+| Malzeme tanımı ekleme | İ | İ | İ | — | — | — | — |
+| Malzeme birim/departman düzenleme | İ | İ | Sınırlı | — | — | — | — |
 | Stok düzeltme ve LOT bölme | İ | — | — | — | — | — | — |
 | Malzeme silme / tüm veriyi temizleme | İ | — | — | — | — | — | — |
 | Standart satın alma talebi oluşturma | İ | İ | İ | CEP talebi | — | — | — |
-| Talep onaylama/reddetme | İ | İ | — | — | — | İ | — |
-| Resmi EBYS formu oluşturma | İ | İ | İ | — | — | İ | — |
+| Talep onaylama/reddetme | İ | İ | — | — | — | — | — |
+| Resmi EBYS formu oluşturma | İ | İ | İ | — | — | — | — |
 | EBYS paketini onaylayıp siparişe alma | İ | — | İ | — | — | — | — |
 | Sipariş/teslim alma | İ | Yalnız ek yetkiyle | İ | — | — | — | — |
-| Dağıtım ve atık kaydı | İ | İ | İ | — | — | İ | — |
+| Dağıtım ve atık kaydı | İ | İ | İ | — | — | — | — |
 | Dağıtım kayıtları | G (tümü) | G (tümü) | G (tümü) | G (kendisine) | G (kendisine) | G (tümü) | G (tümü) |
 | CEP DEPO talep onayı | İ | İ | — | — | — | — | — |
-| CEP DEPOya dağıtım | İ | İ | İ | — | — | İ | — |
+| CEP DEPOya dağıtım | İ | İ | İ | — | — | — | — |
 | CEP DEPO tüketim/iade | Arayüzde yok | Arayüzde yok | Arayüzde yok | İ (kendi bölümü) | — | — | — |
-| Fiyatlar ve kullanım raporu | İ | Ek yetkiyle | Ek yetkiyle | Ek yetkiyle | Ek yetkiyle | İ | G |
-| ISO LY-F064 / MG-F069 indirme | İ | — | İ | — | — | — | İ |
-| Kullanıcı/bölüm/ayar yönetimi | İ | — | — | — | — | — | — |
+| Fiyatlar ve kullanım raporu | İ | Ek yetkiyle | Ek yetkiyle | Ek yetkiyle | Ek yetkiyle | G | G |
+| ISO LY-F064 / MG-F069 indirme | İ | — | İ | — | — | G/İ | G/İ |
+| Kullanıcı listesi / yönetimi | İ | — | — | — | — | G | G |
 | Hesap ve şifre değiştirme | İ | İ | İ | İ | İ | İ | İ |
 
-\* `KURUMSAL` ve `KALITE` canlı hesapla doğrulandı. `KALITE` operasyonel olarak salt-okunurdur; başarısız olacak yazma düğmeleri arayüzde gösterilmez.
+\* `KURUMSAL` ve `KALITE` tüm bölümlerdeki operasyon kayıtlarını salt-okunur görür. Yazma düğmeleri arayüzde gösterilmez ve GET dışı çağrılar API'de merkezi olarak reddedilir. Kişisel şifre değişimi tek istisnadır.
 
 Ek kullanıcı yetkileri:
 
 - `SATINAL` kullanıcısına **Teslim Al Yetkisi** verilebilir.
-- `ADMIN` ve `KURUMSAL` fiyatları varsayılan olarak görür; diğer rollere **Fiyat Görüntüleme Yetkisi** verilebilir.
+- `ADMIN`, `KURUMSAL` ve `KALITE` fiyatları varsayılan olarak görür; diğer rollere **Fiyat Görüntüleme Yetkisi** verilebilir.
 - Kullanıcılar bir veya birden fazla bölüme atanabilir. `LAB_TECHNICIAN` için bölüm ataması CEP DEPO kullanımının ön koşuludur.
 
 ## 4. Erişilebilen sayfalar
@@ -90,8 +90,8 @@ Ek kullanıcı yetkileri:
 | SATINAL_LOJISTIK | Stok, EBYS İşleri, Mal Kabul, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, ISO Formları, Hesabım |
 | LAB_TECHNICIAN | Ürünleri Gör, Dağıtımlarım, Genel Stok, Günlük İşlerim, Hesabım |
 | OBSERVER | Stok, Dağıtım, Genel Stok, CEP DEPO, Hesabım |
-| KURUMSAL | Stok, Talepler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Fiyatlar, Hesabım |
-| KALITE | Stok, Talepler, Siparişler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Fiyatlar, ISO Formları, Hesabım; işlem düğmeleri gizlidir |
+| KURUMSAL | Stok, Talepler, Siparişler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Fiyatlar, ISO Formları, Kullanıcılar, Hesabım; işlem düğmeleri gizlidir |
+| KALITE | Stok, Talepler, Siparişler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Fiyatlar, ISO Formları, Kullanıcılar, Hesabım; işlem düğmeleri gizlidir |
 
 Üst arama yalnız Stok sayfasında görünür; durum ve bölüm filtreleri, FEFO anahtarı, Excel ve rol uygunsa Malzeme Ekle aynı alandadır. Sol alt kullanıcı kartı kullanıcı adını, anlaşılır rol adını ve çıkış düğmesini gösterir.
 
@@ -112,7 +112,7 @@ Ek kullanıcı yetkileri:
 - Durum filtresi: Tümü, Stokta, Satın Al
 - Bölüm filtresi: Tüm Departmanlar ve aktif bölümler
 - FEFO Açık/Kapalı
-- Excel Yükle: yalnız ADMIN arayüzünde; KALITE'de görünse de çalışmaz
+- Excel Yükle: yalnız yetkili operasyon rollerinde görünür; KURUMSAL ve KALITE'de gösterilmez
 - Excel dışa aktarma
 - Malzeme Ekle
 - Özet kartları: toplam malzeme, satın alınacak, bekleyen, onaylı, siparişte, tamamlanan, reddedilen, SKT uyarısı
@@ -306,7 +306,7 @@ Bu maddeler düzeltilmeden videoda başarısız düğmeye tıklanmamalı; gerekl
 3. SATINAL: Talep, onay/red, EBYS formu ve CEP onayı — 15 dk
 4. SATINAL_LOJISTIK: EBYS paket onayı, teslim alma, LOT ve dağıtım — 18 dk
 5. ADMIN: Sistem kurulumu, kullanıcılar, malzeme/LOT, düzeltme, ayarlar ve raporlar — 24 dk
-6. KURUMSAL: Onay, dağıtım, fiyat ve raporlama — 12 dk (canlı hesap sonrası)
+6. KURUMSAL: Salt-okunur kurumsal izleme ve raporlama — 12 dk
 7. KALITE: Salt-okunur denetim, izlenebilirlik ve ISO çıktıları — 10 dk (canlı hesap sonrası)
 8. OBSERVER: Stok, kişisel dağıtımlar ve genel raporlar — 7 dk
 
@@ -318,7 +318,7 @@ Ayrı videoya ihtiyaç duyan işlemler:
 - SATINAL: talep onayı/red ve CEP onayı
 - SATINAL_LOJISTIK: EBYS paket onayı, mal kabul ve ISO formları
 - LAB_TECHNICIAN: bölüm CEP stoğu, tüketim, iade, talep düzenleme/iptal
-- KURUMSAL: fiyat/rapor ile onay-dağıtım birleşimi
+- KURUMSAL: tüm bölümlerde salt-okunur operasyon ve mali görünüm
 - KALITE: salt-okunur denetim ve işlem yapmama sınırı
 
 ## 9. Güvenli örnek kullanıcı ve veriler

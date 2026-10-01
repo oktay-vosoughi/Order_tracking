@@ -22,6 +22,7 @@ import {
 } from './api';
 import { matchesItemSearch } from './itemSearch.mjs';
 import { readCepDepoPins, sortCepDepoBalancesByPins, writeCepDepoPins } from './cepDepoPins.mjs';
+import { isReadOnlyAuditRole } from './rolePolicy.mjs';
 
 const PURCHASE_STATUS_LABELS = {
   TALEP_EDILDI: 'Onay bekliyor',
@@ -61,7 +62,9 @@ export default function CepDepo({ currentUser }) {
   const isLabTech = role === 'LAB_TECHNICIAN';
   const isAdmin = role === 'ADMIN';
   const isSatinal = role === 'SATINAL';
-  const isPrivileged = isAdmin || isSatinal || role === 'SATINAL_LOJISTIK' || role === 'KURUMSAL';
+  const isReadOnlyAudit = isReadOnlyAuditRole(role);
+  const canOperateCep = isAdmin || isSatinal || role === 'SATINAL_LOJISTIK';
+  const canViewCepRequests = canOperateCep || isReadOnlyAudit;
   // Only ADMIN/SATINAL may approve, reject, or override CEP requests.
   // Read-only roles still see balances and movements without dead action buttons.
   const canReviewCepRequests = isAdmin || isSatinal;
@@ -114,6 +117,11 @@ export default function CepDepo({ currentUser }) {
   const [consumeForm, setConsumeForm] = useState({ itemId: '', consumptionUnitType: 'PACK', quantity: '', notes: '' });
   const [returnForm, setReturnForm] = useState({ itemId: '', packQty: '', notes: '' });
   const [reqForm, setReqForm] = useState({ itemId: '', requestedQty: '', notes: '' });
+  const [requestItemSearch, setRequestItemSearch] = useState('');
+  const filteredRequestItems = useMemo(
+    () => items.filter((item) => matchesItemSearch(item, requestItemSearch)),
+    [items, requestItemSearch]
+  );
   const [overrideForm, setOverrideForm] = useState({ itemId: '', requestedFor: '', requestedQty: '', overrideReason: '' });
 
   const loadAll = async () => {
@@ -124,17 +132,17 @@ export default function CepDepo({ currentUser }) {
         isLabTech ? fetchMyCepDepoBalances() : fetchCepDepoBalances(),
         fetchCepDepoMovements({ limit: 200 }).catch(() => ({ movements: [] })),
         fetchUnifiedStock().catch(() => ({ items: [] })),
-        isPrivileged ? fetchLabTechnicians().catch(() => ({ users: [] })) : Promise.resolve({ users: [] }),
+        canOperateCep ? fetchLabTechnicians().catch(() => ({ users: [] })) : Promise.resolve({ users: [] }),
         // Department requests — backend scopes lab techs from their authenticated memberships.
         isLabTech
           ? fetchPurchasesFiltered({ scope: 'cep' }).catch(() => ({ purchases: [] }))
           : Promise.resolve({ purchases: [] }),
         // Pending approvals — admin/satinal
-        canReviewCepRequests
+        canViewCepRequests
           ? fetchPurchasesFiltered({ status: 'TALEP_EDILDI', scope: 'cep' }).catch(() => ({ purchases: [] }))
           : Promise.resolve({ purchases: [] }),
         // Ready for distribution — admin/satinal/lojistik
-        isPrivileged
+        canViewCepRequests
           ? fetchPurchasesFiltered({ status: 'ONAYLANDI', scope: 'cep' }).catch(() => ({ purchases: [] }))
           : Promise.resolve({ purchases: [] })
       ]);
@@ -263,6 +271,7 @@ export default function CepDepo({ currentUser }) {
         notes: reqForm.notes || undefined
       });
       setReqForm({ itemId: '', requestedQty: '', notes: '' });
+      setRequestItemSearch('');
       await loadAll();
       setLabFeedback({ type: 'success', message: 'Talebin oluşturuldu. Onay durumunu “Taleplerim” bölümünden izleyebilirsin.' });
     } catch (err) {
@@ -423,7 +432,7 @@ export default function CepDepo({ currentUser }) {
         ))
       : rows;
     // Columns: [Bölüm if showDeptColumn] + Ürün + Miktar + Son Dağıtım + Durum + [action if privileged]
-    const colSpan = 4 + (showDeptColumn ? 1 : 0) + (isPrivileged ? 1 : 0);
+    const colSpan = 4 + (showDeptColumn ? 1 : 0) + (canOperateCep ? 1 : 0);
     return (
       <div>
         <input
@@ -442,7 +451,7 @@ export default function CepDepo({ currentUser }) {
               <th className="px-3 py-2 text-right">Miktar</th>
               <th className="px-3 py-2 text-left">Son Dağıtım</th>
               <th className="px-3 py-2 text-left">Durum</th>
-              {isPrivileged && <th className="px-3 py-2"></th>}
+              {canOperateCep && <th className="px-3 py-2"></th>}
             </tr>
           </thead>
           <tbody>
@@ -473,7 +482,7 @@ export default function CepDepo({ currentUser }) {
                   <td className="px-3 py-2">
                       <span className={`px-2 py-1 rounded text-xs ${b.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>{b.status === 'ACTIVE' ? 'Stok var' : 'Stok bitti'}</span>
                   </td>
-                  {isPrivileged && (
+                  {canOperateCep && (
                     <td className="px-3 py-2">
                       <button
                         onClick={() => openUnitEdit(b)}
@@ -554,7 +563,7 @@ export default function CepDepo({ currentUser }) {
                     <button onClick={() => handleReject(p)} className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700">Reddet</button>
                   </div>
                 )}
-                {p.status === 'ONAYLANDI' && isPrivileged && (
+                {p.status === 'ONAYLANDI' && canOperateCep && (
                   <button onClick={() => handleDistributeApproved(p)} className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">Dağıt</button>
                 )}
                 {showOwnerActions && p.requestedBy === currentUser?.username && p.status === 'TALEP_EDILDI' && (
@@ -854,12 +863,31 @@ export default function CepDepo({ currentUser }) {
         <section className="lab-panel" role="tabpanel">
           <div className="lab-panel-heading"><div><span className="lab-step">Yeni malzeme gerektiğinde</span><h3>Malzeme İste</h3></div><p>Stok kuralını sistem senin için kontrol eder.</p></div>
           <form onSubmit={handleRequest} className="lab-form">
-            <label className="lab-field lab-field-wide"><span>1. Hangi malzeme gerekiyor?</span>
-              <select required value={reqForm.itemId} onChange={(e) => setReqForm({ ...reqForm, itemId: e.target.value, requestedQty: '' })}>
-                <option value="">Malzeme seç</option>
-                {items.map((it) => <option key={it.id} value={it.id}>{it.name} {it.code ? `(${it.code})` : ''}</option>)}
+            <div className="lab-field lab-field-wide">
+              <label htmlFor="request-item-search">1. Hangi malzeme gerekiyor?</label>
+              <input
+                id="request-item-search"
+                type="search"
+                value={requestItemSearch}
+                onChange={(e) => {
+                  setRequestItemSearch(e.target.value);
+                  setReqForm((form) => ({ ...form, itemId: '', requestedQty: '' }));
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                placeholder="Malzeme adı, kodu, katalog no veya barkod ara…"
+                aria-controls="request-item-select"
+                aria-describedby="request-item-results"
+              />
+              <small id="request-item-results" role="status">
+                {filteredRequestItems.length
+                  ? `${filteredRequestItems.length} malzeme · Aşağıdaki listeden seç.`
+                  : 'Aramana uygun malzeme yok. Farklı bir ad veya kod dene.'}
+              </small>
+              <select id="request-item-select" aria-label="Talep edilecek malzeme" required disabled={!filteredRequestItems.length} value={reqForm.itemId} onChange={(e) => setReqForm({ ...reqForm, itemId: e.target.value, requestedQty: '' })}>
+                <option value="">{filteredRequestItems.length ? 'Malzeme seç' : 'Malzeme bulunamadı'}</option>
+                {filteredRequestItems.map((it) => <option key={it.id} value={it.id}>{it.name} {it.code ? `(${it.code})` : ''}</option>)}
               </select>
-            </label>
+            </div>
             {reqForm.itemId && (
               <div className={`lab-rule ${requestAllowed ? 'is-allowed' : 'is-blocked'}`}>
                 <strong>{requestAllowed ? 'Talep açabilirsin' : 'Önce mevcut stoğu kullan'}</strong>
@@ -911,7 +939,7 @@ export default function CepDepo({ currentUser }) {
         {balanceTable(balances)}
       </section>
 
-      {isPrivileged && (
+      {canOperateCep && (
         <section className="bg-white rounded-xl shadow p-4">
           <h3 className="text-lg font-bold mb-1">Ana Depodan CEP DEPOya Dağıt</h3>
           <p className="text-xs text-gray-500 mb-3">Stok, seçilen teknisyenin <strong>bölümünün</strong> paylaşılan CEP DEPO havuzuna eklenir.</p>
@@ -957,19 +985,19 @@ export default function CepDepo({ currentUser }) {
         </section>
       )}
 
-      {canReviewCepRequests && (
+      {canViewCepRequests && (
         <section className="bg-white rounded-xl shadow p-4 overflow-x-auto">
           <h3 className="text-lg font-bold mb-3">Onay Bekleyen Lab Teknisyeni Talepleri</h3>
           <p className="text-sm text-gray-500 mb-2">Onaylandığında "Dağıtım Bekleyen" listesine düşer.</p>
-          {requestsTable(pendingRequests, { showActions: true })}
+          {requestsTable(pendingRequests, { showActions: canReviewCepRequests })}
         </section>
       )}
 
-      {isPrivileged && (
+      {canViewCepRequests && (
         <section className="bg-white rounded-xl shadow p-4 overflow-x-auto">
           <h3 className="text-lg font-bold mb-3">Dağıtım Bekleyen Onaylı Talepler</h3>
           <p className="text-sm text-gray-500 mb-2">Dağıt'a basınca stok, talebin sahibi lab teknisyeninin CEP DEPOsuna aktarılır.</p>
-          {requestsTable(readyForDistribution, { showActions: true })}
+          {requestsTable(readyForDistribution, { showActions: canOperateCep })}
         </section>
       )}
 

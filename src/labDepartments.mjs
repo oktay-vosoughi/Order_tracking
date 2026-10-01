@@ -1,7 +1,6 @@
 export const DEPARTMENTS = {
-  CYTOGENETIC: 'Cytogenetic',
-  MOLECULAR_MICRO: 'Molecular Micro',
-  MOLECULAR_GENETIC: 'Molecular Genetic',
-  NUMUNE_KABUL: 'Numune Kabul',
-  OTHER: 'Diğer'
+  MOLECULAR_GENETIC: 'Moleküler Genetik',
+  MOLECULAR_MICRO: 'Moleküler Mikro',
+  CYTOGENETIC: 'SİTOGENETİK',
+  NUMUNE_KABUL: 'Numune Kabul'
 };

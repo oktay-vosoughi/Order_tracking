@@ -57,7 +57,19 @@ For any change larger than a typo:
 
 ---
 
-## 5. Change log rule
+## 5. Persistent inventory and department rules
+
+- The physical stock room is shared, but stock ownership and visible quantities are department-scoped. `lots.department` is authoritative for each lot's quantity; do not let one department consume, distribute, waste, return, adjust, receive into, or edit another department's lot.
+- `ADMIN` may view and operate across all departments. Every other role is limited to its current `user_departments` memberships for stock quantities and writes, including roles that can otherwise view the full catalog. Resolve memberships server-side; never trust a department supplied by the client without checking it.
+- When a user has multiple department memberships, operations that select stock must name the target department. FEFO and multi-lot spillover must stay inside that department. CEP DEPO consumption/return uses the target technician's department; a return credits a lot in that same department or creates one there.
+- The only department names are `SİTOGENETİK`, `Moleküler Genetik`, `Moleküler Mikro`, and `Numune Kabul`. Normalize known Excel spelling variants to these names; reject unknown departments rather than creating new ones.
+- A material definition may be shared between departments. Its displayed stock for a staff member is the sum of that member's department lots only; ADMIN sees the combined total and department breakdown. Changes to a shared/global material definition must not silently alter another department's ownership or stock.
+- LY-F064 Excel import: `Depo` is the total quantity and `Birim` (for example `RxN`, `Paket`, `Kutu`) must be preserved. Explicit `X1`/`X2` suffixes are lot quantities; parenthesized temperatures such as `(-20)` and `(+4)` belong to that lot. `YYYYXYYYY` / date-plus-year forms denote two expiry lots; divide the `Depo` quantity equally and preserve the total (decimal shares are allowed). Missing expiry means no expiry; preserve the `Depo` quantity.
+- Main stock, availability, expiry, FEFO, purchase receipt, and adjustment calculations must use department-filtered LOT quantities. `depo_pool_split` is mandatory; no feature setting may permit cross-department stock mixing.
+
+---
+
+## 6. Change log rule
 
 Every substantive production change **must** create:
 ```
@@ -67,7 +79,7 @@ Containing: summary, files touched, DB changes, rollback SQL, test steps, risks.
 
 ---
 
-## 6. Skills (auto-loaded by topic)
+## 7. Skills (auto-loaded by topic)
 
 Skills provide domain-specific protocols. Load the relevant one before starting work.
 
@@ -82,7 +94,7 @@ Skills provide domain-specific protocols. Load the relevant one before starting 
 
 ---
 
-## 7. Known issues (do not accidentally fix without a full audit)
+## 8. Known issues (do not accidentally fix without a full audit)
 
 - `complete_database_schema.sql` is partially stale — do **not** use as authoritative.
 - No migration tracking table — migration order matters, maintain manually.
@@ -109,7 +121,7 @@ Skills provide domain-specific protocols. Load the relevant one before starting 
 
 ---
 
-## 8. Roles (runtime)
+## 9. Roles (runtime)
 
 `ADMIN` · `SATINAL` · `SATINAL_LOJISTIK` · `OBSERVER` · `LAB_TECHNICIAN`
 
@@ -117,13 +129,13 @@ See `@.claude/skills/lab-domain/SKILL.md` for the full capability matrix.
 
 ---
 
-## 9. UI language rule
+## 10. UI language rule
 
 UI text → **Turkish**. Code identifiers → **English**. Status enums → **Turkish SCREAMING_SNAKE, unchanged**.
 
 ---
 
-## 10. Scientific integrity (for bio-related work)
+## 11. Scientific integrity (for bio-related work)
 
 When this system is used to track biomedical or genomic reagents, the Scientific Integrity Blocks in
 `@.claude/skills/biomedical/SKILL.md` and `@.claude/skills/bioinformatics/SKILL.md` are **non-negotiable**.

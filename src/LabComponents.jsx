@@ -395,6 +395,8 @@ export const AddItemFormLab = ({ newItem, setNewItem, onAdd, onCancel, departmen
 
 // Waste Management Form
 export const WasteForm = ({ item, wasteForm, setWasteForm, onSubmit, onCancel }) => {
+  const departments = [...new Set([item.department, ...(item.departments || []), ...Object.keys(item.pools || {}).filter((d) => d !== 'UNASSIGNED')].filter(Boolean))];
+  const department = wasteForm.department || (departments.length === 1 ? departments[0] : '');
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl p-6 max-w-md w-full">
@@ -404,10 +406,17 @@ export const WasteForm = ({ item, wasteForm, setWasteForm, onSubmit, onCancel })
         </h2>
         <p className="text-sm text-gray-600 mb-4">
           <strong>{item.name}</strong><br/>
-          Kod: {item.code} | Mevcut Stok: {item.currentStock} {item.unit}
+          Kod: {item.code} | Mevcut Stok: {item.pools?.[department]?.total ?? item.totalStock ?? item.currentStock} {item.unit}
         </p>
         
         <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Departman</label>
+            <select value={department} onChange={(e) => setWasteForm({ ...wasteForm, department: e.target.value })} className="w-full px-4 py-2 border rounded-lg">
+              <option value="">Departman seçin</option>
+              {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Atık Miktarı *</label>
             <input

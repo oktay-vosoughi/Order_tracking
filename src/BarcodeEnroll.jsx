@@ -5,7 +5,7 @@ import { fetchItemDefinitions, fetchItemBarcodes, registerBarcode, deleteBarcode
 import { filterEnrollmentItems, findNextMissingItemId } from './barcodeEnrollment.mjs';
 
 // Toplu ilk-kayıt ekranı: her ürünü seçip barkodunu okutarak veritabanına eşleştir.
-export default function BarcodeEnroll({ currentUsername }) {
+export default function BarcodeEnroll({ currentUsername, readOnly = false }) {
   const [items, setItems] = useState([]);
   const [byItem, setByItem] = useState({});   // itemId -> [{ id, barcode }]
   const [selectedId, setSelectedId] = useState(null);
@@ -113,11 +113,12 @@ export default function BarcodeEnroll({ currentUsername }) {
         </span>
       </div>
       <p className="text-sm text-gray-600 mb-3">
-        Aynı ürünün cam, plastik veya diğer ambalajlarına ait tüm barkodları aynı ürüne art arda okutabilirsiniz.
-        Alternatif katalog numarasını elle yazıp Enter'a basarak da aynı ürüne tanımlayabilirsiniz.
+        {readOnly
+          ? 'Ürünlere kayıtlı barkodları görüntüleyebilir ve listede arama yapabilirsiniz.'
+          : 'Aynı ürünün cam, plastik veya diğer ambalajlarına ait tüm barkodlarını aynı ürüne art arda okutabilirsiniz. Alternatif katalog numarasını elle yazıp Enter\'a basarak da aynı ürüne tanımlayabilirsiniz.'}
       </p>
 
-      {selected && (
+      {!readOnly && selected && (
         <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2">
           <div className="text-sm text-indigo-900">
             <span className="font-semibold">Seçili ürün:</span> {selected.name}
@@ -134,13 +135,13 @@ export default function BarcodeEnroll({ currentUsername }) {
         </div>
       )}
 
-      <div className="mb-3">
+      {!readOnly && <div className="mb-3">
         <BarcodeScanner
           autoFocus={false}
           placeholder={selected ? 'Barkod okutun veya alternatif katalog no yazıp Enter’a basın' : 'Önce aşağıdan bir ürün seçin'}
           onScan={handleScan}
         />
-      </div>
+      </div>}
 
       {message && (
         <p className={`mb-3 text-sm ${message.kind === 'ok' ? 'text-green-700' : 'text-red-600'}`}>{message.text}</p>
@@ -167,8 +168,8 @@ export default function BarcodeEnroll({ currentUsername }) {
           return (
             <div
               key={it.id}
-              onClick={() => setSelectedId(it.id)}
-              className={`flex items-center justify-between gap-3 px-3 py-2 cursor-pointer ${isSel ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}
+              onClick={readOnly ? undefined : () => setSelectedId(it.id)}
+              className={`flex items-center justify-between gap-3 px-3 py-2 ${readOnly ? '' : `cursor-pointer ${isSel ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}`}
             >
               <div className="min-w-0">
                 <div className="font-medium truncate">{it.name}</div>
@@ -180,11 +181,11 @@ export default function BarcodeEnroll({ currentUsername }) {
                 {chips.length ? chips.map((c) => (
                   <span key={c.id} className="inline-flex items-center gap-1 bg-green-100 text-green-800 text-xs font-mono px-2 py-1 rounded">
                     {c.barcode}
-                    <button
+                    {!readOnly && <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(it.id, c); }}
                       className="text-green-700 hover:text-red-600"
                       title="Barkodu kaldır"
-                    >✕</button>
+                    >✕</button>}
                   </span>
                 )) : (
                   <span className="text-xs text-orange-500">eksik</span>
@@ -195,9 +196,9 @@ export default function BarcodeEnroll({ currentUsername }) {
         })}
         {!filtered.length && <p className="text-sm text-gray-500 px-3 py-4">Eşleşen ürün yok</p>}
       </div>
-      <p className="text-xs text-gray-500 mt-3">
+      {!readOnly && <p className="text-xs text-gray-500 mt-3">
         Listede olmayan bir ürünü önce "Stok" ekranından ekleyin; ardından tüm ambalaj barkodlarını burada aynı ürüne bağlayın.
-      </p>
+      </p>}
     </div>
   );
 }

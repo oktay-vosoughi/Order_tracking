@@ -119,7 +119,14 @@ export async function buildLotImportPayload(file) {
     if (ws.rowCount > 20000) throw new Error(`"${ws.name}" sayfası 20.000 satır sınırını aşıyor.`);
     const matrix = [];
     ws.eachRow({ includeEmpty: false }, (row) => {
-      matrix.push(row.values.slice(1).map((value) => value?.result ?? value ?? ''));
+      matrix.push(row.values.slice(1).map((value) => {
+        if (value && typeof value === 'object' && !(value instanceof Date)) {
+          if ('result' in value) return value.result ?? '';
+          if (value.richText) return value.richText.map((part) => part.text).join('');
+          if ('text' in value) return value.text;
+        }
+        return value ?? '';
+      }));
     });
     if (isLyF064Sheet(matrix)) {
       allRows.push(...buildLyF064Rows(matrix, ws.name));

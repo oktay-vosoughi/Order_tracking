@@ -5,6 +5,7 @@ import { buildLotImportPayload } from './utils/lotExcelImporter';
 import { downloadWorkbook } from './utils/excel';
 import { apiRequest } from './api';
 import { matchesItemSearch } from './itemSearch.mjs';
+import { isReadOnlyAuditRole } from './rolePolicy.mjs';
 
 const LotStatusBadge = ({ status }) => {
   const styles = { ACTIVE: 'bg-green-100 text-green-700', DEPLETED: 'bg-gray-100 text-gray-600', EXPIRED: 'bg-red-100 text-red-700' };
@@ -47,9 +48,10 @@ const LotInventory = ({ currentUser }) => {
   const [consumeForm, setConsumeForm] = useState({ quantity: 0, lotId: '', department: '', purpose: '', notes: '', useFefo: true, receivedBy: '' });
 
   const role = currentUser?.role;
-  const canManageItems = ['ADMIN', 'SATINAL', 'SATINAL_LOJISTIK', 'KURUMSAL'].includes(role);
-  const canReceiveGoods = role === 'ADMIN' || role === 'SATINAL_LOJISTIK' || !!currentUser?.canReceive;
-  const canDistribute = ['ADMIN', 'SATINAL', 'SATINAL_LOJISTIK', 'KURUMSAL'].includes(role);
+  const isReadOnlyAudit = isReadOnlyAuditRole(role);
+  const canManageItems = ['ADMIN', 'SATINAL', 'SATINAL_LOJISTIK'].includes(role);
+  const canReceiveGoods = !isReadOnlyAudit && (role === 'ADMIN' || role === 'SATINAL_LOJISTIK' || !!currentUser?.canReceive);
+  const canDistribute = ['ADMIN', 'SATINAL', 'SATINAL_LOJISTIK'].includes(role);
   const canDeleteItems = role === 'ADMIN';
   const canEditLotSkt = canReceiveGoods;
 
@@ -206,7 +208,7 @@ const LotInventory = ({ currentUser }) => {
         'Malzeme Kodu': 'PCR-001',
         'Malzeme Adı': 'PCR Master Mix',
         'Kategori': 'Reagent',
-        'Departman': 'Molecular Micro',
+        'Departman': 'Moleküler Mikro',
         'Birim': 'kutu',
         'Min Stok': 5,
         'Mevcut Stok': 10,
@@ -227,7 +229,7 @@ const LotInventory = ({ currentUser }) => {
         'Malzeme Kodu': 'PCR-001',
         'Malzeme Adı': 'PCR Master Mix',
         'Kategori': 'Reagent',
-        'Departman': 'Molecular Micro',
+        'Departman': 'Moleküler Mikro',
         'Birim': 'kutu',
         'Min Stok': 5,
         'Mevcut Stok': 15,
@@ -248,7 +250,7 @@ const LotInventory = ({ currentUser }) => {
         'Malzeme Kodu': '360002',
         'Malzeme Adı': 'Rezervuar Tek Kullanımlık (10µl paket)',
         'Kategori': 'Sarf_Plastik',
-        'Departman': 'Molecular Genetic',
+        'Departman': 'Moleküler Genetik',
         'Birim': 'Kutu',
         'Min Stok': 5,
         'Mevcut Stok': 2,

@@ -20,6 +20,15 @@ export const isBelowStockTarget = (item) => {
 // department-scoped tracking (no department recorded on the row).
 export const UNASSIGNED_POOL_LABEL = 'Etiketlenmemiş';
 
+export const getStockDepartments = (item) => [...new Set([
+  item?.department,
+  ...(Array.isArray(item?.departments) ? item.departments : []),
+  ...Object.keys(item?.pools || {}).filter((department) => department !== 'UNASSIGNED')
+].filter(Boolean))];
+
+export const matchesStockDepartment = (item, department) =>
+  !department || Number(item?.isGlobal) === 1 || getStockDepartments(item).includes(department);
+
 // Each department works like its own lab with its own stock and its own
 // buying process (see server/depoGroup.cjs). `item.pools` is a map keyed by
 // department name (or 'UNASSIGNED') — this only returns rows when the item's

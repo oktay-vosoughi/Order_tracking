@@ -2,42 +2,40 @@
 
 ## Video kimliği
 
-- **Başlık:** GTMLIMS Kurumsal Kullanıcı Eğitimi — Onay, Dağıtım, Fiyat ve Rapor
-- **Hedef kitle:** Kurumsal satın alma/operasyon ve mali izleme sorumluları
-- **Amaç:** Kurumsal rolün onay, EBYS formu, dağıtım, fiyat ve raporlama kapsamını göstermek
+- **Başlık:** GTMLIMS Kurumsal Kullanıcı Eğitimi — Salt-Okunur Kurumsal Görünüm
+- **Hedef kitle:** Kurumsal izleme, denetim ve raporlama sorumluları
+- **Amaç:** Kurumsal rolün tüm operasyon kayıtlarını değiştirmeden inceleme kapsamını göstermek
 - **Tahmini süre:** 11-12 dakika
-- **Doğrulama:** 25 Ağustos 2026'da `egitim_kurumsal` eğitim hesabıyla canlı doğrulandı. Menü, Stok/Talepler/Dağıtım/Fiyatlar/Hesabım sayfaları ve standart talep Onayla akışı gerçek hesapla test edildi ve çalıştığı görüldü.
+- **Doğrulama:** 3 Eylül 2026'da KALITE/KURUMSAL ortak salt-okunur politikası test ve canlı API smoke testiyle doğrulandı.
 
 ## Kod/test ile doğrulanan sorumluluklar
 
-- Tüm bölümlerin stok ve raporlarını görmek
-- Malzeme tanımlarını yönetmek
-- Bekleyen standart talepleri onaylamak/reddetmek
-- Resmi EBYS formu oluşturmak
-- Ana depo ve CEP DEPO dağıtımı ile atık kaydı yapmak
-- Fiyat geçmişini görmek ve fiyat/tedarikçi bilgisini güncellemek
-- Kullanım raporlarını incelemek
-- Kullanıcı, sistem ayarı, malzeme silme, mal kabul ve ISO formu yapmamak
+- Tüm bölümlerin stok, LOT/SKT, talep, sipariş, teslim, dağıtım ve atık kayıtlarını görmek
+- CEP DEPO bakiye, talep ve hareketlerini salt-okunur incelemek
+- Fiyat ve kullanım raporlarını değiştirmeden incelemek
+- ISO raporlarını indirmek
+- Kullanıcı ve barkod eşleştirme listelerini salt-okunur incelemek
+- Operasyon verisi oluşturmamak, onaylamamak, düzenlememek veya silmemek
 
 ## Gösterilecek sayfalar
 
-Stok, Talepler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Fiyatlar ve Hesabım. Siparişler, ISO Formları ve Kullanıcılar beklenmez.
+Stok, Talepler, Siparişler, Dağıtım, Atık, Genel Stok, LOT Stok, CEP DEPO, Fiyatlar, ISO Formları, Kullanıcılar ve Hesabım. Barkod modülü açıksa Barkod Eşleştirme listesi de görünür.
 
 ## Kritik kapsam uyarısı
 
-Standart Talep ve malzeme Sil düğmeleri KURUMSAL rolünde gösterilmez; bu işlemler rolün API kapsamı dışındadır. Teknisyen adına override talep de CEP DEPO sayfasında yalnız gerçekten yetkili ADMIN/SATINAL rollerine gösterilir.
+KURUMSAL rolünde ekleme, talep, onay, red, sipariş, teslim alma, dağıtım, tüketim, iade, fiyat/LOT düzenleme ve silme kontrolleri gösterilmez. GET dışı operasyon çağrıları sunucuda merkezi olarak `READ_ONLY_ROLE` ile reddedilir. Kişisel şifre değişimi tek istisnadır.
 
 ## Örnek senaryo
 
-Kurumsal kullanıcı tüm bölümlerdeki kritik stokları inceler; SATINAL tarafından oluşturulan `EGT-PCR-001` talebini onaylar, resmi EBYS formunu indirir, bir CEP talebini dağıtım kayıtlarında izler ve teslim edilmiş kalemin fiyat/tedarikçi bilgisini mali raporda günceller.
+Kurumsal kullanıcı tüm bölümlerdeki kritik stokları inceler; `EGT-PCR-001` talebinin EBYS, sipariş, teslim, dağıtım ve fiyat zincirini doğrular; gerektiğinde ISO çıktısını indirir ve bulgusunu süreç sahibine iletir.
 
 ## Sahne planı ve seslendirme
 
 ### Sahne 1 — Giriş ve kurumsal kapsam (00:00-01:00)
 
 - **Tıklama:** KURUMSAL eğitim hesabıyla giriş; menüyü ve kullanıcı kartını göster.
-- **Ekran yazısı:** `KURUMSAL — Onay, dağıtım ve mali görünüm`
-- **Seslendirme:** “Kurumsal hesapla giriş yaptığımızda bütün bölümlerin stoklarını görebilir; talep kararlarına, dağıtım süreçlerine ve fiyat raporlarına erişebiliriz. Kullanıcı yönetimi, mal kabul ve ISO formu bu rolün görevi değildir. Bu video canlı KURUMSAL hesabı doğrulandıktan sonra kaydedilmelidir.”
+- **Ekran yazısı:** `KURUMSAL — Görür, karşılaştırır, değiştirmez`
+- **Seslendirme:** “Kurumsal hesap bütün bölümlerdeki operasyon zincirini salt-okunur gösterir. Kayıtları karşılaştırır ve raporları indiririz; operasyon verisini değiştirmeyiz.”
 
 ![Sol menü ve Stok görünümü](../screenshots/06-kurumsal/sahne1-menu-stok.jpg)
 
@@ -48,11 +46,11 @@ Kurumsal kullanıcı tüm bölümlerdeki kritik stokları inceler; SATINAL taraf
 - **Ekran yazısı:** `Bölümleri aynı ölçütle karşılaştırın`
 - **Seslendirme:** “Stok ekranında Satın Al filtresiyle kritik kayıtları ayırıyoruz. Bölüm filtresini kullanarak aynı ürünün farklı laboratuvarlardaki durumunu karşılaştırabiliriz. Karar verirken ana depo, bekleyen sipariş, hedef stok ve CEP bakiyesi birlikte değerlendirilir.”
 
-### Sahne 3 — Talebi onaylama veya reddetme (02:20-04:00)
+### Sahne 3 — Talep kararlarını inceleme (02:20-04:00)
 
-- **Tıklama:** Talepler > Bekleyen; tarih/bölüm; satır > Onayla; not `Kurumsal ihtiyaç doğrulandı`. İkinci satırda Reddet penceresini göster.
-- **Ekran yazısı:** `Karar gerekçesini kaydedin`
-- **Seslendirme:** “Talepler sayfasında bekleyen kayıtları tarih ve EBYS filtresiyle buluyoruz. Malzeme, bölüm, talep eden ve miktarı kontrol ettikten sonra uygun kaydı Onayla ile ilerletiyoruz. Güncel standart akış onaylanan kaydı doğrudan sipariş verilmiş durumuna taşır. Uygun olmayan talepte Reddet’i seçip ölçülebilir nedeni yazıyoruz.”
+- **Tıklama:** Talepler > Bekleyen; tarih/bölüm ve EBYS filtreleriyle örnek kaydı bul.
+- **Ekran yazısı:** `Kararı ve gerekçeyi doğrulayın`
+- **Seslendirme:** “Talepler sayfasında kayıtları tarih, bölüm ve EBYS referansıyla buluyor; talep eden, miktar, onaylayan ve gerekçeyi inceliyoruz. Onay ve red düğmeleri Kurumsal rolünde gösterilmez.”
 
 ![Talepler listesi ve Onayla](../screenshots/06-kurumsal/sahne3-talep-onay.jpg)
 
@@ -60,15 +58,15 @@ Kurumsal kullanıcı tüm bölümlerdeki kritik stokları inceler; SATINAL taraf
 
 ### Sahne 4 — Resmi EBYS formu (04:00-05:20)
 
-- **Tıklama:** Bekleyen satırları seç; Resmi EBYS Formu; tarih/bölüm; İndir.
+- **Tıklama:** EBYS paketini aç; bağlı talepleri ve resmi Talep No bilgisini incele.
 - **Ekran yazısı:** `EBYS yüklemesi dış sistemde manueldir`
-- **Seslendirme:** “Kurumsal kullanıcı bekleyen kalemleri resmi forma paketleyebilir. Satırları seçip Resmi EBYS Formu’nu açıyoruz; tarih ve bölümle dosyayı indiriyoruz. GTMLIMS resmi Talep No’yu üretip forma ve paket satırlarına kaydeder. Dosyanın dış EBYS’ye yüklenmesi ve dış onay sonrasında paketin onaylanması lojistik ya da yönetici rolünün sorumluluğundadır.”
+- **Seslendirme:** “Kurumsal kullanıcı mevcut EBYS paketini ve ona bağlı talepleri inceler. Yeni paket oluşturma ve dış EBYS onayını kaydetme işlemleri süreç sahiplerine aittir.”
 
 ### Sahne 5 — Dağıtım ve CEP görünümü (05:20-07:10)
 
-- **Tıklama:** Dağıtım > bölüm/teknisyen filtreleri; bekleyen satırda LOT/miktar; Onayla & Dağıt. CEP DEPO > tüm bakiyeler ve hareketler.
+- **Tıklama:** Dağıtım > bölüm/teknisyen filtreleri; dağıtım kayıtları. CEP DEPO > tüm bakiyeler, bekleyen talepler ve hareketler.
 - **Ekran yazısı:** `Doğru LOT'tan doğru bölüme`
-- **Seslendirme:** “Dağıtım sayfasında hedef bölüm ve teknisyeni filtreliyoruz. Fiziksel kutudaki partiyle ekrandaki LOT’u eşleştiriyor, miktar toplamını doğruluyor ve dağıtımı tamamlıyoruz. CEP DEPO sayfasında bölüm bakiyeleri ve hareket defteri dağıtım sonucunu gösterir. Talep oluşturma veya override yolu mevcut API tutarsızlığı nedeniyle bu videoda kullanılmaz.”
+- **Seslendirme:** “Dağıtım ve CEP DEPO sayfalarında hedef bölümü, teknisyeni, miktarı ve hareket zincirini doğruluyoruz. Dağıtma, tamamlama, talep ve override kontrolleri Kurumsal rolünde bulunmaz.”
 
 ![Dağıtım kayıtları — tüm kurum kapsamı](../screenshots/06-kurumsal/sahne5-dagitim.jpg)
 
@@ -80,10 +78,10 @@ Kurumsal kullanıcı tüm bölümlerdeki kritik stokları inceler; SATINAL taraf
 
 ### Sahne 7 — Fiyat geçmişi (08:20-10:10)
 
-- **Tıklama/veri:** Fiyatlar > malzeme `EGT-PCR-001`, tedarikçi ve tarih; Filtrele. Satır > Düzenle; tedarikçi `Eğitim Medikal A.Ş.`, fiyat `1250`; Kaydet.
+- **Tıklama/veri:** Fiyatlar > malzeme `EGT-PCR-001`, tedarikçi ve tarih; Filtrele; sonuçları belgeyle karşılaştır.
 - **Vurgu:** Fiyatın teslim kaydına bağlı olması ve toplam hesap.
 - **Ekran yazısı:** `Fiyat kaynağı teslim kaydıdır`
-- **Seslendirme:** “Fiyatlar sayfasında malzeme, tedarikçi ve tarih aralığını girip Filtrele’ye tıklıyoruz. Sonuçlar teslim alınmış kalemlerden gelir. Eksik veya doğrulanmış yanlış bilgide Düzenle’yi açıyor, tedarikçi ve birim fiyatı belgeye göre güncelliyoruz. Sistem miktar ile birim fiyatı çarparak toplam tutarı gösterir.”
+- **Seslendirme:** “Fiyatlar sayfasında sonuçları teslim belgesiyle karşılaştırıyoruz. Kurumsal kullanıcı fiyatı ve tedarikçiyi görebilir; Düzenle kontrolü gösterilmez.”
 
 ![Fiyatlar & Kullanım sayfası](../screenshots/06-kurumsal/sahne7-fiyatlar.jpg)
 
@@ -96,19 +94,18 @@ Kurumsal kullanıcı tüm bölümlerdeki kritik stokları inceler; SATINAL taraf
 ### Sahne 9 — Kapanış (11:20-12:00)
 
 - **Tıklama:** Hesabım ve çıkış.
-- **Ekran yazısı:** `Onayla, izle, raporla`
-- **Seslendirme:** “Kurumsal rolde stok ihtiyacını bölümler arası inceledik, talep kararını kaydettik, dağıtım ve mali raporları takip ettik. Kullanıcı veya sistem ayarlarına müdahale etmeden, belgeye dayalı fiyat ve gerekçeli karar kaydı oluşturmak bu rolün temel sorumluluğudur.”
+- **Ekran yazısı:** `İzle, doğrula, raporla`
+- **Seslendirme:** “Kurumsal rolde stoktan teslimata kadar bütün zinciri inceledik. Bir tutarsızlıkta veriyi değiştirmeden kanıtı süreç sahibine iletiyoruz.”
 
 ![Hesabım](../screenshots/06-kurumsal/sahne9-hesabim.jpg)
 
 ## Dikkat noktaları ve hatalar
 
-- Canlı hesap ve menü görünümü 25.08.2026'da `egitim_kurumsal` ile doğrulandı; Onayla akışı çalıştı.
-- Standart Talep, Sil ve teknisyen adına override işlemleri KURUMSAL menüsünde gösterilmez.
-- EBYS formu indirme ile EBYS paket onayını karıştırmayın.
-- Fiyatı yalnız fatura/teslim belgesine dayanarak değiştirin.
-- Mal kabul ve ISO indirme KURUMSAL görevi değildir.
+- KURUMSAL operasyonel olarak KALITE ile aynı merkezi salt-okunur politikaya tabidir.
+- Arayüzde yazma düğmesi görünmemeli; doğrudan yazma API çağrısı `403 READ_ONLY_ROLE` dönmelidir.
+- Kullanıcı listesi görünür, kullanıcı ve bölüm yönetim formları görünmez.
+- Kişisel şifre değişimi Hesabım sayfasından yapılabilir.
 
 ## Kapanış metni
 
-“Kurumsal rol, bölüm bazlı ihtiyacı kurumsal ölçekte değerlendiren; onay, dağıtım ve mali görünümü birleştiren roldür. Her kararı stok ve belgeyle doğrulayın, görev sınırı dışındaki işlemleri ilgili role devredin.”
+“Kurumsal rol bütün bölümlerdeki kayıt zincirini görür ve karşılaştırır; hiçbir operasyon kaydını değiştirmez. Bulguyu talep numarası, LOT, tarih ve belgeyle süreç sahibine iletin.”

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode } from 'lucide-react';
 import { downloadWorkbook } from './utils/excel';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, createEbysExportBatch, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, approveEbysBatch, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, createDepartment, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, createEbysExportBatch, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, approveEbysBatch, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import BarcodeScanner from './BarcodeScanner';
 import { parseGs1 } from './gs1';
 import { findScannedDistributionLot } from './distributionLotMatch.mjs';
+import { isReadOnlyAuditRole } from './rolePolicy.mjs';
 import { 
   CHEMICAL_TYPES, 
   STORAGE_TEMPS, 
@@ -40,8 +41,9 @@ import {
   getPurchaseStatusFilterOptions,
   getVisibleTabOptions
 } from './mobileUi.mjs';
-import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget, getDepoPoolRows } from './stockDisplay.mjs';
+import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget, getDepoPoolRows, getStockDepartments, matchesStockDepartment } from './stockDisplay.mjs';
 import { matchesItemSearch } from './itemSearch.mjs';
+import { STOCK_SORT_COLUMNS, sortStockItems } from './stockSort.mjs';
 import './theme.css';
 import logoIcon from './logos/icon.png';
 
@@ -114,6 +116,7 @@ const LabEquipmentTracker = () => {
   const [activeTab, setActiveTab] = useState('stock');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [stockSort, setStockSort] = useState({ key: null, direction: 'asc' });
   const [filterStatus, setFilterStatus] = useState('all');
   const [showAddForm, setShowAddForm] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(null);
@@ -214,7 +217,6 @@ const LabEquipmentTracker = () => {
   const [loginLockouts, setLoginLockouts] = useState([]);
   const [userCreateForm, setUserCreateForm] = useState({ username: '', password: '', role: 'SATINAL_LOJISTIK', canReceive: false, department: '', departments: [] });
   const [departments, setDepartments] = useState([]);
-  const [newDeptName, setNewDeptName] = useState('');
   const [editingUserId, setEditingUserId] = useState(null);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
@@ -248,14 +250,15 @@ const LabEquipmentTracker = () => {
   const isKurumsal = userRole === 'KURUMSAL';
   const isObserver = userRole === 'OBSERVER';
   const isLabTechnician = userRole === 'LAB_TECHNICIAN';
-  // KALITE can inspect every operational area, while write actions stay hidden
-  // and remain blocked centrally in api.js and by backend role allowlists.
+  // KALITE and KURUMSAL inspect every operational area while all write actions
+  // stay hidden and are independently blocked by both API layers.
   const isKalite = userRole === 'KALITE';
+  const isReadOnlyAudit = isReadOnlyAuditRole(userRole);
   const ROLE_LABELS = {
     ADMIN: 'Yönetici',
     SATINAL: 'Satın Alma',
     SATINAL_LOJISTIK: 'Satın Alma ve Lojistik',
-    KURUMSAL: 'Kurumsal',
+    KURUMSAL: 'Kurumsal · Salt Okunur',
     OBSERVER: 'Görüntüleyici',
     LAB_TECHNICIAN: 'Lab Teknisyeni',
     KALITE: 'Kalite · Salt Okunur'
@@ -268,19 +271,21 @@ const LabEquipmentTracker = () => {
 
   // Capability checks based on RBAC matrix
   const canManageUsers = isAdmin;
+  const canViewUsers = canManageUsers || isReadOnlyAudit;
   const canViewStock = true; // All roles can view stock
-  const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
+  const canModifyInventory = isAdmin || isSatinal || isSatinalLojistik;
   const canCreateRequest = isAdmin || isSatinal || isSatinalLojistik || isLabTechnician;
   const canManageStockItemActions = canModifyInventory && !isSatinalLojistik;
   const canCreateStockRequest = canCreateRequest && !isSatinalLojistik && !isLabTechnician;
-  const canApprove = isAdmin || isSatinal || isKurumsal;
+  const canApprove = isAdmin || isSatinal;
   const canApproveEbysBatch = isAdmin || isSatinalLojistik;
-  const canCreateEbysBatch = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
+  const canCreateEbysBatch = isAdmin || isSatinal || isSatinalLojistik;
   const canOrder = isAdmin || isSatinalLojistik;
-  const canReceive = isAdmin || isSatinalLojistik || !!currentUser?.canReceive;
-  const canExportIsoForm = isAdmin || isSatinalLojistik || isKalite;
-  const canDistribute = isAdmin || isSatinal || isSatinalLojistik || isKurumsal;
+  const canReceive = !isReadOnlyAudit && (isAdmin || isSatinalLojistik || !!currentUser?.canReceive);
+  const canExportIsoForm = isAdmin || isSatinalLojistik || isReadOnlyAudit;
+  const canDistribute = isAdmin || isSatinal || isSatinalLojistik;
   const canViewPrices = isAdmin || isKurumsal || isKalite || !!currentUser?.canViewPrices;
+  const canEditPrices = canViewPrices && !isReadOnlyAudit;
 
   // Fetch + cache distributable lots for an item (ACTIVE, qty > 0). Expired lots
   // are included on purpose — dağıtım of expired stock is allowed, just flagged.
@@ -364,11 +369,10 @@ const LabEquipmentTracker = () => {
   const canImportItems = canModifyInventory;
   const canViewAllDagit = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
   const canViewDagit = true; // Tab visible to all; content filtered per role
-  const canViewWaste = canDistribute || isKalite;
+  const canViewWaste = canDistribute || isReadOnlyAudit;
   const canViewLotInventory = !isObserver && !isLabTechnician;
   // Two-step distribution receipt confirmation feature flag (ADMIN-toggled).
   const receiptConfirmationOn = appSettings.dist_receipt_confirmation === '1';
-  const depoPoolSplitOn = appSettings.depo_pool_split === '1';
 
   // Single-company feature toggles (stored in app_settings as `module.<key>`).
   // Optional existing tabs default ON (preserve current behavior); barcode add-ons
@@ -407,7 +411,7 @@ const LabEquipmentTracker = () => {
   };
 
   const canViewTalep = isAdmin || isSatinal || isSatinalLojistik || isKurumsal || isKalite;
-  const canViewSiparis = canOrder || isKalite;
+  const canViewSiparis = canOrder || isReadOnlyAudit;
   
   const username = currentUser?.username || '';
   
@@ -472,7 +476,7 @@ const LabEquipmentTracker = () => {
     if (currentUser && activeTab === 'stock') {
       loadUnifiedData();
     }
-    if (currentUser && activeTab === 'users' && canManageUsers) {
+    if (currentUser && activeTab === 'users' && canViewUsers) {
       loadUsers();
       if (isAdmin) loadLoginLockouts();
     }
@@ -685,18 +689,6 @@ const LabEquipmentTracker = () => {
       const res = await fetchDepartments();
       setDepartments(res?.departments || []);
     } catch (_) { /* non-fatal */ }
-  };
-
-  const handleAddDepartment = async () => {
-    const name = newDeptName.trim();
-    if (!name) return;
-    try {
-      await createDepartment(name);
-      setNewDeptName('');
-      await loadDepartments();
-    } catch (error) {
-      alert('Bölüm eklenemedi: ' + (error?.message || 'HATA'));
-    }
   };
 
   const handleToggleDepartment = async (dep) => {
@@ -1025,12 +1017,18 @@ const LabEquipmentTracker = () => {
   });
   
   const handleCreateWasteRecord = async (item) => {
+    const itemDepartments = getStockDepartments(item);
+    const department = wasteForm.department || (itemDepartments.length === 1 ? itemDepartments[0] : '');
+    if (!department) {
+      alert('Atık kaydı için departman seçin.');
+      return;
+    }
     if (!wasteForm.quantity || wasteForm.quantity <= 0) {
       alert('Lütfen geçerli bir miktar girin');
       return;
     }
     
-    const totalStock = item.totalStock || item.currentStock || 0;
+    const totalStock = item.pools?.[department]?.total ?? item.totalStock ?? item.currentStock ?? 0;
     if (wasteForm.quantity > totalStock) {
       alert('Atık miktarı mevcut stoktan fazla olamaz!');
       return;
@@ -1040,6 +1038,7 @@ const LabEquipmentTracker = () => {
       // Use LOT-based waste API with FEFO logic
       await recordWasteWithLot({
         itemId: item.id,
+        department,
         quantity: parseInt(wasteForm.quantity),
         wasteType: wasteForm.wasteType,
         reason: wasteForm.reason,
@@ -1639,19 +1638,10 @@ const LabEquipmentTracker = () => {
     }
   };
 
-  // ADMIN toggles per-department depo-pool separation (scopes FEFO to the correct pool).
-  const toggleDepoPoolSplit = async (next) => {
-    try {
-      await updateSetting('depo_pool_split', next ? '1' : '0');
-      setAppSettings((s) => ({ ...s, depo_pool_split: next ? '1' : '0' }));
-    } catch (err) {
-      alert('Ayar güncellenemedi: ' + (err?.payload?.message || err?.message || 'HATA'));
-    }
-  };
   
   // UNIFIED DATA SOURCE: Use unifiedStock from API instead of localStorage items
   // This ensures "Stok" tab and "LOT Stok Yönetimi" show the same data
-  const displayItems = unifiedStock.length > 0 ? unifiedStock : items;
+  const displayItems = unifiedStock.length > 0 || !isAdmin ? unifiedStock : items;
   const purchasePickerItems = displayItems
     .filter((item) => matchesItemSearch(item, purchaseItemSearch))
     .slice(0, 12);
@@ -1841,7 +1831,7 @@ const LabEquipmentTracker = () => {
     canViewTalep,
     canViewDagit,
     isObserver,
-    canManageUsers,
+    canManageUsers: canViewUsers,
     hasCurrentUser: !!currentUser,
     requestLabel: isSatinal ? 'Satın Alma İşleri' : isSatinalLojistik ? 'EBYS İşleri' : 'Talepler',
     orderLabel: isSatinalLojistik ? 'Mal Kabul' : 'Siparişler',
@@ -1868,8 +1858,8 @@ const LabEquipmentTracker = () => {
   };
 
   const uniqueStockDepartments = [...new Set(
-    displayItems.map(i => i.department).filter(Boolean)
-  )].sort();
+    displayItems.flatMap(getStockDepartments)
+  )].sort((a, b) => a.localeCompare(b, 'tr'));
 
   const filteredItems = (() => {
     let filtered = displayItems.filter(item => {
@@ -1879,7 +1869,7 @@ const LabEquipmentTracker = () => {
         normalizeStatus(item.status) === filterStatus ||
         normalizeStatus(item.stockStatus) === filterStatus ||
         (filterStatus === EXPIRY_FILTER_VALUE && isExpiringSoon(item));
-      const matchesDepartment = !stockDepartmentFilter || item.department === stockDepartmentFilter;
+      const matchesDepartment = matchesStockDepartment(item, stockDepartmentFilter);
       return matchesSearch && matchesFilter && matchesDepartment;
     });
 
@@ -1888,8 +1878,16 @@ const LabEquipmentTracker = () => {
       filtered = sortByFEFO(filtered);
     }
 
-    return filtered;
+    return fefoMode ? filtered : sortStockItems(filtered, stockSort);
   })();
+
+  const toggleStockSort = (key) => {
+    setFefoMode(false);
+    setStockSort((previous) => ({
+      key,
+      direction: previous.key === key && previous.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
   
   // Toggle expandable lot details
   const toggleMaterialLots = async (materialId) => {
@@ -1946,9 +1944,10 @@ const LabEquipmentTracker = () => {
     try {
       const itemsPayload = await buildLotImportPayload(file);
       const importResult = await importItems(itemsPayload);
-      await loadUnifiedData();
+      await Promise.all([loadUnifiedData(), loadDepartments()]);
 
       let message = `✅ Excel Import Başarılı!\n\n`;
+      message += `🏢 Yeni departman: ${importResult?.departmentsCreated || 0}\n\n`;
       message += `📦 Malzemeler:\n  • Yeni: ${importResult?.created || 0}\n  • Güncellenen: ${importResult?.updated || 0}\n\n`;
       message += `🏷️ LOT'lar:\n  • Yeni LOT: ${importResult?.lotsCreated || 0}\n  • Güncellenen LOT: ${importResult?.lotsUpdated || 0}`;
       if (importResult?.errors?.length) {
@@ -2425,7 +2424,7 @@ const LabEquipmentTracker = () => {
             <ScanBarcode size={15} /><span>Barkodla Teslim Al</span>
           </button>
         )}
-        {canReceive && isFeatureOn('barcode_receiving') && (
+        {(canReceive || isReadOnlyAudit) && (isFeatureOn('barcode_receiving') || isFeatureOn('barcode_distribution')) && (
           <button className={`nv${activeTab === 'barcode_enroll' ? ' on' : ''}`} onClick={() => navClick('barcode_enroll')}>
             <ScanBarcode size={15} /><span>Barkod Eşleştirme</span>
           </button>
@@ -2473,7 +2472,7 @@ const LabEquipmentTracker = () => {
             <FileText size={15} /><span>ISO Formları</span>
           </button>
         )}
-        {canManageUsers && (
+        {canViewUsers && (
           <button className={`nv${activeTab === 'users' ? ' on' : ''}`} onClick={() => navClick('users')}>
             <User size={15} /><span>Kullanıcılar</span>
           </button>
@@ -2547,7 +2546,10 @@ const LabEquipmentTracker = () => {
             {activeTab === 'stock' && canModifyInventory && (
               <>
                 <button
-                  onClick={() => setFefoMode(!fefoMode)}
+                  onClick={() => {
+                    setFefoMode(!fefoMode);
+                    setStockSort({ key: null, direction: 'asc' });
+                  }}
                   className={`tbar-pill${fefoMode ? ' tbar-pill-on' : ''}`}
                 >
                   <Calendar size={13} /> FEFO {fefoMode ? 'Açık' : 'Kapalı'}
@@ -2739,19 +2741,18 @@ const LabEquipmentTracker = () => {
                       </span>
                     </span>
                   </label>
-                  <label className="flex items-start gap-3 cursor-pointer mt-4">
+                  <label className="flex items-start gap-3 mt-4">
                     <input
                       type="checkbox"
-                      checked={depoPoolSplitOn}
-                      onChange={(e) => toggleDepoPoolSplit(e.target.checked)}
+                      checked
+                      disabled
                       className="mt-1 h-4 w-4"
                     />
                     <span className="text-sm">
                       <span className="font-semibold">Bölüm bazlı depo ayrımı</span>
                       <span className="block text-gray-600 text-xs mt-0.5">
-                        Açıkken: her bölümün deposu ayrı bir laboratuvar gibi çalışır — dağıtım/tüketimde
-                        bir bölümün stoğu başka bir bölümün stoğuyla karıştırılmaz, her talep yalnızca
-                        kendi bölümünün deposundan karşılanır.
+                        Zorunlu: tek fiziksel depodaki miktarlar departmana göre izlenir.
+                        Giriş, çıkış ve iadeler ilgili departmanın stoklarına işlenir.
                       </span>
                     </span>
                   </label>
@@ -2845,11 +2846,12 @@ const LabEquipmentTracker = () => {
           </div>
         )}
 
-        {activeTab === 'users' && canManageUsers && (
+        {activeTab === 'users' && canViewUsers && (
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
             <div className="p-4 md:p-6">
-              <h2 className="text-xl font-bold mb-4">Kullanıcı Yönetimi</h2>
+              <h2 className="text-xl font-bold mb-4">{canManageUsers ? 'Kullanıcı Yönetimi' : 'Kullanıcı Listesi'}</h2>
 
+              {canManageUsers && <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                 <input
                   type="text"
@@ -2872,7 +2874,7 @@ const LabEquipmentTracker = () => {
                 >
                   <option value="SATINAL_LOJISTIK">SATINAL_LOJISTIK (EBYS Onay + Sipariş + Teslim Al + Dağıt)</option>
                   <option value="SATINAL">SATINAL (Talep + Onayla + Dağıt)</option>
-                  <option value="KURUMSAL">KURUMSAL (Onayla + Dağıt + Fiyatlar)</option>
+                  <option value="KURUMSAL">KURUMSAL (Her Şeyi Görür, Değişiklik Yapamaz)</option>
                   <option value="LAB_TECHNICIAN">LAB_TECHNICIAN (CEP DEPO sahibi)</option>
                   <option value="OBSERVER">OBSERVER (Sadece Görüntüleme)</option>
                   <option value="KALITE">KALITE (Tüm Bölümleri Görür, Değişiklik Yapamaz)</option>
@@ -2914,7 +2916,7 @@ const LabEquipmentTracker = () => {
                   <span className="text-xs text-gray-500">(bu kullanıcı mal teslim alabilir)</span>
                 </label>
               )}
-              {!['ADMIN', 'KURUMSAL'].includes(userCreateForm.role) && (
+              {!['ADMIN', 'KURUMSAL', 'KALITE'].includes(userCreateForm.role) && (
                 <label className="flex items-center gap-2 mb-4 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -2957,17 +2959,9 @@ const LabEquipmentTracker = () => {
                   ))}
                   {departments.length === 0 && <span className="text-xs text-gray-500">Bölüm yok.</span>}
                 </div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newDeptName}
-                    onChange={(e) => setNewDeptName(e.target.value)}
-                    placeholder="Yeni bölüm adı"
-                    className="px-3 py-2 border rounded text-sm"
-                  />
-                  <button onClick={handleAddDepartment} className="bg-indigo-600 text-white px-3 py-2 rounded text-sm hover:bg-indigo-700">Bölüm Ekle</button>
-                </div>
+                <p className="text-xs text-gray-500">Departman listesi sistem genelinde sabittir.</p>
               </div>
+              </>}
 
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -2979,6 +2973,7 @@ const LabEquipmentTracker = () => {
                       <th className="px-3 py-2 text-left text-xs font-semibold">Ek Yetki</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Oluşturan</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Tarih</th>
+                      {canManageUsers && <th className="px-3 py-2 text-right text-xs font-semibold">İşlem</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -3000,7 +2995,7 @@ const LabEquipmentTracker = () => {
                         <td className="px-3 py-2 text-sm text-gray-500">
                           {u.createdAt ? new Date(u.createdAt).toLocaleString('tr-TR') : '-'}
                         </td>
-                        <td className="px-3 py-2 text-right">
+                        {canManageUsers && <td className="px-3 py-2 text-right">
                           <button
                             onClick={() => {
                               setUserCreateForm({ username: u.username, password: '', role: u.role, canReceive: !!u.canReceive, canViewPrices: !!u.canViewPrices, department: u.department || '', departments: Array.isArray(u.departments) ? u.departments : [] });
@@ -3010,7 +3005,7 @@ const LabEquipmentTracker = () => {
                           >
                             Düzenle
                           </button>
-                        </td>
+                        </td>}
                       </tr>
                     ))}
                   </tbody>
@@ -3322,7 +3317,7 @@ const LabEquipmentTracker = () => {
           </div>
         )}
 
-        {editPriceModal && (
+        {editPriceModal && canEditPrices && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl p-6 max-w-sm w-full">
               <h2 className="text-lg font-bold mb-1">Fiyat Güncelle</h2>
@@ -3905,13 +3900,21 @@ const LabEquipmentTracker = () => {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Kod</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Depo</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">İdeal Stok</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">CEP DEPO (Tüm Kullanıcılar)</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">SKT</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold">Durum</th>
+                    {STOCK_SORT_COLUMNS.map(([key, label]) => {
+                      const selected = stockSort.key === key && !fefoMode;
+                      return (
+                        <th key={key} className="text-left text-xs font-semibold" aria-sort={selected ? (stockSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                          <button
+                            type="button"
+                            onClick={() => toggleStockSort(key)}
+                            className={`w-full px-3 py-2 inline-flex items-center gap-1 text-left hover:bg-gray-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 ${selected ? 'text-indigo-700' : ''}`}
+                            title={`${label}: ${selected && stockSort.direction === 'asc' ? 'azalan' : 'artan'} sırala`}
+                          >
+                            {label}<span aria-hidden="true">{selected ? (stockSort.direction === 'asc' ? '↑' : '↓') : '↕'}</span>
+                          </button>
+                        </th>
+                      );
+                    })}
                     <th className="px-3 py-2 text-left text-xs font-semibold">İşlem</th>
                   </tr>
                 </thead>
@@ -4983,7 +4986,7 @@ const LabEquipmentTracker = () => {
                       <th className="px-3 py-2 text-right text-xs font-semibold">Toplam</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">LOT No</th>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Teslim Alan</th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold">Düzenle</th>
+                      {canEditPrices && <th className="px-3 py-2 text-center text-xs font-semibold">Düzenle</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -5005,18 +5008,20 @@ const LabEquipmentTracker = () => {
                             <td className="px-3 py-2 text-right font-semibold text-green-700">{total ? `₺${total}` : <span className="text-gray-400 italic">—</span>}</td>
                             <td className="px-3 py-2 font-mono text-xs">{r.lotNo || '-'}</td>
                             <td className="px-3 py-2 text-xs">{r.receivedBy}</td>
-                            <td className="px-3 py-2 text-center">
-                              <button
-                                onClick={() => { setEditPriceForm({ price: r.price != null ? String(r.price) : '', supplierFirmName: r.supplierFirmName || r.orderedSupplierName || '' }); setEditPriceModal(r); }}
-                                className="px-2 py-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded hover:bg-blue-100"
-                              >Düzenle</button>
-                            </td>
+                            {canEditPrices && (
+                              <td className="px-3 py-2 text-center">
+                                <button
+                                  onClick={() => { setEditPriceForm({ price: r.price != null ? String(r.price) : '', supplierFirmName: r.supplierFirmName || r.orderedSupplierName || '' }); setEditPriceModal(r); }}
+                                  className="px-2 py-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded hover:bg-blue-100"
+                                >Düzenle</button>
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
                     {priceHistory.length === 0 && (
                       <tr>
-                        <td colSpan="10" className="px-4 py-10 text-center text-gray-400 italic">
+                        <td colSpan={canEditPrices ? 10 : 9} className="px-4 py-10 text-center text-gray-400 italic">
                           {pricesLoading ? 'Yükleniyor...' : 'Filtrele butonuna basarak kayıtları görüntüleyin.'}
                         </td>
                       </tr>
@@ -5030,7 +5035,7 @@ const LabEquipmentTracker = () => {
                         <tr>
                           <td colSpan="6" className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Toplam Tutar:</td>
                           <td className="px-3 py-2 text-right font-bold text-green-700">₺{grandTotal.toFixed(2)}</td>
-                          <td colSpan="2" />
+                          <td colSpan={canEditPrices ? 3 : 2} />
                         </tr>
                       </tfoot>
                     ) : null;
@@ -5462,7 +5467,7 @@ const LabEquipmentTracker = () => {
                                 <td className="px-3 py-2 text-indigo-700 font-medium">{target}</td>
                                 <td className="px-3 py-2">
                                   <div className="flex items-center gap-1">
-                                    <input
+                                    {canDistribute ? <input
                                       type="number"
                                       min="0.01"
                                       step="0.01"
@@ -5470,7 +5475,7 @@ const LabEquipmentTracker = () => {
                                       onChange={(e) => setCepReqQty((s) => ({ ...s, [p.id]: e.target.value }))}
                                       className="w-20 px-2 py-1 border rounded text-sm"
                                       title="Verilecek miktar"
-                                    />
+                                    /> : <span>{p.requestedQty}</span>}
                                     <span className="text-xs text-gray-500">{item.packageUnit || 'koli'}</span>
                                   </div>
                                 </td>
@@ -5589,7 +5594,7 @@ const LabEquipmentTracker = () => {
                           <td className="px-3 py-2">
                             {dist.completedDate ? (
                               <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">Tamamlandı</span>
-                            ) : canViewAllDagit ? (
+                            ) : canDistribute ? (
                               <button onClick={() => markDistributionComplete(dist.id)} className="px-2 py-1 bg-orange-600 text-white rounded text-xs">Tamamla</button>
                             ) : (
                               <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs">Bekliyor</span>
@@ -5617,8 +5622,8 @@ const LabEquipmentTracker = () => {
           />
         )}
 
-        {activeTab === 'barcode_enroll' && canReceive && isFeatureOn('barcode_receiving') && (
-          <BarcodeEnroll currentUsername={username} />
+        {activeTab === 'barcode_enroll' && (canReceive || isReadOnlyAudit) && (isFeatureOn('barcode_receiving') || isFeatureOn('barcode_distribution')) && (
+          <BarcodeEnroll currentUsername={username} readOnly={isReadOnlyAudit} />
         )}
 
         {activeTab === 'confirm_receipt' && (

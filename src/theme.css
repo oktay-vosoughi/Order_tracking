@@ -401,7 +401,7 @@ input, select, textarea { font-family: inherit; }
 .lab-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin-top: 20px; max-width: 920px; }
 .lab-field { display: grid; gap: 6px; min-width: 0; }
 .lab-field-wide,.lab-rule,.lab-submit { grid-column: 1/-1; }
-.lab-field > span { color: #334155; font-size: 13px; font-weight: 800; }
+.lab-field > span,.lab-field > label { color: #334155; font-size: 13px; font-weight: 800; }
 .lab-field em { color: #94A3B8; font-size: 11px; font-style: normal; font-weight: 600; }
 .lab-field input,.lab-field select { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid #CBD5E1; border-radius: 10px; background: #fff; color: #0F172A; font-size: 15px; outline: none; }
 .lab-field input:focus,.lab-field select:focus { border-color: #2563EB; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }

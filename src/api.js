@@ -1,3 +1,5 @@
+import { isReadOnlyAuditRole } from './rolePolicy.mjs';
+
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 const TOKEN_KEY = 'auth_token';
@@ -15,10 +17,8 @@ export function clearAuthToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
-// Mirrors the signed-in user's role so apiFetch can block writes client-side
-// (defense in depth — the server already rejects KALITE on every write route
-// since it's absent from every requireRole allowlist). Kept in sync by
-// App.jsx via setApiRole() whenever currentUser changes.
+// Mirrors the signed-in user's role so apiFetch can block writes client-side.
+// The backend independently enforces the same policy.
 let currentApiRole = null;
 
 export function setApiRole(role) {
@@ -29,12 +29,12 @@ export function getApiRole() {
   return currentApiRole;
 }
 
-// KALITE is read-only for operational data. Account-password changes are the
-// one self-service exception; the authenticated backend route already allows it.
+// Audit roles are read-only for operational data. Account-password changes are
+// the one self-service exception.
 function assertWriteAllowed(path, method) {
   const isAccountPasswordChange = path === '/account/change-password';
-  if (currentApiRole === 'KALITE' && method !== 'GET' && !isAccountPasswordChange) {
-    const message = 'KALITE rolü salt görüntüleme modundadır; bu işlem gerçekleştirilemez.';
+  if (isReadOnlyAuditRole(currentApiRole) && method !== 'GET' && !isAccountPasswordChange) {
+    const message = `${currentApiRole} rolü salt görüntüleme modundadır; bu işlem gerçekleştirilemez.`;
     const err = new Error(message);
     err.status = 403;
     err.payload = { error: 'READ_ONLY_ROLE', message };

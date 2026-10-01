@@ -32,4 +32,11 @@ function buildDeptInClause(departments, columnRef) {
   return { clause: `AND ${columnRef} IN (${placeholders})`, params: [...departments] };
 }
 
-module.exports = { DEPARTMENT_BYPASS_ROLES, isBypassRole, buildItemDepartmentFilter, buildDeptInClause };
+// Stock quantities belong to the lot/balance department, even when the
+// material definition is shared or global. No membership means no quantity.
+function buildStockDepartmentFilter(departments, columnRef) {
+  if (departments !== null && departments.length === 0) return { clause: 'AND 1 = 0', params: [] };
+  return buildDeptInClause(departments, columnRef);
+}
+
+module.exports = { DEPARTMENT_BYPASS_ROLES, isBypassRole, buildItemDepartmentFilter, buildDeptInClause, buildStockDepartmentFilter };
