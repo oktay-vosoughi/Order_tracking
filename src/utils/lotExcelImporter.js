@@ -19,7 +19,7 @@ const pad2 = (n) => String(n).padStart(2, '0');
  * day across the UTC boundary (e.g. Aug 1 -> Jul 31 in UTC+3). We instead
  * convert the raw serial directly, preserving calendar components.
  */
-function toSafeDate(value) {
+export function toSafeDate(value) {
   if (value === undefined || value === null || value === '') return '';
   if (typeof value === 'number') {
     const utc = new Date(Date.UTC(1899, 11, 30) + Math.floor(value) * 86400000);
@@ -28,7 +28,24 @@ function toSafeDate(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
   }
-  return String(value).trim();
+  const text = String(value).trim();
+  const monthYear = text.match(/^(\d{1,2})[./-](\d{4})$/);
+  if (monthYear) {
+    const month = Number(monthYear[1]);
+    if (month >= 1 && month <= 12) return `${monthYear[2]}-${pad2(month)}-01`;
+  }
+  return text;
+}
+
+export function applyImportDepartment(rows, fallbackDepartment) {
+  const fallback = String(fallbackDepartment || '').trim();
+  const missingDepartment = rows.some((row) => !String(row?.department || '').trim());
+  if (missingDepartment && !fallback) {
+    throw new Error('Excel dosyasında Departman sütunu yok veya bazı satırlar boş. Yüklemeden önce hedef departmanı seçin.');
+  }
+  return rows.map((row) => (
+    String(row?.department || '').trim() ? row : { ...row, department: fallback }
+  ));
 }
 
 const COLUMN_MAP = {

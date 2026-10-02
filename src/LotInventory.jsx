@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Package, Plus, Search, Layers, ArrowDownCircle, AlertTriangle, Calendar, Trash2, Eye, ChevronDown, ChevronUp, CheckCircle, XCircle, BarChart2, Clock, Building2, Upload, Download } from 'lucide-react';
 import { DEPARTMENTS, STORAGE_TEMPS, CHEMICAL_TYPES, formatDate, getExpiryColorClass, openAttachmentSafely } from './labUtils';
-import { buildLotImportPayload } from './utils/lotExcelImporter';
+import { applyImportDepartment, buildLotImportPayload } from './utils/lotExcelImporter';
 import { downloadWorkbook } from './utils/excel';
 import { apiRequest } from './api';
 import { matchesItemSearch } from './itemSearch.mjs';
@@ -37,6 +37,7 @@ const LotInventory = ({ currentUser }) => {
   const [expandedItem, setExpandedItem] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDepartment, setFilterDepartment] = useState('');
+  const [excelImportDepartment, setExcelImportDepartment] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [stockSummary, setStockSummary] = useState([]);
   const [expiryReport, setExpiryReport] = useState([]);
@@ -176,7 +177,10 @@ const LotInventory = ({ currentUser }) => {
     if (!file) return;
 
     try {
-      const itemsPayload = await buildLotImportPayload(file);
+      const itemsPayload = applyImportDepartment(
+        await buildLotImportPayload(file),
+        excelImportDepartment
+      );
       const importResult = await apiRequest('/import-items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -319,6 +323,10 @@ const LotInventory = ({ currentUser }) => {
           {activeView === 'items' && canManageItems && (
             <>
               <button onClick={downloadExcelTemplate} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"><Download size={18} /> Şablon İndir</button>
+              <select value={excelImportDepartment} onChange={(e) => setExcelImportDepartment(e.target.value)} className="px-4 py-2 border rounded-lg" aria-label="Excel hedef departmanı">
+                <option value="">Excel hedef departmanı</option>
+                {Object.values(DEPARTMENTS).map(dept => <option key={dept} value={dept}>{dept}</option>)}
+              </select>
               <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer">
                 <Upload size={18} /> Excel Yükle
                 <input

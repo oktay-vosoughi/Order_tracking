@@ -99,12 +99,34 @@ echo ""
 echo "========================================"
 echo " Health check"
 echo "========================================"
-sleep 2
-HEALTH=$(curl -sk "$HEALTH_URL" || echo "FAIL")
-echo "API health: $HEALTH"
+HEALTH_OK=0
+for attempt in {1..12}; do
+    if HEALTH=$(curl -fsk --connect-timeout 2 --max-time 3 "$HEALTH_URL") &&
+       printf '%s' "$HEALTH" | node -e '
+         let body = "";
+         process.stdin.on("data", chunk => { body += chunk; });
+         process.stdin.on("end", () => {
+           try { process.exit(JSON.parse(body).status === "ok" ? 0 : 1); }
+           catch (_) { process.exit(1); }
+         });
+       '; then
+        HEALTH_OK=1
+        break
+    fi
+    echo "    API not ready (attempt $attempt/12)..."
+    if [ "$attempt" -lt 12 ]; then sleep 2; fi
+done
 echo ""
 echo "PM2 status:"
 pm2 list | grep "$PM2_APP_NAME" || true
+if [ "$HEALTH_OK" -ne 1 ]; then
+    echo "ERROR: API health check failed: $HEALTH_URL"
+    echo "Recent backend logs:"
+    pm2 logs "$PM2_APP_NAME" --lines 60 --nostream || true
+    echo "Check the backend listening port and Apache ProxyPass configuration."
+    exit 1
+fi
+echo "API health: $HEALTH"
 echo ""
 echo "Deploy complete!"
 echo "Hard-refresh browser: Ctrl + Shift + R"

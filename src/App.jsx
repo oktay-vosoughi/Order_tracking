@@ -28,7 +28,7 @@ import LotInventory from './LotInventory';
 import BarcodeReceive from './BarcodeReceive';
 import BarcodeEnroll from './BarcodeEnroll';
 import CepDepo from './CepDepo';
-import { buildLotImportPayload } from './utils/lotExcelImporter';
+import { applyImportDepartment, buildLotImportPayload } from './utils/lotExcelImporter';
 import {
   PURCHASE_STATUS_FILTERS,
   getHiddenLotCount,
@@ -191,6 +191,7 @@ const LabEquipmentTracker = () => {
   const [expandedEbysBatchId, setExpandedEbysBatchId] = useState(null);
   const [showAllMobileLotsFor, setShowAllMobileLotsFor] = useState(null);
   const [stockDepartmentFilter, setStockDepartmentFilter] = useState('');
+  const [excelImportDepartment, setExcelImportDepartment] = useState('');
   const [isoFormDept, setIsoFormDept] = useState('');
   const [isoFormBusy, setIsoFormBusy] = useState(false);
   const [mgFormDept, setMgFormDept] = useState('');
@@ -1942,7 +1943,10 @@ const LabEquipmentTracker = () => {
     if (!file) return;
 
     try {
-      const itemsPayload = await buildLotImportPayload(file);
+      const itemsPayload = applyImportDepartment(
+        await buildLotImportPayload(file),
+        excelImportDepartment
+      );
       const importResult = await importItems(itemsPayload);
       await Promise.all([loadUnifiedData(), loadDepartments()]);
 
@@ -2555,10 +2559,23 @@ const LabEquipmentTracker = () => {
                   <Calendar size={13} /> FEFO {fefoMode ? 'Açık' : 'Kapalı'}
                 </button>
                 {isAdmin && (
-                  <label className="tbar-btn" style={{ cursor: 'pointer' }}>
-                    <Upload size={13} /> Excel Yükle
-                    <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} style={{ display: 'none' }} />
-                  </label>
+                  <>
+                    <select
+                      value={excelImportDepartment}
+                      onChange={(e) => setExcelImportDepartment(e.target.value)}
+                      className="tbar-select"
+                      aria-label="Excel hedef departmanı"
+                    >
+                      <option value="">Excel hedef departmanı</option>
+                      {Object.values(DEPARTMENTS).map(dept => (
+                        <option key={dept} value={dept}>{dept}</option>
+                      ))}
+                    </select>
+                    <label className="tbar-btn" style={{ cursor: 'pointer' }}>
+                      <Upload size={13} /> Excel Yükle
+                      <input type="file" accept=".xlsx,.xls" onChange={handleExcelUpload} style={{ display: 'none' }} />
+                    </label>
+                  </>
                 )}
                 <button onClick={exportToExcel} className="tbar-btn">
                   <Download size={13} /> Excel

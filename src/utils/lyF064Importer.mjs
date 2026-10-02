@@ -34,8 +34,8 @@ export function parseLyF064Date(value) {
     return isoDate(match[3], match[1], match[2]);
   }
 
-  match = text.match(/^(\d{1,2})\.(\d{4})$/);
-  if (match) return isoDate(match[2], match[1]);
+  match = text.match(/^(\d{1,2})[./-](\d{4})$/);
+  if (match) return isoDate(match[2], match[1], 1);
 
   match = text.match(/^(\d{4})$/);
   if (match) return isoDate(match[1]);
@@ -58,12 +58,14 @@ export function parseLyF064Lots(value, totalStock) {
   const normalized = original.replace(/[×]/g, 'X');
   const entries = [];
   let splitAcrossYears = false;
-  const tokenPattern = /(YOK|\.?\d{1,2}\.\d{1,2}\.\d{2,4}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{1,2}\.\d{4}|\d{4})(?:\s*\(([-+]?\d+)\))?\s*(?:X\s*(\d+))?(?:\s*\(([-+]?\d+)\))?/gi;
+  const tokenPattern = /(YOK|\.?\d{1,2}\.\d{1,2}\.\d{2,4}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{1,2}[./-]\d{4}|\d{4})(?:\s*\(([-+]?\d+)\))?\s*(?:X\s*(?:(\d+)\s*(?:rxn|reax)?|\(\s*(\d+)\s*(?:rxn|reax)\s*\)))?(?:\s*\(([-+]?\d+)\s*(rxn|reax)?\))?/gi;
   let match;
   while ((match = tokenPattern.exec(normalized)) !== null) {
     const rawDate = match[1];
-    let quantity = match[3] ? Number(match[3]) : null;
-    const temperature = match[2] || match[4] || '';
+    let quantity = match[3] ? Number(match[3]) : (match[4] ? Number(match[4]) : null);
+    // A parenthesized number after the quantity is a temperature only when
+    // it has no reaction-unit suffix. `(12rxn)` describes pack capacity.
+    const temperature = match[2] || (match[6] ? '' : (match[5] || ''));
     const expiryDate = /^yok$/i.test(rawDate) ? '' : parseLyF064Date(rawDate);
     if (expiryDate === null) throw new Error(`Geçersiz SKT: ${rawDate}`);
 

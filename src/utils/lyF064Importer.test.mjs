@@ -78,6 +78,18 @@ test('keeps zero stock and uses one only when no quantity is supplied', () => {
   assert.equal(parseLyF064Lots('10.2027 11.2027', 9)[0].quantity, 1);
 });
 
+test('uses day one for month-year dates and accepts reaction quantity labels', () => {
+  assert.deepEqual(parseLyF064Lots('1.05.2028X50rxn 08.2026X3rxn', 53).map(({ expiryDate, quantity }) => ({ expiryDate, quantity })), [
+    { expiryDate: '2028-05-01', quantity: 50 },
+    { expiryDate: '2026-08-01', quantity: 3 }
+  ]);
+  assert.deepEqual(parseLyF064Lots('01.2027X48rxn(12rxn) 02.2027X30rxn(30rxn)12.2026X(12rxn)', 90).map(({ expiryDate, quantity }) => ({ expiryDate, quantity })), [
+    { expiryDate: '2027-01-01', quantity: 48 },
+    { expiryDate: '2027-02-01', quantity: 30 },
+    { expiryDate: '2026-12-01', quantity: 12 }
+  ]);
+});
+
 test('same upload produces the same lot identifiers and skips footer rows', () => {
   const matrix = [
     ['Sıra No', 'Katolog Numarası', 'Malzeme Adı', 'Marka', 'Depo'],

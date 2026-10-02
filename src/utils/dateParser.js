@@ -103,6 +103,20 @@ function parseDayFirstDate(dateStr) {
 }
 
 /**
+ * Parse a month/year value and use the first day of that month.
+ * Accepts MM.YYYY, MM/YYYY and MM-YYYY.
+ */
+function parseMonthYearDate(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  const match = dateStr.trim().match(/^(\d{1,2})[.\/-](\d{4})$/);
+  if (!match) return null;
+  const month = Number(match[1]);
+  const year = Number(match[2]);
+  if (month < 1 || month > 12 || year < 1900 || year > 2200) return null;
+  return new Date(year, month - 1, 1);
+}
+
+/**
  * Validate date is within acceptable range for lab inventory
  * @param {Date} date - Date object
  * @returns {boolean}
@@ -153,9 +167,9 @@ export function formatDateForDisplay(date) {
 
 /**
  * Normalize expiry date for LIMS inventory
- * Input is expected to be ISO format (YYYY-MM-DD) from Excel
+ * Accepts ISO, full localized dates, Excel serials, and month/year text.
  * 
- * @param {*} value - Raw value from Excel cell (expected: string "YYYY-MM-DD")
+ * @param {*} value - Raw value from an Excel cell or date input
  * @returns {string|null} - MySQL DATE format (yyyy-MM-dd) or null if invalid
  */
 export function normalizeExpiryDate(value) {
@@ -173,7 +187,7 @@ export function normalizeExpiryDate(value) {
   // Case 2: String (ISO or localized day-first format)
   else if (typeof value === 'string') {
     const trimmed = value.trim();
-    date = parseISODate(trimmed) || parseDayFirstDate(trimmed) || parseMonthFirstDate(trimmed);
+    date = parseISODate(trimmed) || parseDayFirstDate(trimmed) || parseMonthFirstDate(trimmed) || parseMonthYearDate(trimmed);
     if (date) {
       console.log(`[DateParser] Parsed "${value}" → ${formatDateForDisplay(date)}`);
     } else if (/^\d+$/.test(trimmed)) {

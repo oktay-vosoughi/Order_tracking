@@ -10,7 +10,11 @@ async function authorize(path, body = {}, options = {}) {
     if (sql.includes('FROM user_departments')) return (options.memberships || [SITO]).map((department) => ({ department }));
     if (sql.includes('FROM item_departments')) return (options.tags || [SITO]).map((department) => ({ department }));
     if (sql.includes('FROM item_definitions')) return [{ id: '601002', department: options.masterDepartment || SITO, isGlobal: options.isGlobal || 0 }];
-    if (sql.includes('FROM lots')) return lots.filter((lot) => sql.includes('WHERE id =') ? lot.id === params[0] : lot.itemId === params[0]);
+    if (sql.includes('FROM lots')) return lots.filter((lot) => {
+      if (sql.includes('WHERE id =')) return lot.id === params[0];
+      if (sql.includes('department = ?')) return lot.itemId === params[0] && (!lot.department || lot.department === params[2]);
+      return lot.itemId === params[0];
+    });
     if (sql.includes('FROM users')) return [{ id: 'tech', department: options.techDepartment || SITO }];
     if (sql.includes('FROM purchases')) return [{ id: 'purchase', itemId: '601002', department: options.purchaseDepartment || SITO }];
     if (sql.includes('FROM distributions') || sql.includes('FROM cep_depo_distributions')) return [{ department: options.distributionDepartment || SITO }];
@@ -81,9 +85,19 @@ test('shared material master updates require ADMIN while owning department can e
   assert.equal((await authorize('/api/item-definitions/:id', {}, { params: { id: '601002' }, isGlobal: 1 })).passed, false);
 });
 
-test('Excel update cannot change ownership of an existing lot', async () => {
+test('Excel import ignores another department same-number lot', async () => {
   const result = await authorize('/api/import-items', { items: [{ code: '601002', department: SITO, lotNumber: 'x' }] }, { role: 'ADMIN', lots: [{ id: 'l1', itemId: '601002', department: GEN }] });
-  assert.equal(result.error.error, 'LOT_DEPARTMENT_MISMATCH');
+  assert.equal(result.passed, true);
+  assert.equal(result.error, undefined);
+});
+
+test('ADMIN Excel import may explicitly assign an untagged legacy lot', async () => {
+  const result = await authorize('/api/import-items', { items: [{ code: '601002', department: SITO, lotNumber: 'x' }] }, {
+    role: 'ADMIN',
+    lots: [{ id: 'l1', itemId: '601002', lotNumber: 'x', department: '' }]
+  });
+  assert.equal(result.passed, true);
+  assert.equal(result.error, undefined);
 });
 
 test('distribution confirmation and receipt edits reject another department', async () => {

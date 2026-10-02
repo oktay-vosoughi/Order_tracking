@@ -46,8 +46,19 @@ function createStockWriteScope({ all, pool }) {
           const existing = await all(pool, 'SELECT * FROM item_definitions WHERE code = ?', [String(row.code ?? '').trim()]);
           if (existing[0]) {
             await checkMaster(existing[0]);
-            const lots = await all(pool, 'SELECT * FROM lots WHERE itemId = ? AND lotNumber = ?', [existing[0].id, String(row.lotNumber || row.lotNo || '').trim()]);
-            if (lots[0]) req.assertStockLot(lots[0], department, existing[0].id);
+            const lots = await all(pool, `
+              SELECT * FROM lots
+              WHERE itemId = ? AND lotNumber = ?
+                AND (department = ? OR department IS NULL OR department = '')
+              ORDER BY CASE WHEN department = ? THEN 0 ELSE 1 END
+              LIMIT 1
+            `, [existing[0].id, String(row.lotNumber || row.lotNo || '').trim(), department, department]);
+            if (lots[0]) {
+              const repairsUntaggedLot = admin && !lots[0].department;
+              if (!repairsUntaggedLot) {
+                req.assertStockLot(lots[0], department, existing[0].id);
+              }
+            }
           }
         }
         return next();

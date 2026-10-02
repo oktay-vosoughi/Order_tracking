@@ -3616,8 +3616,8 @@ app.post('/api/import-items', authRequired, canManageItems, stockWriteScope, asy
           // Recalculate CEP DEPO balance unitQty if unitsPerPackage is now set
           if (masterItem.unitsPerPackage && Number(masterItem.unitsPerPackage) > 0) {
             const balResult = await run(conn,
-              `UPDATE cep_depo_balances SET unitQty = packQty * ?, consumptionUnitType = ? WHERE itemId = ? AND status != 'ZERO'`,
-              [Number(masterItem.unitsPerPackage), masterItem.consumptionUnitType || 'PACK', itemId]
+              `UPDATE cep_depo_balances SET unitQty = packQty * ?, consumptionUnitType = ? WHERE itemId = ? AND department = ? AND status != 'ZERO'`,
+              [Number(masterItem.unitsPerPackage), masterItem.consumptionUnitType || 'PACK', itemId, masterItem.department]
             );
             if (process.env.DEBUG_IMPORTS === '1') console.debug(`[ImportItems] CEP rows updated=${balResult?.affectedRows ?? 0}`);
           }
@@ -3676,10 +3676,18 @@ app.post('/api/import-items', authRequired, canManageItems, stockWriteScope, asy
 
           const qty = Math.max(item.initialStock || 0, 0);
           const status = qty > 0 ? 'ACTIVE' : 'DEPLETED';
-          const existingLot = await all(conn, 'SELECT * FROM lots WHERE itemId = ? AND lotNumber = ? FOR UPDATE', [itemId, lotNumber]);
+          const existingLot = await all(conn, `
+            SELECT * FROM lots
+            WHERE itemId = ? AND lotNumber = ?
+              AND (department = ? OR department IS NULL OR department = '')
+            ORDER BY CASE WHEN department = ? THEN 0 ELSE 1 END
+            LIMIT 1
+            FOR UPDATE
+          `, [itemId, lotNumber, item.department, item.department]);
 
           if (existingLot.length) {
-            req.assertStockLot(existingLot[0], item.department, itemId);
+            const repairsUntaggedLot = req.user?.role === 'ADMIN' && !existingLot[0].department && item.department;
+            if (!repairsUntaggedLot) req.assertStockLot(existingLot[0], item.department, itemId);
             const lotId = existingLot[0].id;
             await run(conn, `
               UPDATE lots SET 
