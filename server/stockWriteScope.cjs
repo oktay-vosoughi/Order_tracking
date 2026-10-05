@@ -4,9 +4,13 @@ const fail = (message, error = 'DEPARTMENT_FORBIDDEN', status = 403) => {
   throw { status, error, message };
 };
 
-// SATINAL_LOJISTIK distributes to every department, so these routes (and only
-// these) skip the membership check. Lot/department consistency checks still apply.
-const LOGISTICS_DISTRIBUTE_PATHS = new Set(['/api/distribute', '/api/distribute/:id/confirm', '/api/cep-depo/distribute']);
+// SATINAL_LOJISTIK distributes, orders (EBYS) and receives for every department,
+// so these routes (and only these) skip the membership check. Lot/department
+// consistency checks still apply.
+const LOGISTICS_DISTRIBUTE_PATHS = new Set([
+  '/api/distribute', '/api/distribute/:id/confirm', '/api/cep-depo/distribute',
+  '/api/purchases/:id/order', '/api/purchases/ebys-batches/:batchId/approve', '/api/receive-goods',
+]);
 
 function createStockWriteScope({ all, pool }) {
   return async (req, res, next) => {

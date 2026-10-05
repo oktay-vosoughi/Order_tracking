@@ -60,7 +60,7 @@ test('create/update lot checks both stored and requested department', async () =
 test('receipt cannot mix a purchase and lot from different departments or materials', async () => {
   assert.equal((await authorize('/api/receive-goods', { purchaseId: 'p1', itemId: '601002', lotNumber: 'L1' }, { lots: [{ id: 'l1', itemId: '601002', department: GEN }] })).passed, false);
   assert.equal((await authorize('/api/receive-goods', { purchaseId: 'p1', itemId: 'other' })).error.error, 'ITEM_MISMATCH');
-  assert.equal((await authorize('/api/receive-goods', { purchaseId: 'p1', itemId: '601002' }, { purchaseDepartment: GEN })).status, 403);
+  assert.equal((await authorize('/api/receive-goods', { purchaseId: 'p1', itemId: '601002' }, { purchaseDepartment: GEN, role: 'SATINAL' })).status, 403);
 });
 
 test('recipient and linked purchase cannot reroute another department stock', async () => {
@@ -117,10 +117,10 @@ test('purchase creation, updates and approvals cannot target another department'
   assert.equal((await authorize('/api/purchases', { department: GEN })).status, 403);
   assert.equal((await authorize('/api/purchases', { requestedFor: 'other' }, { techDepartment: GEN })).status, 403);
   for (const path of ['/api/purchases/:id/approve', '/api/purchases/:id/order', '/api/purchases/:id/requested-quantity', '/api/purchases/:id/cancel', '/api/purchases/:id/reject']) {
-    assert.equal((await authorize(path, {}, { params: { id: 'p1' }, purchaseDepartment: GEN })).status, 403);
+    assert.equal((await authorize(path, {}, { params: { id: 'p1' }, purchaseDepartment: GEN, role: 'SATINAL' })).status, 403);
     assert.equal((await authorize(path, {}, { params: { id: 'p1' } })).passed, true);
   }
-  assert.equal((await authorize('/api/purchases/ebys-batches/:batchId/approve', {}, { params: { batchId: 'b1' }, purchaseDepartment: GEN })).status, 403);
+  assert.equal((await authorize('/api/purchases/ebys-batches/:batchId/approve', {}, { params: { batchId: 'b1' }, purchaseDepartment: GEN, role: 'SATINAL' })).status, 403);
 });
 
 test('SATINAL_LOJISTIK distributes from any department but cannot edit other department stock', async () => {
@@ -132,4 +132,15 @@ test('SATINAL_LOJISTIK distributes from any department but cannot edit other dep
   assert.equal((await authorize('/api/cep-depo/distribute', { itemId: '601002', labTechnicianId: 't' }, { ...lojistik, techDepartment: GEN })).passed, true);
   assert.equal((await authorize('/api/lot-adjustments', { itemId: '601002', lotId: 'gen-lot' }, lojistik)).passed, false);
   assert.equal((await authorize('/api/waste-with-lot', { itemId: '601002', lotId: 'gen-lot' }, lojistik)).passed, false);
+});
+
+test('SATINAL_LOJISTIK orders, EBYS-approves and receives for any department', async () => {
+  const lojistik = { role: 'SATINAL_LOJISTIK', memberships: [], purchaseDepartment: GEN };
+  assert.equal((await authorize('/api/purchases/:id/order', {}, { ...lojistik, params: { id: 'p1' } })).passed, true);
+  assert.equal((await authorize('/api/purchases/ebys-batches/:batchId/approve', {}, { ...lojistik, params: { batchId: 'b1' } })).passed, true);
+  const receive = await authorize('/api/receive-goods', { purchaseId: 'p1', itemId: '601002', lotNumber: 'L1' }, { ...lojistik, lots: [] });
+  assert.equal(receive.passed, true);
+  assert.equal(receive.req.stockDepartment, GEN);
+  // approve/reject of requests stays SATINAL/ADMIN and membership-scoped
+  assert.equal((await authorize('/api/purchases/:id/cancel', {}, { ...lojistik, params: { id: 'p1' } })).passed, false);
 });
