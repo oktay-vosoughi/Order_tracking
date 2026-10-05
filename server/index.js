@@ -4506,10 +4506,11 @@ async function getUserDepartments(userId, role) {
   return rows.map((r) => r.department);
 }
 
-// Stock views show all departments only to ADMIN. Other users see the sum
-// of their current memberships, resolved from the database on every request.
+// Stock views show all departments to ADMIN and SATINAL_LOJISTIK (who distributes
+// to every department). Other users see the sum of their current memberships,
+// resolved from the database on every request.
 async function getStockViewDepartments(userId, role) {
-  if (role === ROLES.ADMIN) return null;
+  if (role === ROLES.ADMIN || role === ROLES.SATINAL_LOJISTIK) return null;
   const rows = await all(pool, 'SELECT department FROM user_departments WHERE userId = ?', [userId]);
   return [...new Set(rows.map((row) => row.department).filter(Boolean))];
 }

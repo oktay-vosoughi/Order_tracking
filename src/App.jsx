@@ -310,7 +310,8 @@ const LabEquipmentTracker = () => {
   const distributableLotLabel = (lot, unit) => {
     const skt = lot.expiryDate ? new Date(lot.expiryDate).toLocaleDateString('tr-TR') : 'SKT yok';
     const warning = lot.expiryStatus === 'EXPIRED' ? ' · ⚠ SKT GEÇMİŞ' : '';
-    return `Parti ${lot.lotNumber} · SKT ${skt} · ${lot.currentQuantity} ${unit || 'koli'} mevcut${warning}`;
+    const dept = lot.department ? `${lot.department} · ` : '';
+    return `${dept}Parti ${lot.lotNumber} · SKT ${skt} · ${lot.currentQuantity} ${unit || 'koli'} mevcut${warning}`;
   };
 
   // Pending CEP DEPO lab-tech requests grouped by itemId.

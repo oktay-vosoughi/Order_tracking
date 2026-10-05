@@ -10,7 +10,7 @@ function createHarness(memberships) {
   const routes = new Map();
   const context = {
     app: { get: (path, _auth, handler) => routes.set(path, handler) },
-    authRequired() {}, pool: {}, ROLES: { ADMIN: 'ADMIN' }, console,
+    authRequired() {}, pool: {}, ROLES: { ADMIN: 'ADMIN', SATINAL_LOJISTIK: 'SATINAL_LOJISTIK' }, console,
     buildItemDepartmentFilter, buildStockDepartmentFilter,
     resolveDepoGroup: (department) => department || 'UNASSIGNED',
     attachBarcodesToItems: async (items) => items,
@@ -43,7 +43,7 @@ function createHarness(memberships) {
   };
 }
 
-for (const role of ['LAB_TECHNICIAN', 'SATINAL', 'SATINAL_LOJISTIK', 'KALITE', 'KURUMSAL', 'OBSERVER']) {
+for (const role of ['LAB_TECHNICIAN', 'SATINAL', 'KALITE', 'KURUMSAL', 'OBSERVER']) {
   test(`${role}: stock, orders, CEP and lot queries are scoped to memberships`, async () => {
     const harness = createHarness(['SİTOGENETİK']);
     await harness.request('/api/unified-stock', role);
@@ -63,13 +63,15 @@ for (const role of ['LAB_TECHNICIAN', 'SATINAL', 'SATINAL_LOJISTIK', 'KALITE', '
   });
 }
 
-test('ADMIN sees all lots and aggregate quantities regardless of membership', async () => {
-  const harness = createHarness(['SİTOGENETİK']);
-  for (const path of ['/api/unified-stock', '/api/lots', '/api/unified-stock/:itemId/lots']) {
-    await harness.request(path, 'ADMIN');
-  }
-  for (const { sql } of harness.queries) assert.doesNotMatch(sql, /department IN|AND 1 = 0/);
-});
+for (const role of ['ADMIN', 'SATINAL_LOJISTIK']) {
+  test(`${role} sees all lots and aggregate quantities regardless of membership`, async () => {
+    const harness = createHarness(role === 'ADMIN' ? ['SİTOGENETİK'] : []);
+    for (const path of ['/api/unified-stock', '/api/lots', '/api/unified-stock/:itemId/lots']) {
+      await harness.request(path, role);
+    }
+    for (const { sql } of harness.queries) assert.doesNotMatch(sql, /department IN|AND 1 = 0/);
+  });
+}
 
 test('users with no memberships cannot get stock from global material definitions', async () => {
   const harness = createHarness([]);

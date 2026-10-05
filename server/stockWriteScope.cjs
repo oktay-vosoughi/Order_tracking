@@ -4,17 +4,22 @@ const fail = (message, error = 'DEPARTMENT_FORBIDDEN', status = 403) => {
   throw { status, error, message };
 };
 
+// SATINAL_LOJISTIK distributes to every department, so these routes (and only
+// these) skip the membership check. Lot/department consistency checks still apply.
+const LOGISTICS_DISTRIBUTE_PATHS = new Set(['/api/distribute', '/api/distribute/:id/confirm', '/api/cep-depo/distribute']);
+
 function createStockWriteScope({ all, pool }) {
   return async (req, res, next) => {
     try {
       const admin = req.user.role === 'ADMIN';
-      const memberships = admin ? null : (await all(pool,
+      const crossDepartment = admin || (req.user.role === 'SATINAL_LOJISTIK' && LOGISTICS_DISTRIBUTE_PATHS.has(req.route.path));
+      const memberships = crossDepartment ? null : (await all(pool,
         'SELECT department FROM user_departments WHERE userId = ?', [req.user.id])).map((r) => r.department);
       const check = (department) => {
         if (!department || normalizeImportDepartment(department) !== department) {
           fail('İşlem için geçerli bir departman seçin.', 'DEPARTMENT_REQUIRED', 400);
         }
-        if (!admin && !memberships.includes(department)) fail('Bu departmanın stoklarında işlem yetkiniz yok.');
+        if (!crossDepartment && !memberships.includes(department)) fail('Bu departmanın stoklarında işlem yetkiniz yok.');
         return department;
       };
       const one = async (sql, params) => {
