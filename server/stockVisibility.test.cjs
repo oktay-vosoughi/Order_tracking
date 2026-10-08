@@ -50,16 +50,16 @@ for (const role of ['LAB_TECHNICIAN', 'SATINAL', 'KALITE', 'KURUMSAL', 'OBSERVER
     const harness = createHarness(['SİTOGENETİK']);
     await harness.request('/api/unified-stock', role);
     const [main, lots, orders] = harness.queries;
-    assert.match(main.sql, /LEFT JOIN lots l ON id.id = l.itemId AND l.department IN \(\?\)/);
+    assert.match(main.sql, /LEFT JOIN lots l ON id.id = l.itemId AND \(l.department IN \(\?\) OR \(id.isGlobal = 1/);
     assert.match(main.sql, /AND p.department IN \(\?\)/);
     assert.equal((main.sql.match(/AND b.department IN \(\?\)/g) || []).length, 2);
     assert.deepEqual(main.params, Array(5).fill('SİTOGENETİK'));
-    assert.match(lots.sql, /AND l.department IN \(\?\)/);
+    assert.match(lots.sql, /AND \(l.department IN \(\?\) OR \(id.isGlobal = 1/);
     assert.match(orders.sql, /AND p.department IN \(\?\)/);
     for (const path of ['/api/lots', '/api/unified-stock/:itemId/lots']) {
       await harness.request(path, role);
       const query = harness.queries.at(-1);
-      assert.match(query.sql, /AND l.department IN \(\?\)/);
+      assert.match(query.sql, /AND \(l.department IN \(\?\) OR \(id.isGlobal = 1/);
       assert.equal(query.params.at(-1), 'SİTOGENETİK');
     }
   });
@@ -75,12 +75,19 @@ for (const role of ['ADMIN', 'SATINAL_LOJISTIK']) {
   });
 }
 
-test('users with no memberships cannot get stock from global material definitions', async () => {
+test('users with no memberships only get UNTAGGED lots of global materials; tagged stock stays hidden', async () => {
   const harness = createHarness([]);
   for (const path of ['/api/unified-stock', '/api/lots', '/api/unified-stock/:itemId/lots']) {
     await harness.request(path, 'LAB_TECHNICIAN');
   }
-  for (const { sql } of harness.queries) assert.match(sql, /AND 1 = 0/);
+  const lotQueries = harness.queries.filter(({ sql }) => /lots l/.test(sql));
+  assert.ok(lotQueries.length >= 3);
+  for (const { sql } of lotQueries) {
+    assert.match(sql, /id\.isGlobal = 1 AND \(l\.department IS NULL OR l\.department = ''\)/);
+    assert.doesNotMatch(sql, /l\.department IN/);
+  }
+  // purchases and CEP balances still get no stock without a membership
+  assert.match(harness.queries[0].sql, /AND 1 = 0/);
 });
 
 test('multiple memberships bind every department for each quantity source', async () => {

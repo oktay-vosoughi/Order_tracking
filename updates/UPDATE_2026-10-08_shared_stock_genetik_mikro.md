@@ -28,3 +28,6 @@ None. Revert the code; or set `SHARED_STOCK_POOLS = []` in both pool files.
 - A Genetik user's main-stock total now includes Mikro lots.
 - Mikro-only items must have an `item_departments`/department tag in the group to be visible; shared via the same filter.
 - Frontend list filters (`LotInventory.jsx` department dropdown) still match exact lot department.
+
+## Addendum: untagged lots of global materials
+Lots with no department (NULL/'') of items with `isGlobal = 1` are now visible to every role in `/api/lots`, `/api/unified-stock`, `/api/unified-stock/:id/lots` (`buildStockDepartmentFilter(..., { itemAlias: 'id' })`). Department-tagged lots stay scoped. Read-only visibility: consuming/distributing an untagged lot still requires tagging it first (ADMIN repair rule in `stockWriteScope.cjs`). No DB change; rollback = revert code.

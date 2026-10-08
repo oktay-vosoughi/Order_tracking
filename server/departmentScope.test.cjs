@@ -73,3 +73,15 @@ test('buildDeptInClause builds an IN clause for a non-empty department list', ()
 test('buildDeptInClause throws on an empty array — callers must short-circuit before calling', () => {
   assert.throws(() => buildDeptInClause([], 'b.department'), /non-empty/);
 });
+
+test('buildStockDepartmentFilter: untagged lots of global items are visible to all, tagged lots stay scoped', () => {
+  const { buildStockDepartmentFilter } = require('./departmentScope.cjs');
+  const none = buildStockDepartmentFilter([], 'l.department', { itemAlias: 'id' });
+  assert.match(none.clause, /id\.isGlobal = 1 AND \(l\.department IS NULL OR l\.department = ''\)/);
+  assert.deepEqual(none.params, []);
+  const some = buildStockDepartmentFilter(['SİTOGENETİK'], 'l.department', { itemAlias: 'id' });
+  assert.match(some.clause, /l\.department IN \(\?\) OR \(id\.isGlobal = 1/);
+  assert.deepEqual(some.params, ['SİTOGENETİK']);
+  assert.equal(buildStockDepartmentFilter(null, 'l.department', { itemAlias: 'id' }).clause, '');
+  assert.equal(buildStockDepartmentFilter([], 'l.department').clause, 'AND 1 = 0');
+});

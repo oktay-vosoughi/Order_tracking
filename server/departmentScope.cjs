@@ -34,9 +34,20 @@ function buildDeptInClause(departments, columnRef) {
 
 // Stock quantities belong to the lot/balance department, even when the
 // material definition is shared or global. No membership means no quantity.
-function buildStockDepartmentFilter(departments, columnRef) {
-  if (departments !== null && departments.length === 0) return { clause: 'AND 1 = 0', params: [] };
-  return buildDeptInClause(departments, columnRef);
+//
+// options.itemAlias: when given, untagged lots (department NULL/'') of GLOBAL
+// materials (`<itemAlias>.isGlobal = 1`) are visible to everyone. Lots tagged
+// with a department stay scoped to that department.
+function buildStockDepartmentFilter(departments, columnRef, options = {}) {
+  const globalUntagged = options.itemAlias
+    ? `(${options.itemAlias}.isGlobal = 1 AND (${columnRef} IS NULL OR ${columnRef} = ''))`
+    : null;
+  if (departments !== null && departments.length === 0) {
+    return { clause: globalUntagged ? `AND ${globalUntagged}` : 'AND 1 = 0', params: [] };
+  }
+  const scoped = buildDeptInClause(departments, columnRef);
+  if (!globalUntagged || departments === null) return scoped;
+  return { clause: `AND (${columnRef} IN (${departments.map(() => '?').join(',')}) OR ${globalUntagged})`, params: scoped.params };
 }
 
 module.exports = { DEPARTMENT_BYPASS_ROLES, isBypassRole, buildItemDepartmentFilter, buildDeptInClause, buildStockDepartmentFilter };

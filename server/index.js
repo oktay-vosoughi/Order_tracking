@@ -1391,7 +1391,7 @@ app.get('/api/lots', authRequired, async (req, res) => {
   try {
     const departments = await getStockViewDepartments(req.user.id, req.user.role);
     const deptFilter = buildItemDepartmentFilter(expandLotDepartments(departments));
-    const lotFilter = buildStockDepartmentFilter(expandLotDepartments(departments), 'l.department');
+    const lotFilter = buildStockDepartmentFilter(expandLotDepartments(departments), 'l.department', { itemAlias: 'id' });
     const { itemId, status, expiringSoon } = req.query;
     let sql = `
       SELECT l.*, id.name AS itemName, id.code AS itemCode, id.unit AS itemUnit
@@ -1871,7 +1871,7 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
   try {
     const departments = await getStockViewDepartments(req.user.id, req.user.role);
     const deptFilter = buildItemDepartmentFilter(expandLotDepartments(departments));
-    const lotFilter = buildStockDepartmentFilter(expandLotDepartments(departments), 'l.department');
+    const lotFilter = buildStockDepartmentFilter(expandLotDepartments(departments), 'l.department', { itemAlias: 'id' });
     const purchaseFilter = buildStockDepartmentFilter(departments, 'p.department');
     const balanceFilter = buildStockDepartmentFilter(departments, 'b.department');
     const items = await all(pool, `
@@ -1959,6 +1959,7 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
           COUNT(DISTINCT CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 THEN l.id END) AS activeLotCount,
           MIN(CASE WHEN l.status = 'ACTIVE' AND l.currentQuantity > 0 AND l.expiryDate >= CURDATE() THEN l.expiryDate END) AS nearestExpiry
         FROM lots l
+        JOIN item_definitions id ON id.id = l.itemId
         WHERE 1 = 1 ${lotFilter.clause}
         GROUP BY l.itemId, l.department
       `, lotFilter.params),
@@ -2039,7 +2040,7 @@ app.get('/api/unified-stock/:itemId/lots', authRequired, async (req, res) => {
   try {
     const departments = await getStockViewDepartments(req.user.id, req.user.role);
     const deptFilter = buildItemDepartmentFilter(expandLotDepartments(departments));
-    const lotFilter = buildStockDepartmentFilter(expandLotDepartments(departments), 'l.department');
+    const lotFilter = buildStockDepartmentFilter(expandLotDepartments(departments), 'l.department', { itemAlias: 'id' });
     const params = [req.params.itemId];
     let sql = `
       SELECT l.*,
