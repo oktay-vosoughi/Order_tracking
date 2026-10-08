@@ -116,7 +116,14 @@ export default function CepDepo({ currentUser }) {
   };
   const [consumeForm, setConsumeForm] = useState({ itemId: '', consumptionUnitType: 'PACK', quantity: '', notes: '' });
   const [returnForm, setReturnForm] = useState({ itemId: '', packQty: '', notes: '' });
-  const [reqForm, setReqForm] = useState({ itemId: '', requestedQty: '', notes: '' });
+  const requestDepartments = useMemo(() => [...new Set([
+    currentUser?.department,
+    ...(Array.isArray(currentUser?.departments) ? currentUser.departments : [])
+  ].filter(Boolean))], [currentUser?.department, currentUser?.departments]);
+  const defaultRequestDepartment = requestDepartments.includes(currentUser?.department)
+    ? currentUser.department
+    : (requestDepartments[0] || '');
+  const [reqForm, setReqForm] = useState({ itemId: '', department: defaultRequestDepartment, requestedQty: '', notes: '' });
   const [requestItemSearch, setRequestItemSearch] = useState('');
   const filteredRequestItems = useMemo(
     () => items.filter((item) => matchesItemSearch(item, requestItemSearch)),
@@ -267,10 +274,11 @@ export default function CepDepo({ currentUser }) {
         itemId: reqForm.itemId,
         itemCode: it?.code,
         itemName: it?.name,
+        department: reqForm.department,
         requestedQty: Number(reqForm.requestedQty),
         notes: reqForm.notes || undefined
       });
-      setReqForm({ itemId: '', requestedQty: '', notes: '' });
+      setReqForm({ itemId: '', department: defaultRequestDepartment, requestedQty: '', notes: '' });
       setRequestItemSearch('');
       await loadAll();
       setLabFeedback({ type: 'success', message: 'Talebin oluşturuldu. Onay durumunu “Taleplerim” bölümünden izleyebilirsin.' });
@@ -711,15 +719,15 @@ export default function CepDepo({ currentUser }) {
     : 0;
 
   const selectedRequestItem = itemById.get(reqForm.itemId);
-  const selectedRequestBalance = balances.find((b) => b.itemId === reqForm.itemId);
+  const selectedRequestBalance = balances.find((b) => b.itemId === reqForm.itemId && b.department === reqForm.department);
   const requestIsReaction = /reax|reaks|reaction/.test(String(selectedRequestItem?.consumptionUnit || '').toLowerCase());
   const requestThreshold = Number(selectedRequestItem?.minReactionThreshold) > 0 ? Number(selectedRequestItem.minReactionThreshold) : 3;
   const requestRemaining = requestIsReaction
     ? Number(selectedRequestBalance?.unitQty || 0)
     : Number(selectedRequestBalance?.packQty || 0);
-  const requestAllowed = !selectedRequestBalance || (requestIsReaction
+  const requestAllowed = !!reqForm.department && (!selectedRequestBalance || (requestIsReaction
     ? requestRemaining < requestThreshold
-    : Number(selectedRequestBalance.packQty || 0) <= 0 && Number(selectedRequestBalance.unitQty || 0) <= 0);
+    : Number(selectedRequestBalance.packQty || 0) <= 0 && Number(selectedRequestBalance.unitQty || 0) <= 0));
 
   const searchedLabBalances = balanceSearch.trim()
     ? balances.filter((balance) => matchesItemSearch(
@@ -894,9 +902,17 @@ export default function CepDepo({ currentUser }) {
                 <span>{requestIsReaction ? `Kalan ${requestRemaining} reaksiyon · Talep eşiği ${requestThreshold}` : `Bölüm bakiyesi: ${requestRemaining} ${selectedRequestBalance?.packageUnit || 'koli'}`}</span>
               </div>
             )}
-            <label className="lab-field"><span>2. Kaç koli gerekiyor?</span><input required type="number" min="1" step="1" value={reqForm.requestedQty} onChange={(e) => setReqForm({ ...reqForm, requestedQty: e.target.value })} placeholder="Koli sayısı" /></label>
+            {requestDepartments.length > 1 && (
+              <label className="lab-field"><span>2. Hangi bölüm için?</span>
+                <select required value={reqForm.department} onChange={(e) => setReqForm({ ...reqForm, department: e.target.value })}>
+                  <option value="">Bölüm seç</option>
+                  {requestDepartments.map((department) => <option key={department} value={department}>{department}</option>)}
+                </select>
+              </label>
+            )}
+            <label className="lab-field"><span>{requestDepartments.length > 1 ? '3' : '2'}. Kaç koli gerekiyor?</span><input required type="number" min="1" step="1" value={reqForm.requestedQty} onChange={(e) => setReqForm({ ...reqForm, requestedQty: e.target.value })} placeholder="Koli sayısı" /></label>
             <label className="lab-field"><span>Neden gerekiyor? <em>isteğe bağlı</em></span><input type="text" value={reqForm.notes} onChange={(e) => setReqForm({ ...reqForm, notes: e.target.value })} placeholder="Kısa açıklama" /></label>
-            <button type="submit" className="lab-submit is-green" disabled={!reqForm.itemId || !reqForm.requestedQty || !requestAllowed || labBusy}><ClipboardList size={20} /> {labBusy ? 'Oluşturuluyor…' : '3. Talebi Oluştur'}</button>
+            <button type="submit" className="lab-submit is-green" disabled={!reqForm.itemId || !reqForm.department || !reqForm.requestedQty || !requestAllowed || labBusy}><ClipboardList size={20} /> {labBusy ? 'Oluşturuluyor…' : `${requestDepartments.length > 1 ? '4' : '3'}. Talebi Oluştur`}</button>
           </form>
           <div className="lab-subsection"><h4>Taleplerim</h4><p>Bekleyen kendi talebini düzenleyebilir veya iptal edebilirsin.</p>{requestsTable(myRequests, { showOwnerActions: true })}</div>
         </section>

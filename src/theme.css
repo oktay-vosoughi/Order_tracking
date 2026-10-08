@@ -537,6 +537,7 @@ input, select, textarea { font-family: inherit; }
 .ebys-batch-meta strong { color: #334155; font-size: 13px; }
 .ebys-batch-meta small { margin-top: 3px; color: #64748B; font-size: 10px; }
 .ebys-batch-chevron { display: inline-flex; color: #6366F1; }
+.ebys-batch-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .ebys-batch-action { flex: 0 0 auto; align-self: center; }
 .ebys-batch-content { border-top: 1px solid #E0E7FF; background: #FAFAFF; }
 .ebys-batch-content-head { display: flex; justify-content: space-between; gap: 12px; padding: 10px 16px; color: #6366F1; font-size: 10px; font-weight: 850; letter-spacing: .03em; text-transform: uppercase; }
@@ -650,6 +651,7 @@ input, select, textarea { font-family: inherit; }
   .ebys-batch-summary { align-items: stretch; flex-direction: column; }
   .ebys-batch-toggle { grid-template-columns: auto minmax(0,1fr) auto; }
   .ebys-batch-meta { display: none; }
+  .ebys-batch-actions { align-items: stretch; flex-direction: column; }
   .ebys-batch-action { width: 100%; }
   .ebys-batch-line { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }
   .ebys-batch-line-item { grid-column: 1/-1; grid-row: 1; }

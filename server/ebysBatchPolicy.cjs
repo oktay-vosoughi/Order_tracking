@@ -29,4 +29,19 @@ function resolveEbysExportBatchId(rows, createId) {
   return { batchId: existing[0] || createId(), isNew: existing.length === 0 };
 }
 
-module.exports = { assertApprovableEbysBatch, resolveEbysExportBatchId };
+function resolveEbysRedownloadReference(rows) {
+  if (!rows.length) {
+    throw { status: 404, error: 'BATCH_NOT_FOUND', message: 'EBYS paketi bulunamadı.' };
+  }
+  const references = [...new Set(rows.map((row) => String(row.ebysReference || '').trim()).filter(Boolean))];
+  if (references.length !== 1) {
+    throw {
+      status: 409,
+      error: 'INVALID_BATCH_REFERENCE',
+      message: 'Paketin tek bir Talep No değeri bulunamadı.'
+    };
+  }
+  return references[0];
+}
+
+module.exports = { assertApprovableEbysBatch, resolveEbysExportBatchId, resolveEbysRedownloadReference };

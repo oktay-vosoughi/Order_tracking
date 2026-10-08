@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode } from 'lucide-react';
 import { downloadWorkbook } from './utils/excel';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, createEbysExportBatch, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, approveEbysBatch, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, createEbysExportBatch, redownloadEbysExportBatch, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, approveEbysBatch, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import BarcodeScanner from './BarcodeScanner';
 import { parseGs1 } from './gs1';
@@ -208,6 +208,7 @@ const LabEquipmentTracker = () => {
   const [showEbysApproveModal, setShowEbysApproveModal] = useState(null);
   const [ebysApproveForm, setEbysApproveForm] = useState({ supplierName: '', poNumber: '' });
   const [ebysApprovalBusy, setEbysApprovalBusy] = useState(false);
+  const [ebysRedownloadBusyId, setEbysRedownloadBusyId] = useState('');
 
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
@@ -1069,11 +1070,15 @@ const LabEquipmentTracker = () => {
   });
 
   const openPurchaseRequestForm = (item) => {
+    const itemDepartments = Array.isArray(item?.departments) ? item.departments : [];
+    const preferredDepartment = isLabTechnician && itemDepartments.includes(currentUser?.department)
+      ? currentUser.department
+      : item?.department || currentUser?.department || '';
     setRequestForm({
       quantity: '',
       notes: '',
       urgency: 'normal',
-      department: item?.department || ''
+      department: preferredDepartment
     });
     setShowPurchaseItemPicker(false);
     setPurchaseItemSearch('');
@@ -1093,6 +1098,7 @@ const LabEquipmentTracker = () => {
           itemId: item.id,
           itemCode: item.code,
           itemName: item.name,
+          department: requestForm.department,
           requestedQty: parseInt(requestForm.quantity),
           notes: requestForm.notes,
           urgency: requestForm.urgency
@@ -2066,6 +2072,18 @@ const LabEquipmentTracker = () => {
     } catch (error) {
       console.error('EBYS export error:', error);
       alert('EBYS dışa aktarma hatası: ' + (error?.message || 'Bilinmeyen hata'));
+    }
+  };
+
+  const handleEbysRedownload = async (batchId) => {
+    setEbysRedownloadBusyId(batchId);
+    try {
+      const result = await redownloadEbysExportBatch(batchId);
+      alert(`EBYS formu tekrar indirildi.\n\nTalep No: ${result.talepNo}\nPaket: ${batchId}`);
+    } catch (error) {
+      alert('EBYS formu tekrar indirilemedi: ' + (error?.payload?.message || error?.message || 'Bilinmeyen hata'));
+    } finally {
+      setEbysRedownloadBusyId('');
     }
   };
 
@@ -3183,7 +3201,9 @@ const LabEquipmentTracker = () => {
                     <option value="">{showRequestForm.department || 'Bölüm seçin'}</option>
                     {Array.from(new Set([
                       showRequestForm.department,
-                      ...departments.filter((department) => department.active).map((department) => department.name)
+                      ...(isLabTechnician
+                        ? [currentUser?.department, ...(Array.isArray(currentUser?.departments) ? currentUser.departments : [])]
+                        : departments.filter((department) => department.active).map((department) => department.name))
                     ].filter(Boolean))).sort((a, b) => a.localeCompare(b, 'tr')).map((department) => (
                       <option key={department} value={department}>{department}</option>
                     ))}
@@ -4626,15 +4646,27 @@ const LabEquipmentTracker = () => {
                             {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                           </span>
                         </button>
-                        {canApproveThisBatch && (
-                          <button
-                            type="button"
-                            onClick={() => openPurchaseEbysApproval(batchLead)}
-                            className="purchase-primary-action ebys-batch-action"
-                          >
-                            <FileCheck size={18} /> Dış EBYS Onayı Geldi
-                          </button>
-                        )}
+                        <div className="ebys-batch-actions">
+                          {canCreateEbysBatch && (
+                            <button
+                              type="button"
+                              onClick={() => handleEbysRedownload(group.batchId)}
+                              disabled={ebysRedownloadBusyId === group.batchId}
+                              className="purchase-secondary-action ebys-batch-action"
+                            >
+                              <Download size={18} /> {ebysRedownloadBusyId === group.batchId ? 'İndiriliyor…' : 'Formu Tekrar İndir'}
+                            </button>
+                          )}
+                          {canApproveThisBatch && (
+                            <button
+                              type="button"
+                              onClick={() => openPurchaseEbysApproval(batchLead)}
+                              className="purchase-primary-action ebys-batch-action"
+                            >
+                              <FileCheck size={18} /> Dış EBYS Onayı Geldi
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {isExpanded && (
@@ -5522,7 +5554,7 @@ const LabEquipmentTracker = () => {
                                                 className="px-2 py-1 border rounded text-xs flex-1 max-w-[12rem]"
                                               >
                                                 <option value="">Parti seç *</option>
-                                                {(itemLotsCache[p.itemId] || []).map((l) => (
+                                                {(itemLotsCache[p.itemId] || []).filter((l) => l.department === p.department).map((l) => (
                                                   <option key={l.id} value={l.id}>{distributableLotLabel(l, item.packageUnit || 'koli')}</option>
                                                 ))}
                                               </select>

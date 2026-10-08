@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { assertApprovableEbysBatch, resolveEbysExportBatchId } = require('./ebysBatchPolicy.cjs');
+const { assertApprovableEbysBatch, resolveEbysExportBatchId, resolveEbysRedownloadReference } = require('./ebysBatchPolicy.cjs');
 
 test('approves only when every EBYS batch line is pending', () => {
   assert.doesNotThrow(() => assertApprovableEbysBatch([
@@ -30,5 +30,17 @@ test('creates an internal website batch for unbatched request lines', () => {
   assert.deepEqual(
     resolveEbysExportBatchId([{ ebysBatchId: null }, { ebysBatchId: null }], () => 'EBYS-WEB-1'),
     { batchId: 'EBYS-WEB-1', isNew: true }
+  );
+});
+
+test('re-download keeps the existing request number regardless of line status', () => {
+  assert.equal(resolveEbysRedownloadReference([
+    { status: 'TALEP_EDILDI', ebysReference: '261007-132417' },
+    { status: 'SIPARIS_VERILDI', ebysReference: '261007-132417' }
+  ]), '261007-132417');
+  assert.throws(() => resolveEbysRedownloadReference([]), (error) => error.error === 'BATCH_NOT_FOUND');
+  assert.throws(
+    () => resolveEbysRedownloadReference([{ ebysReference: 'A' }, { ebysReference: 'B' }]),
+    (error) => error.error === 'INVALID_BATCH_REFERENCE'
   );
 });

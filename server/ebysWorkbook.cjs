@@ -71,7 +71,9 @@ async function populateMedipolWorkbook(templateBuffer, { talepNo, rows }) {
   sheetXml = replaceCell(sheetXml, 'G2', talepNo, { required: true });
   sheetXml = replaceCell(sheetXml, 'K2', talepNo, { required: true });
 
-  for (let index = 0; index < MAX_REQUEST_LINES; index += 1) {
+  // Leave unused template rows untouched: the form's page count (A19) uses
+  // COUNTIF(B20:B362,""), so filler text in blank rows makes it print 8 STF sheets.
+  for (let index = 0; index < rows.length; index += 1) {
     const rowNumber = 20 + index;
     const row = rows[index] || {};
     sheetXml = replaceCell(sheetXml, `B${rowNumber}`, row.kategori || 'Genel Ürün');

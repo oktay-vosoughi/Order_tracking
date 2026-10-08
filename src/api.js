@@ -437,6 +437,34 @@ export async function createEbysExportBatch({ date, department, purchaseIds } = 
   return { batchId, talepNo, filename };
 }
 
+export async function redownloadEbysExportBatch(batchId) {
+  const token = getAuthToken();
+  const response = await fetch(`${API_BASE}/export/talep-ebys-batches/${encodeURIComponent(batchId)}/download`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const error = new Error(payload?.message || payload?.error || `HTTP_${response.status}`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename\*=UTF-8''([^;]+)/i) || disposition.match(/filename="?([^";]+)"?/i);
+  const talepNo = response.headers.get('X-EBYS-Talep-No') || '';
+  const filename = match ? decodeURIComponent(match[1]) : `Medigen_SatınAlmaTalepFormu_${talepNo || 'talep'}.xlsm`;
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  return { batchId, talepNo, filename };
+}
+
 // ============================================================
 // DATA LOADING API
 // ============================================================
@@ -619,12 +647,12 @@ export async function distributeApprovedRequest({ purchaseId, labTechnicianId, i
   });
 }
 
-export async function createPurchaseRequestForLabTech({ itemId, itemCode, itemName, requestedQty, requestedFor, overrideReason, notes, urgency }) {
+export async function createPurchaseRequestForLabTech({ itemId, itemCode, itemName, department, requestedQty, requestedFor, overrideReason, notes, urgency }) {
   return apiFetch('/purchases', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      itemId, itemCode, itemName, requestedQty,
+      itemId, itemCode, itemName, department, requestedQty,
       requestedFor, overrideReason, notes, urgency,
       isCepDepoRequest: true
     })

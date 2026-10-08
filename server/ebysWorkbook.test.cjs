@@ -17,6 +17,7 @@ test('populateMedipolWorkbook preserves VBA and fills request number plus produc
     <worksheet><sheetData>
       <row r="2"><c r="G2" s="1"/><c r="K2" s="2"><f>OLD()</f><v>0</v></c></row>
       <row r="20"><c r="B20" s="3"/><c r="C20" s="4"/><c r="H20" s="5"/><c r="I20" s="6"/></row>
+      <row r="21"><c r="B21" s="3"/><c r="C21" s="4"/><c r="H21" s="5"/><c r="I21" s="6"/></row>
     </sheetData></worksheet>
   `);
   const templateBuffer = await template.generateAsync({ type: 'nodebuffer' });
@@ -35,6 +36,7 @@ test('populateMedipolWorkbook preserves VBA and fills request number plus produc
   assert.match(sheet, /r="B20"[^>]*t="inlineStr"[^>]*>.*Kit/s);
   assert.match(sheet, /r="C20"[^>]*t="inlineStr"[^>]*>.*PCR Kit, PCR-1/s);
   assert.match(sheet, /r="I20"[^>]*><v>4<\/v>/s);
+  assert.match(sheet, /r="B21"[^>]*\/>/);
   assert.match(workbook, /fullCalcOnLoad="1"/);
   assert.doesNotMatch(workbook, /<calcPr[^>]*\/\s+fullCalcOnLoad/);
 });

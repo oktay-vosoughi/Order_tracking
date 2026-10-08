@@ -7,7 +7,12 @@ async function authorize(path, body = {}, options = {}) {
   const req = { route: { path }, body, params: options.params || {}, user: { id: 'u1', role: options.role || 'SATINAL_LOJISTIK' } };
   const lots = options.lots || [{ id: 'sito-lot', itemId: '601002', department: SITO }, { id: 'gen-lot', itemId: '601002', department: GEN }];
   const all = async (_pool, sql, params) => {
-    if (sql.includes('FROM user_departments')) return (options.memberships || [SITO]).map((department) => ({ department }));
+    if (sql.includes('FROM user_departments')) {
+      const departments = params?.[0] === 'tech'
+        ? (options.techMemberships || [options.techDepartment || SITO])
+        : (options.memberships || [SITO]);
+      return departments.map((department) => ({ department }));
+    }
     if (sql.includes('FROM item_departments')) return (options.tags || [SITO]).map((department) => ({ department }));
     if (sql.includes('FROM item_definitions')) return [{ id: '601002', department: options.masterDepartment || SITO, isGlobal: options.isGlobal || 0 }];
     if (sql.includes('FROM lots')) return lots.filter((lot) => {
@@ -121,6 +126,54 @@ test('purchase creation, updates and approvals cannot target another department'
     assert.equal((await authorize(path, {}, { params: { id: 'p1' } })).passed, true);
   }
   assert.equal((await authorize('/api/purchases/ebys-batches/:batchId/approve', {}, { params: { batchId: 'b1' }, purchaseDepartment: GEN, role: 'SATINAL' })).status, 403);
+});
+
+test('multi-department technician can choose which department owns a request', async () => {
+  const selected = await authorize('/api/purchases', { department: GEN }, {
+    role: 'LAB_TECHNICIAN',
+    memberships: [SITO, GEN],
+    techDepartment: SITO
+  });
+  assert.equal(selected.passed, true);
+  assert.equal(selected.req.body.department, GEN);
+
+  const forbidden = await authorize('/api/purchases', { department: 'Moleküler Mikro' }, {
+    role: 'LAB_TECHNICIAN',
+    memberships: [SITO, GEN],
+    techDepartment: SITO
+  });
+  assert.equal(forbidden.status, 403);
+});
+
+test('linked CEP distribution uses request department when recipient belongs to both departments', async () => {
+  const allowed = await authorize('/api/cep-depo/distribute', {
+    purchaseId: 'p1',
+    itemId: '601002',
+    labTechnicianId: 'tech',
+    lotId: 'gen-lot'
+  }, {
+    role: 'SATINAL_LOJISTIK',
+    memberships: [],
+    purchaseDepartment: GEN,
+    techDepartment: SITO,
+    techMemberships: [SITO, GEN]
+  });
+  assert.equal(allowed.passed, true);
+  assert.equal(allowed.req.stockDepartment, GEN);
+
+  const forbidden = await authorize('/api/cep-depo/distribute', {
+    purchaseId: 'p1',
+    itemId: '601002',
+    labTechnicianId: 'tech',
+    lotId: 'gen-lot'
+  }, {
+    role: 'SATINAL_LOJISTIK',
+    memberships: [],
+    purchaseDepartment: GEN,
+    techDepartment: SITO,
+    techMemberships: [SITO]
+  });
+  assert.equal(forbidden.error.error, 'DEPARTMENT_MISMATCH');
 });
 
 test('SATINAL_LOJISTIK distributes from any department but cannot edit other department stock', async () => {

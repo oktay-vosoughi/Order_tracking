@@ -13,7 +13,7 @@ const { validateLotSplit } = require('./lotSplit.cjs');
 const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause, buildStockDepartmentFilter } = require('./departmentScope.cjs');
 const { resolveDepoGroup, buildLotPoolFilter } = require('./depoGroup.cjs');
 const { assertOwnPendingCepRequest, buildDepartmentPurchaseFilter } = require('./purchaseRequestPolicy.cjs');
-const { assertApprovableEbysBatch, resolveEbysExportBatchId } = require('./ebysBatchPolicy.cjs');
+const { assertApprovableEbysBatch, resolveEbysExportBatchId, resolveEbysRedownloadReference } = require('./ebysBatchPolicy.cjs');
 const { buildMedipolTalepNo, populateMedipolWorkbook } = require('./ebysWorkbook.cjs');
 const { assertReturnLot, assertConsumableLot } = require('./stockPolicy.cjs');
 const { buildIsoRows, fillIsoCountForm } = require('./isoCountForm.cjs');
@@ -2861,14 +2861,13 @@ app.post('/api/purchases', authRequired, stockWriteScope, async (req, res) => {
       }
       effectiveLabTechUsername = target.username;
       effectiveLabTechId = target.id;
-      effectiveRequestDepartment = target.department || effectiveRequestDepartment;
+      effectiveRequestDepartment = effectiveRequestDepartment || target.department;
       usedOverride = true;
     } else if (isLabTech) {
       effectiveLabTechUsername = requesterUsername;
       effectiveLabTechId = req.user.id;
       // Block based on the DEPARTMENT'S shared CEP DEPO pool.
-      const deptRows = await all(pool, 'SELECT department FROM users WHERE id = ?', [req.user.id]);
-      const deptName = deptRows?.[0]?.department;
+      const deptName = effectiveRequestDepartment;
       if (!deptName) {
         return res.status(409).json({ error: 'NO_DEPARTMENT', message: 'Talep oluşturmadan önce bir bölüme atanmalısınız.' });
       }
@@ -4096,7 +4095,7 @@ app.post('/api/export/talep-ebys-batch', authRequired, canCreateEbysBatch, async
         WHERE ${selectionClause}
           AND p.status = 'TALEP_EDILDI'
           AND (p.isCepDepoRequest = 0 OR p.isCepDepoRequest IS NULL)
-        ORDER BY COALESCE(id.category, ''), COALESCE(id.name, p.itemName)
+        ORDER BY COALESCE(id.category, ''), COALESCE(id.name, p.itemName), p.id
         FOR UPDATE
       `, params);
 
@@ -4136,6 +4135,48 @@ app.post('/api/export/talep-ebys-batch', authRequired, canCreateEbysBatch, async
       return res.status(409).json({ error: 'TALEP_NO_COLLISION', message: 'Aynı saniyede başka bir Talep No oluşturuldu. Lütfen tekrar deneyin.' });
     }
     console.error('Failed to create EBYS export batch', error);
+    res.status(500).json({ error: 'SERVER_ERROR', message: error.message });
+  }
+});
+
+// Rebuild an existing EBYS workbook with its original website batch and Talep
+// No. All statuses are allowed so an archived/approved form remains available.
+app.get('/api/export/talep-ebys-batches/:batchId/download', authRequired, canCreateEbysBatch, async (req, res) => {
+  try {
+    const batchId = String(req.params.batchId || '').trim();
+    if (!batchId) {
+      return res.status(400).json({ error: 'INVALID_INPUT', message: 'Web paketi zorunludur.' });
+    }
+
+    const purchases = await all(pool, `
+      SELECT p.id,
+        COALESCE(p.ebysReference, b.ebysReference) AS ebysReference,
+        COALESCE(id.category, '') AS kategori,
+        CONCAT(COALESCE(id.name, p.itemName), ', ', COALESCE(id.code, p.itemCode)) AS Urun,
+        COALESCE(NULLIF(TRIM(id.packageUnit), ''), id.unit, '') AS birim,
+        p.requestedQty AS miktar
+      FROM purchases p
+      LEFT JOIN ebys_batches b ON b.id = p.ebysBatchId
+      LEFT JOIN item_definitions id ON id.id = p.itemId
+      WHERE p.ebysBatchId = ?
+        AND (p.isCepDepoRequest = 0 OR p.isCepDepoRequest IS NULL)
+      ORDER BY COALESCE(id.category, ''), COALESCE(id.name, p.itemName), p.id
+    `, [batchId]);
+
+    const talepNo = resolveEbysRedownloadReference(purchases);
+    const rows = purchases.map(({ kategori, Urun, birim, miktar }) => ({ kategori, Urun, birim, miktar }));
+    const templatePath = path.join(__dirname, '..', 'Medigen_SatınAlmaTalepFormu.xlsm');
+    const workbook = await populateMedipolWorkbook(await fs.readFile(templatePath), { talepNo, rows });
+    const filename = `Medigen_SatınAlmaTalepFormu_${talepNo}.xlsm`;
+
+    res.setHeader('Content-Type', 'application/vnd.ms-excel.sheet.macroEnabled.12');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.setHeader('X-EBYS-Batch-Id', batchId);
+    res.setHeader('X-EBYS-Talep-No', talepNo);
+    res.send(workbook);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
+    console.error('Failed to re-download EBYS export batch', error);
     res.status(500).json({ error: 'SERVER_ERROR', message: error.message });
   }
 });
@@ -4574,7 +4615,9 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, stock
       const tech = techRows?.[0];
       if (!tech) throw { status: 404, error: 'TECHNICIAN_NOT_FOUND' };
       if (!isLabTechnicianRole(tech.role)) throw { status: 400, error: 'LAB_TECHNICIAN_REQUIRED' };
-      const dept = tech.department;
+      // stockWriteScope resolves a linked request's explicit department and
+      // verifies that the recipient is currently a member of that department.
+      const dept = req.stockDepartment || tech.department;
       if (!dept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Teknisyenin bağlı olduğu bölüm yok. Önce kullanıcıya bir bölüm atayın.' };
       req.assertStockDepartment(dept);
 

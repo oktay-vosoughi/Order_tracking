@@ -102,13 +102,14 @@ function createStockWriteScope({ all, pool }) {
         } else {
           let department = body.department;
           if (body.requestedFor) {
-            const tech = await one('SELECT department FROM users WHERE username = ?', [body.requestedFor]);
-            if (department && department !== tech.department) fail('Talep ve alıcı departmanı eşleşmiyor.', 'DEPARTMENT_MISMATCH', 409);
-            department = tech.department;
+            const tech = await one('SELECT id, department FROM users WHERE username = ?', [body.requestedFor]);
+            const techMembershipRows = await all(pool, 'SELECT department FROM user_departments WHERE userId = ?', [tech.id]);
+            const techDepartments = [...new Set([tech.department, ...techMembershipRows.map((row) => row.department)].filter(Boolean))];
+            department ||= tech.department;
+            if (!techDepartments.includes(department)) fail('Talep departmanı alıcının departmanlarından biri olmalıdır.', 'DEPARTMENT_MISMATCH', 409);
           } else if (req.user.role === 'LAB_TECHNICIAN') {
             const tech = await one('SELECT department FROM users WHERE id = ?', [req.user.id]);
-            if (department && department !== tech.department) fail('Talep departmanı kullanıcıyla eşleşmiyor.', 'DEPARTMENT_MISMATCH', 409);
-            department = tech.department;
+            department ||= tech.department;
           }
           body.department = check(department || (memberships?.length === 1 ? memberships[0] : ''));
         }
@@ -121,17 +122,25 @@ function createStockWriteScope({ all, pool }) {
         if (department && department !== candidate) fail('İşlem, alıcı ve sipariş departmanları aynı olmalıdır.', 'DEPARTMENT_MISMATCH', 409);
         department = candidate;
       };
+      let linkedPurchase = null;
       if (body.purchaseId) {
-        const purchase = await one('SELECT * FROM purchases WHERE id = ?', [body.purchaseId]);
-        if (body.itemId && String(purchase.itemId) !== String(body.itemId)) fail('Sipariş ve malzeme eşleşmiyor.', 'ITEM_MISMATCH', 409);
-        adopt(purchase.department);
+        linkedPurchase = await one('SELECT * FROM purchases WHERE id = ?', [body.purchaseId]);
+        if (body.itemId && String(linkedPurchase.itemId) !== String(body.itemId)) fail('Sipariş ve malzeme eşleşmiyor.', 'ITEM_MISMATCH', 409);
+        adopt(linkedPurchase.department);
       }
       if (path === '/api/cep-depo/consume' || path === '/api/cep-depo/return') {
         const techId = admin && body.labTechnicianId ? body.labTechnicianId : req.user.id;
         const tech = await one('SELECT department FROM users WHERE id = ?', [techId]);
         adopt(admin && body.department ? body.department : tech.department);
       } else if (body.labTechnicianId) {
-        adopt((await one('SELECT department FROM users WHERE id = ?', [body.labTechnicianId])).department);
+        const tech = await one('SELECT id, department FROM users WHERE id = ?', [body.labTechnicianId]);
+        if (linkedPurchase) {
+          const techMembershipRows = await all(pool, 'SELECT department FROM user_departments WHERE userId = ?', [tech.id]);
+          const techDepartments = [...new Set([tech.department, ...techMembershipRows.map((row) => row.department)].filter(Boolean))];
+          if (!techDepartments.includes(department)) fail('Talep departmanı alıcının departmanlarından biri olmalıdır.', 'DEPARTMENT_MISMATCH', 409);
+        } else {
+          adopt(tech.department);
+        }
       } else if (path === '/api/distribute' && body.receivedBy) {
         const techs = await all(pool, "SELECT department FROM users WHERE username = ? AND role = 'LAB_TECHNICIAN'", [body.receivedBy]);
         if (techs[0]) adopt(techs[0].department);
