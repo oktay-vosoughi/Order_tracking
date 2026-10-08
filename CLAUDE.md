@@ -66,6 +66,7 @@ For any change larger than a typo:
 - A material definition may be shared between departments. Its displayed stock for a staff member is the sum of that member's department lots only; ADMIN sees the combined total and department breakdown. Changes to a shared/global material definition must not silently alter another department's ownership or stock.
 - LY-F064 Excel import: `Depo` is the total quantity and `Birim` (for example `RxN`, `Paket`, `Kutu`) must be preserved. Explicit `X1`/`X2` suffixes are lot quantities; parenthesized temperatures such as `(-20)` and `(+4)` belong to that lot. `YYYYXYYYY` / date-plus-year forms denote two expiry lots; divide the `Depo` quantity equally and preserve the total (decimal shares are allowed). Missing expiry means no expiry; preserve the `Depo` quantity.
 - Main stock, availability, expiry, FEFO, purchase receipt, and adjustment calculations must use department-filtered LOT quantities. `depo_pool_split` is mandatory; no feature setting may permit cross-department stock mixing.
+- **Shared stock group (the only exception):** `Moleküler Genetik` and `Moleküler Mikro` draw from ONE main-warehouse stock (`server/sharedStockPool.cjs`, mirrored in `src/sharedStockPool.mjs`). Lots keep their own `department` value; lot visibility, FEFO, lot/recipient checks and lot membership checks treat the two as equal. This applies to main-warehouse LOTS only — CEP DEPO balances, purchases/requests, and master-data membership checks stay strictly per department. Every other department stays fully separate.
 
 ---
 

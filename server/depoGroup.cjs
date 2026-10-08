@@ -5,6 +5,8 @@
 // department-scoped tracking (no department recorded) fall into the UNASSIGNED
 // catch-all pool until someone explicitly tags them.
 
+const { poolMembers } = require('./sharedStockPool.cjs');
+
 const UNASSIGNED_POOL = 'UNASSIGNED';
 
 // departmentName: the exact department string stored on a lot/purchase row
@@ -22,6 +24,11 @@ function resolveDepoGroup(departmentName) {
 function buildLotPoolFilter(group, lotAlias = 'l') {
   if (group === UNASSIGNED_POOL) {
     return { clause: `AND (${lotAlias}.department IS NULL OR ${lotAlias}.department = '')`, params: [] };
+  }
+  // Departments in a shared stock group (see sharedStockPool.cjs) read as one pool.
+  const members = poolMembers(group);
+  if (members.length > 1) {
+    return { clause: `AND ${lotAlias}.department IN (${members.map(() => '?').join(',')})`, params: members };
   }
   return { clause: `AND ${lotAlias}.department = ?`, params: [group] };
 }

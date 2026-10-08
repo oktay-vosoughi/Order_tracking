@@ -12,6 +12,7 @@ const { buildUnitCorrectionValues, resolveCepCorrectionTarget } = require('./uni
 const { validateLotSplit } = require('./lotSplit.cjs');
 const { isBypassRole, buildItemDepartmentFilter, buildDeptInClause, buildStockDepartmentFilter } = require('./departmentScope.cjs');
 const { resolveDepoGroup, buildLotPoolFilter } = require('./depoGroup.cjs');
+const { samePool, poolMembers, expandDepartments } = require('./sharedStockPool.cjs');
 const { assertOwnPendingCepRequest, buildDepartmentPurchaseFilter } = require('./purchaseRequestPolicy.cjs');
 const { assertApprovableEbysBatch, resolveEbysExportBatchId, resolveEbysRedownloadReference } = require('./ebysBatchPolicy.cjs');
 const { buildMedipolTalepNo, populateMedipolWorkbook } = require('./ebysWorkbook.cjs');
@@ -1389,8 +1390,8 @@ app.delete('/api/item-definitions/:id', authRequired, adminRequired, async (req,
 app.get('/api/lots', authRequired, async (req, res) => {
   try {
     const departments = await getStockViewDepartments(req.user.id, req.user.role);
-    const deptFilter = buildItemDepartmentFilter(departments);
-    const lotFilter = buildStockDepartmentFilter(departments, 'l.department');
+    const deptFilter = buildItemDepartmentFilter(expandLotDepartments(departments));
+    const lotFilter = buildStockDepartmentFilter(expandLotDepartments(departments), 'l.department');
     const { itemId, status, expiringSoon } = req.query;
     let sql = `
       SELECT l.*, id.name AS itemName, id.code AS itemCode, id.unit AS itemUnit
@@ -1869,8 +1870,8 @@ app.get('/api/reports/department-stock', authRequired, async (_req, res) => {
 app.get('/api/unified-stock', authRequired, async (req, res) => {
   try {
     const departments = await getStockViewDepartments(req.user.id, req.user.role);
-    const deptFilter = buildItemDepartmentFilter(departments);
-    const lotFilter = buildStockDepartmentFilter(departments, 'l.department');
+    const deptFilter = buildItemDepartmentFilter(expandLotDepartments(departments));
+    const lotFilter = buildStockDepartmentFilter(expandLotDepartments(departments), 'l.department');
     const purchaseFilter = buildStockDepartmentFilter(departments, 'p.department');
     const balanceFilter = buildStockDepartmentFilter(departments, 'b.department');
     const items = await all(pool, `
@@ -2037,8 +2038,8 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
 app.get('/api/unified-stock/:itemId/lots', authRequired, async (req, res) => {
   try {
     const departments = await getStockViewDepartments(req.user.id, req.user.role);
-    const deptFilter = buildItemDepartmentFilter(departments);
-    const lotFilter = buildStockDepartmentFilter(departments, 'l.department');
+    const deptFilter = buildItemDepartmentFilter(expandLotDepartments(departments));
+    const lotFilter = buildStockDepartmentFilter(expandLotDepartments(departments), 'l.department');
     const params = [req.params.itemId];
     let sql = `
       SELECT l.*,
@@ -2604,8 +2605,8 @@ app.post('/api/distribute', authRequired, canDistribute, stockWriteScope, async 
         let otherLots = [];
         if (remaining > 0) {
           otherLots = await all(conn,
-            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND department = ? AND status = 'ACTIVE' AND currentQuantity > 0 ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
-            [itemId, lotId, department]);
+            `SELECT * FROM lots WHERE itemId = ? AND id != ? AND department IN (${poolMembers(department).map(() => '?').join(',')}) AND status = 'ACTIVE' AND currentQuantity > 0 ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE`,
+            [itemId, lotId, ...poolMembers(department)]);
           const otherAvailable = otherLots.reduce((s, l) => s + Number(l.currentQuantity), 0);
           if (takeFromSelected + otherAvailable < quantity) {
             throw { status: 400, error: 'INSUFFICIENT_TOTAL_STOCK', message: `Total available: ${takeFromSelected + otherAvailable}, requested: ${quantity}` };
@@ -2702,7 +2703,7 @@ app.post('/api/distribute', authRequired, canDistribute, stockWriteScope, async 
         const targetDept = targetTech.department;
         if (!targetDept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Teknisyenin bağlı olduğu bölüm yok. Önce kullanıcıya bir bölüm atayın.' };
         req.assertStockDepartment(targetDept);
-        if (targetDept !== department) throw { status: 409, error: 'DEPARTMENT_MISMATCH', message: 'Alıcı ve LOT departmanı eşleşmiyor.' };
+        if (targetDept !== department && !samePool(targetDept, department)) throw { status: 409, error: 'DEPARTMENT_MISMATCH', message: 'Alıcı ve LOT departmanı eşleşmiyor.' };
         // Idempotency guard (same rule as /api/cep-depo/distribute).
         if (purchaseId) {
           const prows = await all(conn, 'SELECT id, status FROM purchases WHERE id = ? FOR UPDATE', [purchaseId]);
@@ -3296,7 +3297,13 @@ app.delete('/api/purchases/:id', authRequired, adminRequired, async (req, res) =
 // Get all distributions
 app.get('/api/distributions', authRequired, async (_req, res) => {
   try {
-    const distributions = await all(pool, 'SELECT * FROM distributions ORDER BY distributedDate DESC');
+    const distributions = await all(pool, `
+      SELECT d.*,
+        (SELECT GROUP_CONCAT(CONCAT(dl.lotNumber, ' (', dl.quantityUsed, ')') SEPARATOR ', ')
+           FROM distribution_lots dl WHERE dl.distributionId = d.id) AS lotDetails
+      FROM distributions d
+      ORDER BY d.distributedDate DESC
+    `);
     res.json({ distributions });
   } catch (error) {
     console.error('Failed to get distributions', error);
@@ -3375,12 +3382,12 @@ app.post('/api/waste-with-lot', authRequired, canDistribute, stockWriteScope, as
         // Use FEFO to select lots for waste (e.g., expired items first)
         const expiredLots = await all(conn, `
           SELECT * FROM lots 
-          WHERE itemId = ? AND department = ? AND status = 'ACTIVE' AND currentQuantity > 0
+          WHERE itemId = ? AND department IN (${poolMembers(req.stockDepartment).map(() => '?').join(',')}) AND status = 'ACTIVE' AND currentQuantity > 0
           ORDER BY 
             CASE WHEN expiryDate IS NOT NULL AND expiryDate < CURDATE() THEN 0 ELSE 1 END,
             expiryDate ASC
           FOR UPDATE
-        `, [itemId, req.stockDepartment]);
+        `, [itemId, ...poolMembers(req.stockDepartment)]);
 
         if (!expiredLots.length) {
           throw { status: 400, error: 'NO_STOCK_AVAILABLE' };
@@ -4555,6 +4562,11 @@ async function getUserDepartments(userId, role) {
   return rows.map((r) => r.department);
 }
 
+// Main-warehouse lots (and the items they belong to) are shared inside a stock
+// group (sharedStockPool.cjs). CEP DEPO balances and purchases are NOT — callers
+// keep using the plain memberships for those.
+const expandLotDepartments = (departments) => (departments === null ? null : expandDepartments(departments));
+
 // Stock views show all departments to ADMIN and SATINAL_LOJISTIK (who distributes
 // to every department). Other users see the sum of their current memberships,
 // resolved from the database on every request.
@@ -4697,8 +4709,8 @@ app.post('/api/cep-depo/distribute', authRequired, canDistributeToCepDepo, stock
         let otherLots = [];
         if (remaining > 0) {
           otherLots = await all(conn,
-            "SELECT * FROM lots WHERE itemId = ? AND id != ? AND department = ? AND status = 'ACTIVE' AND currentQuantity > 0 ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE",
-            [itemId, lotId, dept]);
+            `SELECT * FROM lots WHERE itemId = ? AND id != ? AND department IN (${poolMembers(dept).map(() => '?').join(',')}) AND status = 'ACTIVE' AND currentQuantity > 0 ORDER BY CASE WHEN expiryDate IS NULL THEN 1 ELSE 0 END, expiryDate ASC, receivedDate ASC FOR UPDATE`,
+            [itemId, lotId, ...poolMembers(dept)]);
           const otherAvailable = otherLots.reduce((s, l) => s + Number(l.currentQuantity), 0);
           if (takeFromSelected + otherAvailable < packQtyNum) {
             throw { status: 409, error: 'INSUFFICIENT_TOTAL_STOCK', message: `Toplam yeterli stok yok. Seçilen parti: ${takeFromSelected}, diğer lotlar: ${otherAvailable}, talep: ${packQtyNum}.` };

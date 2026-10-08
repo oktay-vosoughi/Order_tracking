@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { buildItemDepartmentFilter, buildStockDepartmentFilter } = require('./departmentScope.cjs');
+const { expandDepartments, poolMembers, samePool } = require('./sharedStockPool.cjs');
 
 const source = fs.readFileSync(require.resolve('./index.js'), 'utf8');
 function createHarness(memberships) {
@@ -11,7 +12,8 @@ function createHarness(memberships) {
   const context = {
     app: { get: (path, _auth, handler) => routes.set(path, handler) },
     authRequired() {}, pool: {}, ROLES: { ADMIN: 'ADMIN', SATINAL_LOJISTIK: 'SATINAL_LOJISTIK' }, console,
-    buildItemDepartmentFilter, buildStockDepartmentFilter,
+    buildItemDepartmentFilter, buildStockDepartmentFilter, expandDepartments, poolMembers, samePool,
+    expandLotDepartments: (departments) => (departments === null ? null : expandDepartments(departments)),
     resolveDepoGroup: (department) => department || 'UNASSIGNED',
     attachBarcodesToItems: async (items) => items,
     all: async (_pool, sql, params = []) => {
@@ -84,5 +86,9 @@ test('users with no memberships cannot get stock from global material definition
 test('multiple memberships bind every department for each quantity source', async () => {
   const harness = createHarness(['SİTOGENETİK', 'Moleküler Genetik']);
   await harness.request('/api/unified-stock', 'LAB_TECHNICIAN');
-  assert.deepEqual(harness.queries[0].params, Array(5).fill(['SİTOGENETİK', 'Moleküler Genetik']).flat());
+  // purchases + CEP balances stay on plain memberships; lots + items expand
+  // to the shared Genetik/Mikro stock group.
+  const plain = ['SİTOGENETİK', 'Moleküler Genetik'];
+  const shared = ['SİTOGENETİK', 'Moleküler Genetik', 'Moleküler Mikro'];
+  assert.deepEqual(harness.queries[0].params, [...plain, ...plain, ...plain, ...shared, ...shared]);
 });

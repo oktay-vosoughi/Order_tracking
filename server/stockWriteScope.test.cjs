@@ -197,3 +197,17 @@ test('SATINAL_LOJISTIK orders, EBYS-approves and receives for any department', a
   // approve/reject of requests stays SATINAL/ADMIN and membership-scoped
   assert.equal((await authorize('/api/purchases/:id/cancel', {}, { ...lojistik, params: { id: 'p1' } })).passed, false);
 });
+
+test('Genetik and Mikro share main-stock lots; CEP requests and other departments stay separate', async () => {
+  const MIKRO = 'Moleküler Mikro';
+  const lots = [{ id: 'mikro-lot', itemId: '601002', department: MIKRO }, { id: 'sito-lot', itemId: '601002', department: SITO }];
+  // A Genetik member can consume a Mikro lot when working for Genetik.
+  const shared = await authorize('/api/consume', { itemId: '601002', lotId: 'mikro-lot', department: GEN }, { role: 'LAB_TECHNICIAN', memberships: [GEN], lots });
+  assert.equal(shared.passed, true);
+  // ...but not another department's lot.
+  const other = await authorize('/api/consume', { itemId: '601002', lotId: 'sito-lot', department: GEN }, { role: 'LAB_TECHNICIAN', memberships: [GEN], lots });
+  assert.equal(other.passed, false);
+  // Group membership does not open CEP DEPO / purchase requests of the peer department.
+  const request = await authorize('/api/purchases', { department: MIKRO }, { role: 'LAB_TECHNICIAN', memberships: [GEN], techDepartment: GEN, techMemberships: [GEN] });
+  assert.equal(request.status, 403);
+});

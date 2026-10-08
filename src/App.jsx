@@ -6,6 +6,7 @@ import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import BarcodeScanner from './BarcodeScanner';
 import { parseGs1 } from './gs1';
 import { findScannedDistributionLot } from './distributionLotMatch.mjs';
+import { samePool } from './sharedStockPool.mjs';
 import { isReadOnlyAuditRole } from './rolePolicy.mjs';
 import { 
   CHEMICAL_TYPES, 
@@ -5560,7 +5561,7 @@ const LabEquipmentTracker = () => {
                                                 className="px-2 py-1 border rounded text-xs flex-1 max-w-[12rem]"
                                               >
                                                 <option value="">Parti seç *</option>
-                                                {(itemLotsCache[p.itemId] || []).filter((l) => l.department === p.department).map((l) => (
+                                                {(itemLotsCache[p.itemId] || []).filter((l) => l.department === p.department || samePool(l.department, p.department)).map((l) => (
                                                   <option key={l.id} value={l.id}>{distributableLotLabel(l, item.packageUnit || 'koli')}</option>
                                                 ))}
                                               </select>
@@ -5629,6 +5630,7 @@ const LabEquipmentTracker = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-3 py-2 text-left text-xs font-semibold">Malzeme</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">Parti</th>
                       <th className="px-3 py-2 text-right text-xs font-semibold">Miktar</th>
                       {canViewAllDagit && <th className="px-3 py-2 text-left text-xs font-semibold">Veren</th>}
                       <th className="px-3 py-2 text-left text-xs font-semibold">Alan</th>
@@ -5642,6 +5644,7 @@ const LabEquipmentTracker = () => {
                       .map((dist) => (
                         <tr key={dist.id} className="hover:bg-gray-50">
                           <td className="px-3 py-2">{dist.itemName}</td>
+                          <td className="px-3 py-2 text-xs">{dist.lotDetails || '-'}</td>
                           <td className="px-3 py-2 text-right">{dist.quantity}</td>
                           {canViewAllDagit && <td className="px-3 py-2 text-xs">{dist.distributedBy}</td>}
                           <td className="px-3 py-2">{dist.receivedBy}</td>

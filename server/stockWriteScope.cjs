@@ -1,4 +1,5 @@
 const { normalizeImportDepartment } = require('./importDepartment.cjs');
+const { samePool, expandDepartments } = require('./sharedStockPool.cjs');
 
 const fail = (message, error = 'DEPARTMENT_FORBIDDEN', status = 403) => {
   throw { status, error, message };
@@ -19,6 +20,10 @@ function createStockWriteScope({ all, pool }) {
       const crossDepartment = admin || (req.user.role === 'SATINAL_LOJISTIK' && LOGISTICS_DISTRIBUTE_PATHS.has(req.route.path));
       const memberships = crossDepartment ? null : (await all(pool,
         'SELECT department FROM user_departments WHERE userId = ?', [req.user.id])).map((r) => r.department);
+      // Main-warehouse LOTS of a shared stock group are usable by every member of
+      // the group. Only lot checks use this; CEP DEPO, purchases and master data
+      // keep the plain memberships above.
+      const lotMemberships = memberships && expandDepartments(memberships);
       const check = (department) => {
         if (!department || normalizeImportDepartment(department) !== department) {
           fail('İşlem için geçerli bir departman seçin.', 'DEPARTMENT_REQUIRED', 400);
@@ -38,8 +43,9 @@ function createStockWriteScope({ all, pool }) {
         if (!lot || (itemId && String(lot.itemId) !== String(itemId))) fail('LOT seçilen malzemeye ait değil.', 'LOT_NOT_FOUND', 404);
         // Untagged legacy stock may only be repaired by ADMIN, never silently
         // consumed as another department's stock.
-        if (lot.department || !admin) check(lot.department);
-        if (department && lot.department !== department) fail('LOT ve işlem departmanı aynı olmalıdır.', 'LOT_DEPARTMENT_MISMATCH', 409);
+        if (lot.department && lotMemberships?.includes(lot.department)) { /* shared-stock peer */ }
+        else if (lot.department || !admin) check(lot.department);
+        if (department && lot.department !== department && !samePool(lot.department, department)) fail('LOT ve işlem departmanı aynı olmalıdır.', 'LOT_DEPARTMENT_MISMATCH', 409);
       };
       const checkMaster = async (item) => {
         if (admin) return;
