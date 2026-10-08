@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode } from 'lucide-react';
+import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode, History } from 'lucide-react';
 import { downloadWorkbook } from './utils/excel';
 import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, createEbysExportBatch, redownloadEbysExportBatch, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, approveEbysBatch, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
@@ -28,6 +28,7 @@ import LotInventory from './LotInventory';
 import BarcodeReceive from './BarcodeReceive';
 import BarcodeEnroll from './BarcodeEnroll';
 import CepDepo from './CepDepo';
+import Hareketler from './Hareketler';
 import { applyImportDepartment, buildLotImportPayload } from './utils/lotExcelImporter';
 import {
   PURCHASE_STATUS_FILTERS,
@@ -2370,7 +2371,7 @@ const LabEquipmentTracker = () => {
     waste: 'Atık', total_stock: 'Genel Stok', lot_inventory: 'LOT Stok',
     barcode_receive: 'Barkodla Teslim Al',
     barcode_enroll: 'Barkod Eşleştirme',
-    cep_depo: isLabTechnician ? 'Günlük İşlerim' : 'CEP DEPO', users: 'Kullanıcılar', account: 'Hesabım',
+    cep_depo: isLabTechnician ? 'Günlük İşlerim' : 'CEP DEPO', hareketler: 'Hareketler', users: 'Kullanıcılar', account: 'Hesabım',
     prices: 'Fiyatlar & Kullanım', iso_forms: 'ISO Formları'
   };
   const userInitials = username.slice(0, 2).toUpperCase() || '??';
@@ -2483,6 +2484,11 @@ const LabEquipmentTracker = () => {
         {isFeatureOn('cep_depo') && (
           <button className={`nv${activeTab === 'cep_depo' ? ' on' : ''}`} onClick={() => navClick('cep_depo')}>
             <Droplet size={15} /><span>{isLabTechnician ? 'Günlük İşlerim' : 'CEP DEPO'}</span>
+          </button>
+        )}
+        {!isLabTechnician && isFeatureOn('cep_depo') && (
+          <button className={`nv${activeTab === 'hareketler' ? ' on' : ''}`} onClick={() => navClick('hareketler')}>
+            <History size={15} /><span>Hareketler</span>
           </button>
         )}
         {canViewPrices && isFeatureOn('prices') && (
@@ -5722,6 +5728,10 @@ const LabEquipmentTracker = () => {
 
         {activeTab === 'cep_depo' && (
           <CepDepo currentUser={currentUser} />
+        )}
+
+        {activeTab === 'hareketler' && !isLabTechnician && isFeatureOn('cep_depo') && (
+          <Hareketler />
         )}
 
         {/* Deprecated bottom boxes removed */}

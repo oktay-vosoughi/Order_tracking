@@ -354,6 +354,8 @@ const buildStateResponse = async () => {
 };
 
 const app = express();
+// SATINAL is department-scoped like staff; only these roles see every department.
+const CROSS_DEPARTMENT_ROLES = [ROLES.ADMIN, ROLES.SATINAL_LOJISTIK, 'KURUMSAL', 'KALITE'];
 const stockWriteScope = createStockWriteScope({ all, pool });
 
 // Restrict CORS to an explicit allowlist in production (CORS_ORIGIN=comma,separated).
@@ -2969,6 +2971,12 @@ app.get('/api/purchases', authRequired, async (req, res) => {
     } else if (wantsMine) {
       where.push('(p.requestedBy = ? OR p.requestedFor = ?)');
       params.push(req.user.username, req.user.username);
+    } else if (!CROSS_DEPARTMENT_ROLES.includes(role)) {
+      // CEP DEPO requests belong to a department; other roles only see their own memberships'.
+      const departments = await getUserDepartments(req.user.id, role);
+      const departmentFilter = buildDepartmentPurchaseFilter(departments, 'p');
+      where.push(`(NOT (p.isCepDepoRequest = 1 OR p.requestedFor IS NOT NULL) OR ${departmentFilter.clause})`);
+      params.push(...departmentFilter.params);
     }
     if (scopeCep) {
       where.push('(p.isCepDepoRequest = 1 OR p.requestedFor IS NOT NULL)');
@@ -4542,7 +4550,7 @@ async function getSetting(key, def = null) {
 // Resolve a caller's department memberships — null means "no filter" (bypass role).
 // Always resolved fresh from the DB per request; never trust JWT or query params.
 async function getUserDepartments(userId, role) {
-  if (isBypassRole(role)) return null;
+  if (CROSS_DEPARTMENT_ROLES.includes(role)) return null;
   const rows = await all(pool, 'SELECT department FROM user_departments WHERE userId = ?', [userId]);
   return rows.map((r) => r.department);
 }
