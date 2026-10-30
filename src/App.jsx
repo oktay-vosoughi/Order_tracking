@@ -4647,6 +4647,9 @@ const LabEquipmentTracker = () => {
                           </span>
                           <span className="ebys-batch-meta">
                             <strong>{group.purchases.length} kalem</strong>
+                            {group.purchases.some((purchase) => /PDF yok/.test(purchase.notes || '')) && (
+                              <span className="text-amber-700 italic">PDF yok - Excel'den aktarıldı</span>
+                            )}
                             <small>{departments.length === 1 ? departments[0] : `${departments.length} bölüm`}</small>
                           </span>
                           <span className="ebys-batch-chevron" aria-hidden="true">
@@ -4698,6 +4701,7 @@ const LabEquipmentTracker = () => {
                                   </div>
                                   <div>
                                     <small>Miktar</small>
+                                    {/PDF yok/.test(purchase.notes || '') && <span className="text-amber-700 italic">PDF yok - Excel'den aktarıldı</span>}
                                     <strong>{purchase.requestedQty}</strong>
                                   </div>
                                   <div>
