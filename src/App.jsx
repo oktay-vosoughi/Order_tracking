@@ -43,7 +43,7 @@ import {
   getPurchaseStatusFilterOptions,
   getVisibleTabOptions
 } from './mobileUi.mjs';
-import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget, getDepoPoolRows, getStockDepartments, matchesStockDepartment } from './stockDisplay.mjs';
+import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget, getDepoPoolRows, getStockDepartments, matchesStockDepartment, formatPendingTooltip } from './stockDisplay.mjs';
 import { matchesItemSearch } from './itemSearch.mjs';
 import { STOCK_SORT_COLUMNS, sortStockItems } from './stockSort.mjs';
 import './theme.css';
@@ -3246,9 +3246,11 @@ const LabEquipmentTracker = () => {
 
         {showReceiveForm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl p-6 max-w-md w-full">
-              <h2 className="text-xl font-bold mb-4">Malzeme Teslim Al</h2>
-              <p className="text-sm text-gray-600 mb-4">
+            <div className="bg-white rounded-xl w-full max-w-2xl max-h-[95vh] flex flex-col">
+              {/* Fixed header/footer: the request summary and Teslim Al button never scroll out of view. */}
+              <div className="px-5 pt-4 pb-3 border-b">
+                <h2 className="text-lg font-bold mb-1">Malzeme Teslim Al</h2>
+                <p className="text-sm text-gray-600">
                 <strong>{showReceiveForm.itemName}</strong><br/>
                 Talep No: {showReceiveForm.requestNumber}<br/>
                 <span className="text-indigo-600">
@@ -3257,6 +3259,8 @@ const LabEquipmentTracker = () => {
                   Kalan: {(showReceiveForm.orderedQty || showReceiveForm.requestedQty) - (showReceiveForm.receivedQtyTotal || 0)}
                 </span>
               </p>
+              </div>
+              <div className="px-5 py-3 overflow-y-auto flex-1 min-h-0">
               <div className="mb-3">
                 <BarcodeScanner
                   autoFocus={false}
@@ -3285,6 +3289,7 @@ const LabEquipmentTracker = () => {
                 />
                 {receiveScanWarning && <p className="text-xs text-red-600 mt-1">{receiveScanWarning}</p>}
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
               <input type="number" placeholder="Gelen Miktar" value={receiveForm.receivedQty} onChange={(e) => setReceiveForm({...receiveForm, receivedQty: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <input type="text" placeholder="Teslim Alan Kişi *" value={receiveForm.receivedBy} onChange={(e) => setReceiveForm({...receiveForm, receivedBy: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <input type="text" placeholder="LOT/Parti No *" value={receiveForm.lotNo} onChange={(e) => setReceiveForm({...receiveForm, lotNo: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3 border-orange-300" required />
@@ -3292,6 +3297,7 @@ const LabEquipmentTracker = () => {
               <input type="text" placeholder="Fatura No" value={receiveForm.invoiceNo} onChange={(e) => setReceiveForm({...receiveForm, invoiceNo: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <input type="text" placeholder="Tedarikçi Firma Adı" value={receiveForm.supplierFirmName} onChange={(e) => setReceiveForm({...receiveForm, supplierFirmName: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
               <input type="number" step="0.01" placeholder="Birim Fiyat (₺) — opsiyonel" value={receiveForm.price} onChange={(e) => setReceiveForm({...receiveForm, price: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
+              </div>
               
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
@@ -3334,7 +3340,8 @@ const LabEquipmentTracker = () => {
                 )}
               </div>
 
-              <div className="flex gap-3">
+              </div>
+              <div className="px-5 py-3 border-t flex gap-3">
                 <button onClick={() => addReceipt(showReceiveForm)} className="flex-1 bg-green-600 text-white py-2 rounded-lg">Teslim Al</button>
                 <button onClick={() => { setShowReceiveForm(null); setReceiveScanWarning(''); }} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
               </div>
@@ -3344,7 +3351,7 @@ const LabEquipmentTracker = () => {
 
         {showApproveModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl p-6 max-w-md w-full">
+            <div className="bg-white rounded-xl p-6 max-w-md w-full max-h-[95vh] overflow-y-auto">
               <h2 className="text-xl font-bold mb-1">Talebi Onayla</h2>
               <p className="text-sm text-gray-500 mb-3">Onaylandığında talep otomatik olarak sipariş bekleyenler listesine alınır.</p>
               <p className="text-sm text-gray-700 mb-4 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
@@ -3397,12 +3404,15 @@ const LabEquipmentTracker = () => {
 
         {showDistributeForm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-              <h2 className="text-xl font-bold mb-4">Malzeme Dağıt</h2>
-              <p className="text-sm text-gray-600 mb-4">
-                <strong>{showDistributeForm.name}</strong><br/>
-                Stok: {showDistributeForm.totalStock || showDistributeForm.currentStock || 0} {showDistributeForm.unit}
-              </p>
+            <div className="bg-white rounded-xl w-full max-w-3xl max-h-[95vh] flex flex-col">
+              {/* Fixed header: item + stock stay visible while the body scrolls. */}
+              <div className="px-5 pt-4 pb-3 border-b flex items-baseline justify-between gap-x-4 gap-y-1 flex-wrap">
+                <h2 className="text-lg font-bold">Malzeme Dağıt</h2>
+                <p className="text-sm text-gray-600">
+                  <strong>{showDistributeForm.name}</strong> · Stok: {showDistributeForm.totalStock || showDistributeForm.currentStock || 0} {showDistributeForm.unit}
+                </p>
+              </div>
+              <div className="px-5 py-3 overflow-y-auto flex-1 min-h-0">
 
               {/* Scanned box hint: guides the depot to pick the parti actually in hand. */}
               {scanHint && scanHint.itemId === showDistributeForm.id && (scanHint.lotNumber || scanHint.expiryDate) && (
@@ -3433,7 +3443,7 @@ const LabEquipmentTracker = () => {
                     <p className="text-xs text-gray-600 mb-3">
                       Bu ürünü isteyen teknisyeni seçin — <strong>Alan Kişi</strong> ve <strong>Departman</strong> otomatik dolar. Ardından aşağıdan parti seçip <strong>Dağıt</strong>'a basın.
                     </p>
-                    <div className="space-y-2">
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                       {reqs.map((p) => {
                         const target = p.requestedFor || p.requestedBy;
                         const isSel = selectedCepReq?.id === p.id;
@@ -3537,32 +3547,36 @@ const LabEquipmentTracker = () => {
                   </>
                 );
               })()}
-              <input type="number" placeholder="Miktar" value={distributeForm.quantity} onChange={(e) => setDistributeForm({...distributeForm, quantity: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
-              
-              <select
-                value={distributeForm.department}
-                onChange={(e) => setDistributeForm({...distributeForm, department: e.target.value})}
-                className="w-full px-4 py-2 border rounded-lg mb-3 focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">Departman Seçiniz *</option>
-                {Object.entries(DEPARTMENTS).map(([key, label]) => (
-                  <option key={key} value={label}>{label}</option>
-                ))}
-              </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
+                <input type="number" placeholder="Miktar" value={distributeForm.quantity} onChange={(e) => setDistributeForm({...distributeForm, quantity: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
 
-              <input
-                type="text"
-                list="labtech-usernames"
-                placeholder="Alan Kişi (kullanıcı seç veya yaz)"
-                value={distributeForm.receivedBy}
-                onChange={(e) => setDistributeForm({...distributeForm, receivedBy: e.target.value})}
-                className="w-full px-4 py-2 border rounded-lg mb-3"
-              />
-              <datalist id="labtech-usernames">
-                {labTechs.map(t => <option key={t.id} value={t.username}>{t.username}</option>)}
-              </datalist>
-              <input type="text" placeholder="Kullanım Amacı" value={distributeForm.purpose} onChange={(e) => setDistributeForm({...distributeForm, purpose: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
-              <div className="flex gap-3">
+                <select
+                  value={distributeForm.department}
+                  onChange={(e) => setDistributeForm({...distributeForm, department: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg mb-3 focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Departman Seçiniz *</option>
+                  {Object.entries(DEPARTMENTS).map(([key, label]) => (
+                    <option key={key} value={label}>{label}</option>
+                  ))}
+                </select>
+
+                <input
+                  type="text"
+                  list="labtech-usernames"
+                  placeholder="Alan Kişi (kullanıcı seç veya yaz)"
+                  value={distributeForm.receivedBy}
+                  onChange={(e) => setDistributeForm({...distributeForm, receivedBy: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg mb-3"
+                />
+                <datalist id="labtech-usernames">
+                  {labTechs.map(t => <option key={t.id} value={t.username}>{t.username}</option>)}
+                </datalist>
+                <input type="text" placeholder="Kullanım Amacı" value={distributeForm.purpose} onChange={(e) => setDistributeForm({...distributeForm, purpose: e.target.value})} className="w-full px-4 py-2 border rounded-lg mb-3" />
+              </div>
+              </div>
+              {/* Fixed footer: Dağıt / İptal never scroll out of view. */}
+              <div className="px-5 py-3 border-t flex gap-3">
                 <button onClick={() => distributeItem(showDistributeForm)} disabled={!distributeForm.lotRows.some((r) => r.lotId && Number(r.qty) > 0) || Math.abs(distributeForm.lotRows.reduce((s, r) => s + Number(r.qty || 0), 0) - Number(distributeForm.quantity)) > 0.001} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Dağıt</button>
                 <button onClick={() => { setShowDistributeForm(null); setScanHint(null); setSelectedCepReq(null); }} className="flex-1 bg-gray-200 py-2 rounded-lg">İptal</button>
               </div>
@@ -3784,7 +3798,7 @@ const LabEquipmentTracker = () => {
                     </div>
 
                     {depoPoolRows.length === 0 && pendingOrderQty > 0 && (
-                      <div className="mobile-inline-note">
+                      <div className="mobile-inline-note" title={formatPendingTooltip(item.pendingDetails)}>
                         +{Math.floor(pendingOrderQty)} beklemede, tahmini stok {Math.floor(totalStock + pendingOrderQty)}
                       </div>
                     )}
@@ -3792,7 +3806,7 @@ const LabEquipmentTracker = () => {
                     {depoPoolRows.length > 0 && (
                       <div className="mobile-inline-note text-gray-500">
                         {depoPoolRows.map((row) => (
-                          <div key={row.key}>
+                          <div key={row.key} title={row.pendingOrderQty > 0 ? formatPendingTooltip(row.pendingDetails) : undefined}>
                             {row.label}: {row.available}
                             {row.pendingOrderQty > 0 && ` (+${Math.floor(row.pendingOrderQty)} beklemede)`}
                           </div>
@@ -4015,7 +4029,7 @@ const LabEquipmentTracker = () => {
                               </span> {item.unit}
                             </div>
                             {depoPoolRows.length === 0 && pendingOrderQty > 0 && (
-                              <div className="text-xs text-blue-600 mt-1">
+                              <div className="text-xs text-blue-600 mt-1 cursor-help" title={formatPendingTooltip(item.pendingDetails)}>
                                 +{Math.floor(pendingOrderQty)} beklemede
                                 <br/>
                                 <span className="text-gray-600">Tahmini: {Math.floor(totalStock + pendingOrderQty)}</span>
@@ -4024,7 +4038,7 @@ const LabEquipmentTracker = () => {
                             {depoPoolRows.length > 0 && (
                               <div className="text-[10px] text-gray-500 mt-1">
                                 {depoPoolRows.map((row) => (
-                                  <div key={row.key}>
+                                  <div key={row.key} title={row.pendingOrderQty > 0 ? formatPendingTooltip(row.pendingDetails) : undefined}>
                                     {row.label}: {row.available}
                                     {row.pendingOrderQty > 0 && ` (+${Math.floor(row.pendingOrderQty)} beklemede)`}
                                   </div>
@@ -4644,12 +4658,12 @@ const LabEquipmentTracker = () => {
                             <small>EBYS FORMU</small>
                             <strong>{batchReference}</strong>
                             <span>Web paketi: {group.batchId}</span>
-                          </span>
-                          <span className="ebys-batch-meta">
-                            <strong>{group.purchases.length} kalem</strong>
                             {group.purchases.some((purchase) => /PDF yok/.test(purchase.notes || '')) && (
                               <span className="text-amber-700 italic">PDF yok - Excel'den aktarıldı</span>
                             )}
+                          </span>
+                          <span className="ebys-batch-meta">
+                            <strong>{group.purchases.length} kalem</strong>
                             <small>{departments.length === 1 ? departments[0] : `${departments.length} bölüm`}</small>
                           </span>
                           <span className="ebys-batch-chevron" aria-hidden="true">
@@ -4698,10 +4712,10 @@ const LabEquipmentTracker = () => {
                                     <small>Malzeme</small>
                                     <strong>{purchase.itemName}</strong>
                                     <span>{purchase.department || 'Bölüm belirtilmedi'}</span>
+                                    {/PDF yok/.test(purchase.notes || '') && <span className="text-amber-700 italic">PDF yok - Excel'den aktarıldı</span>}
                                   </div>
                                   <div>
                                     <small>Miktar</small>
-                                    {/PDF yok/.test(purchase.notes || '') && <span className="text-amber-700 italic">PDF yok - Excel'den aktarıldı</span>}
                                     <strong>{purchase.requestedQty}</strong>
                                   </div>
                                   <div>
@@ -6028,7 +6042,7 @@ const LabEquipmentTracker = () => {
       {/* CEP DEPO Birim Düzenle Modal */}
       {unitEditItem && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4 max-h-[95vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-1">CEP DEPO Birim Ayarları</h3>
             <p className="text-sm text-gray-500 mb-4">
               <strong>{unitEditItem.name}</strong> ({unitEditItem.code})

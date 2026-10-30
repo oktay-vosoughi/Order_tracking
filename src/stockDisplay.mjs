@@ -45,8 +45,27 @@ export const getDepoPoolRows = (item) => {
       label: key === 'UNASSIGNED' ? UNASSIGNED_POOL_LABEL : key,
       available: toNumber(pools[key]?.available, 0),
       pendingOrderQty: toNumber(pools[key]?.pendingOrderQty, 0),
+      pendingDetails: Array.isArray(pools[key]?.pendingDetails) ? pools[key].pendingDetails : [],
     }))
     .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
+};
+
+const PENDING_STATUS_LABELS = {
+  ONAYLANDI: 'Onaylandı',
+  SIPARIS_VERILDI: 'Sipariş verildi',
+  KISMI_TESLIM: 'Kısmen geldi',
+};
+
+// Hover text for a "+N beklemede" label: one line per request the quantity comes from.
+export const formatPendingTooltip = (details) => {
+  if (!Array.isArray(details) || details.length === 0) return '';
+  const lines = details.map((d) => {
+    const status = PENDING_STATUS_LABELS[d.status] || d.status;
+    const partial = toNumber(d.receivedQty, 0) > 0 ? ` (${toNumber(d.orderedQty, 0)}'den ${toNumber(d.receivedQty, 0)} geldi)` : '';
+    const date = d.requestedAt ? new Date(d.requestedAt).toLocaleDateString('tr-TR') : '';
+    return `${d.talepNo} · ${status} · ${toNumber(d.pendingQty, 0)} bekliyor${partial}${date ? ` · ${date}` : ''}`;
+  });
+  return ['Bekleyen talepler:', ...lines].join('\n');
 };
 
 export const getCepDepoDisplay = (item) => {

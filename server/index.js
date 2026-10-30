@@ -1948,7 +1948,7 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
     // its own stock and its own buying process (see server/depoGroup.cjs).
     // Two small grouped queries (not per-item N+1) build a department → totals
     // map for every item at once; untagged legacy rows collapse into UNASSIGNED_POOL.
-    const [lotPoolRows, pendingPoolRows] = await Promise.all([
+    const [lotPoolRows, pendingPoolRows, pendingDetailRows] = await Promise.all([
       all(pool, `
         SELECT
           l.itemId,
@@ -1971,6 +1971,16 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
           ${purchaseFilter.clause}
         GROUP BY p.itemId, p.department
       `, purchaseFilter.params),
+      // Which requests the "beklemede" quantity comes from (hover tooltip in the stock list).
+      all(pool, `
+        SELECT p.itemId, p.department, p.requestNumber, p.ebysReference, p.status,
+               p.orderedQty, COALESCE(p.receivedQtyTotal, 0) AS receivedQty, p.requestedAt
+        FROM purchases p
+        WHERE p.status IN ('ONAYLANDI', 'SIPARIS_VERILDI', 'KISMI_TESLIM')
+          AND p.orderedQty > COALESCE(p.receivedQtyTotal, 0)
+          ${purchaseFilter.clause}
+        ORDER BY p.requestedAt ASC
+      `, purchaseFilter.params),
     ]);
 
     const lotPoolsByItem = new Map();
@@ -1986,6 +1996,21 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
       const group = resolveDepoGroup(row.department);
       if (!pendingPoolsByItem.has(row.itemId)) pendingPoolsByItem.set(row.itemId, new Map());
       pendingPoolsByItem.get(row.itemId).set(group, Number(row.pendingOrderQty));
+    }
+
+    const pendingDetailsByItem = new Map();
+    for (const row of pendingDetailRows) {
+      if (!pendingDetailsByItem.has(row.itemId)) pendingDetailsByItem.set(row.itemId, []);
+      pendingDetailsByItem.get(row.itemId).push({
+        pool: resolveDepoGroup(row.department),
+        talepNo: row.ebysReference || row.requestNumber,
+        requestNumber: row.requestNumber,
+        status: row.status,
+        orderedQty: Number(row.orderedQty),
+        receivedQty: Number(row.receivedQty),
+        pendingQty: Number(row.orderedQty) - Number(row.receivedQty),
+        requestedAt: row.requestedAt,
+      });
     }
 
     // Mirrors the SQL `stockStatus` CASE above, parameterized so it can be reused
@@ -2017,6 +2042,7 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
           activeLotCount: Number(lotRow?.activeLotCount ?? 0),
           nearestExpiry: nearestExpiryForPool,
           pendingOrderQty: pendingPools.get(key) || 0,
+          pendingDetails: (pendingDetailsByItem.get(item.id) || []).filter((d) => d.pool === key),
           status: computeStockStatus(available, idealOrMin, nearestExpiryForPool, expired),
         };
       }
@@ -2026,6 +2052,7 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
         department: departments === null || departments.includes(item.department) ? item.department : '',
         departments: (departmentsRaw ? departmentsRaw.split('||') : []).filter((department) => departments === null || departments.includes(department)),
         pools: poolsObj,
+        pendingDetails: pendingDetailsByItem.get(item.id) || [],
       };
     });
     res.json({ items: await attachBarcodesToItems(mapped) });

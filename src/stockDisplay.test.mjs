@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  formatPendingTooltip,
   getCepDepoDisplay,
   getStockDisplayTarget,
   isBelowStockTarget
@@ -36,4 +37,14 @@ test('displays CEP DEPO in sub-units when a conversion unit is configured', () =
     unit: 'reax',
     hasSubUnit: true
   });
+});
+
+test('pending tooltip lists each request with status and remaining quantity', () => {
+  const text = formatPendingTooltip([
+    { talepNo: '260906-231812', status: 'SIPARIS_VERILDI', orderedQty: 5, receivedQty: 0, pendingQty: 5 },
+    { talepNo: '260907-105813', status: 'KISMI_TESLIM', orderedQty: 3, receivedQty: 1, pendingQty: 2 },
+  ]);
+  assert.match(text, /^Bekleyen talepler:\n260906-231812 · Sipariş verildi · 5 bekliyor/);
+  assert.match(text, /260907-105813 · Kısmen geldi · 2 bekliyor \(3'den 1 geldi\)/);
+  assert.equal(formatPendingTooltip([]), '');
 });
