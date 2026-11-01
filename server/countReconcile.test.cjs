@@ -53,3 +53,15 @@ test('keep-lots stays MANUEL when lot counts differ', () => {
   const d = db('X', [{ expiryDate: '2027-01-23', currentQuantity: 3 }, { expiryDate: '2027-04-09', currentQuantity: 3 }]);
   assert.equal(planReconcile(count([['', 5]]), d, { keep: ['X'] })[0].state, 'MANUEL');
 });
+
+test('several stocked lots on one expiry that already sum to the count need no change', () => {
+  const d = db('X', [{ expiryDate: '2028-04-30', currentQuantity: 3 }, { expiryDate: '2028-04-30', currentQuantity: 7 }]);
+  assert.equal(planReconcile(count([['2028-04-30', 10]]), d)[0].state, 'DEGISMEZ');
+  assert.equal(planReconcile(count([['2028-04-30', 9]]), d)[0].state, 'MANUEL');
+});
+
+test('a counted zero creates no lot and zeroes the leftover stocked lot', () => {
+  const [p] = planReconcile(count([['', 0]]), db('X', [{ expiryDate: '2027-03-31', currentQuantity: 1 }]));
+  assert.deepEqual(p.actions.map((a) => a.type), ['ZERO']);
+  assert.equal(planReconcile(count([['', 0]]), db('X', []))[0].state, 'DEGISMEZ');
+});

@@ -39,9 +39,18 @@ function planReconcile(countLots, db, { force = [], keep = [] } = {}) {
     let ambiguous = false;
     for (const g of groups.values()) {
       const hits = item.lots.filter((l) => key(l.expiryDate) === g.expiryDate && !usedLotIds.has(l.id));
-      if (hits.length > 1 && hits.filter((l) => q2(l.currentQuantity) > 0).length > 1) ambiguous = true;
+      const stockedHits = hits.filter((l) => q2(l.currentQuantity) > 0);
+      if (stockedHits.length > 1) {
+        // Several stocked lots share this expiry: if they already add up to the
+        // counted quantity there is nothing to change, otherwise a human decides.
+        if (q2(stockedHits.reduce((sum, l) => sum + Number(l.currentQuantity), 0)) === q2(g.quantity)) {
+          hits.forEach((l) => usedLotIds.add(l.id));
+          continue;
+        }
+        ambiguous = true;
+      }
       const hit = hits.sort((a, b) => q2(b.currentQuantity) - q2(a.currentQuantity))[0];
-      if (hit) { usedLotIds.add(hit.id); matched.push({ g, lot: hit }); } else newGroups.push(g);
+      if (hit) { usedLotIds.add(hit.id); matched.push({ g, lot: hit }); } else if (q2(g.quantity) > 0) newGroups.push(g); // a counted 0 needs no new lot
     }
     const leftovers = stocked.filter((l) => !usedLotIds.has(l.id));
     const actions = [];
