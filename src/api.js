@@ -667,6 +667,12 @@ export async function updateOwnCepRequestQuantity(purchaseId, requestedQty) {
   });
 }
 
+export async function cancelOrderedPurchase(purchaseId) {
+  return apiFetch(`/purchases/${encodeURIComponent(purchaseId)}/cancel-order`, {
+    method: 'POST'
+  });
+}
+
 export async function cancelOwnCepRequest(purchaseId) {
   return apiFetch(`/purchases/${encodeURIComponent(purchaseId)}/cancel`, {
     method: 'POST'

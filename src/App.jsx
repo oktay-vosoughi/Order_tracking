@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode, History } from 'lucide-react';
 import { downloadWorkbook } from './utils/excel';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, createEbysExportBatch, redownloadEbysExportBatch, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, approveEbysBatch, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, createEbysExportBatch, redownloadEbysExportBatch, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, cancelOrderedPurchase, approveEbysBatch, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import BarcodeScanner from './BarcodeScanner';
 import { parseGs1 } from './gs1';
@@ -1240,6 +1240,16 @@ const LabEquipmentTracker = () => {
   
   const [receiveForm, setReceiveForm] = useState({ ...RECEIVE_FORM_DEFAULT });
   const [receiveScanWarning, setReceiveScanWarning] = useState('');
+
+  const handleCancelOrder = async (purchase) => {
+    if (!window.confirm(`${purchase.itemName} siparişi iptal edilsin mi? Teslim alınamayacak, talep "İptal" olarak kalır.`)) return;
+    try {
+      await cancelOrderedPurchase(purchase.id);
+      await loadAllActionData();
+    } catch (e) {
+      alert('Hata: ' + (e?.message || e));
+    }
+  };
 
   const openReceiveForm = (purchase) => {
     const batchReceipt = purchase.ebysBatchId
@@ -4744,7 +4754,10 @@ const LabEquipmentTracker = () => {
                                       >Siparişe Al →</button>
                                     )}
                                     {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
-                                      <button onClick={() => openReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
+                                      <><button onClick={() => openReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
+                                    {purchase.status === 'SIPARIS_VERILDI' && !(Number(purchase.receivedQtyTotal) > 0) && (
+                                      <button onClick={() => handleCancelOrder(purchase)} className="status-action status-action--reject">İptal</button>
+                                    )}</>
                                     )}
                                   </div>
                                 </div>
@@ -4857,7 +4870,10 @@ const LabEquipmentTracker = () => {
                             >Siparişe Al →</button>
                           )}
                           {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
-                            <button onClick={() => openReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
+                            <><button onClick={() => openReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
+                                    {purchase.status === 'SIPARIS_VERILDI' && !(Number(purchase.receivedQtyTotal) > 0) && (
+                                      <button onClick={() => handleCancelOrder(purchase)} className="status-action status-action--reject">İptal</button>
+                                    )}</>
                           )}
                           {purchase.status === 'REDDEDILDI' && (
                             <div className="text-xs text-red-600 font-medium">
@@ -4969,7 +4985,10 @@ const LabEquipmentTracker = () => {
                             >Siparişe Al →</button>
                           )}
                           {(purchase.status === 'SIPARIS_VERILDI' || purchase.status === 'KISMI_TESLIM') && canReceive && (
-                            <button onClick={() => openReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
+                            <><button onClick={() => openReceiveForm(purchase)} className="status-action status-action--receive">Teslim Al</button>
+                                    {purchase.status === 'SIPARIS_VERILDI' && !(Number(purchase.receivedQtyTotal) > 0) && (
+                                      <button onClick={() => handleCancelOrder(purchase)} className="status-action status-action--reject">İptal</button>
+                                    )}</>
                           )}
                           {purchase.status === 'REDDEDILDI' && (
                             <div className="text-xs text-red-600 font-medium">

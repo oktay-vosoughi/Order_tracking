@@ -43,7 +43,9 @@ export const getDepoPoolRows = (item) => {
     .map((key) => ({
       key,
       label: key === 'UNASSIGNED' ? UNASSIGNED_POOL_LABEL : key,
-      available: toNumber(pools[key]?.available, 0),
+      // Show the full on-hand quantity per department (expired lots included);
+      // expiry is flagged separately by the SKT alert system.
+      available: toNumber(pools[key]?.total ?? pools[key]?.available, 0),
       pendingOrderQty: toNumber(pools[key]?.pendingOrderQty, 0),
       pendingDetails: Array.isArray(pools[key]?.pendingDetails) ? pools[key].pendingDetails : [],
     }))

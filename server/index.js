@@ -3088,6 +3088,30 @@ app.post('/api/purchases/:id/cancel', authRequired, requireRole([ROLES.LAB_TECHN
   }
 });
 
+// Cancel an ordered (SIPARIS_VERILDI) request that will never arrive. Same roles as
+// "Teslim Al". Only untouched orders (nothing received yet) can be cancelled; the row is
+// kept as IPTAL history and leaves the pending/beklemede queues. No stock is touched.
+app.post('/api/purchases/:id/cancel-order', authRequired, canReceiveGoods, stockWriteScope, async (req, res) => {
+  try {
+    const purchase = await withTransaction(async (conn) => {
+      const rows = await all(conn, 'SELECT * FROM purchases WHERE id = ? FOR UPDATE', [req.params.id]);
+      if (!rows.length) throw { status: 404, error: 'NOT_FOUND' };
+      const row = rows[0];
+      if (row.status !== 'SIPARIS_VERILDI' || Number(row.receivedQtyTotal || 0) > 0) {
+        throw { status: 409, error: 'INVALID_STATUS', message: 'Yalnızca henüz teslim alınmamış sipariş edilmiş talepler iptal edilebilir.' };
+      }
+      await run(conn, `UPDATE purchases SET status = 'IPTAL', rejectedBy = ?, rejectedAt = NOW(), rejectedDate = CURDATE(),
+        rejectionReason = 'Sipariş iptal edildi (teslim alınamadı)' WHERE id = ?`, [req.user.username, req.params.id]);
+      return (await all(conn, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]))[0];
+    });
+    res.json({ purchase });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
+    console.error('Failed to cancel ordered purchase', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
 // Approve purchase request (LAB_MANAGER + ADMIN + SATINAL_YONETICI)
 // When supplierName + orderedQty are provided, jumps directly to SIPARIS_VERILDI
 app.post('/api/purchases/:id/approve', authRequired, canApprove, stockWriteScope, async (req, res) => {
