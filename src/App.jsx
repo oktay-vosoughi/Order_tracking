@@ -331,6 +331,17 @@ const LabEquipmentTracker = () => {
     return map;
   })();
 
+  // Hover text listing the request numbers behind a "beklemede" / "Dağıtım talebi" label.
+  const formatRequestListTooltip = (title, list) => {
+    const lines = (list || []).map((r) => {
+      const no = r.requestNumber || (r.id ? String(r.id).slice(0, 8) : '?');
+      const qty = r.requestedQty ?? r.quantity;
+      const who = r.requestedForName || r.requestedForUsername || r.requestedBy || '';
+      return `${no}${qty != null ? ` · ${qty}` : ''}${who ? ` · ${who}` : ''}${r.status ? ` · ${({ TALEP_EDILDI: 'Talep edildi', ONAYLANDI: 'Onaylandı' })[r.status] || r.status}` : ''}`;
+    });
+    return lines.length ? [title, ...lines].join('\n') : '';
+  };
+
   const pendingCepTotal = Object.values(pendingCepRequestsByItem).reduce((n, list) => n + list.length, 0);
 
   // Prefetch distributable lots for the open distribute modal + every pending
@@ -3751,6 +3762,7 @@ const LabEquipmentTracker = () => {
               {filteredItems.map((item) => {
                 const history = getItemHistory(item.id);
                 const pending = history.find(h => !h.isCepDepoRequest && !h.requestedFor && (h.status === 'TALEP_EDILDI' || h.status === 'ONAYLANDI'));
+                const pendingList = history.filter(h => !h.isCepDepoRequest && !h.requestedFor && (h.status === 'TALEP_EDILDI' || h.status === 'ONAYLANDI'));
                 const isExpanded = expandedMaterialId === item.id;
                 const totalStock = Number(item.totalStock ?? item.currentStock ?? 0);
                 const pendingOrderQty = Number(item.pendingOrderQty ?? 0);
@@ -3965,8 +3977,8 @@ const LabEquipmentTracker = () => {
                               Belge
                             </button>
                           )}
-                          {pending && <span className="mobile-inline-note">EBYS beklemede</span>}
-                          {pendingCepCount > 0 && <span className="mobile-inline-note">Dağıtım talebi{pendingCepCount > 1 ? ` (${pendingCepCount})` : ''}</span>}
+                          {pending && <span className="mobile-inline-note" title={formatRequestListTooltip('Bekleyen talepler:', pendingList)}>EBYS beklemede</span>}
+                          {pendingCepCount > 0 && <span className="mobile-inline-note" title={formatRequestListTooltip('Dağıtım talepleri:', pendingCepRequestsByItem[item.id])}>Dağıtım talebi{pendingCepCount > 1 ? ` (${pendingCepCount})` : ''}</span>}
                         </div>
                       </div>
                     )}
@@ -4008,6 +4020,7 @@ const LabEquipmentTracker = () => {
                   {filteredItems.map((item) => {
                     const history = getItemHistory(item.id);
                     const pending = history.find(h => !h.isCepDepoRequest && !h.requestedFor && (h.status === 'TALEP_EDILDI' || h.status === 'ONAYLANDI'));
+                    const pendingList = history.filter(h => !h.isCepDepoRequest && !h.requestedFor && (h.status === 'TALEP_EDILDI' || h.status === 'ONAYLANDI'));
                     const pendingCepCount = (pendingCepRequestsByItem[item.id] || []).length;
                     const isExpanded = expandedMaterialId === item.id;
                     const totalStock = Number(item.totalStock ?? item.currentStock ?? 0);
@@ -4104,8 +4117,8 @@ const LabEquipmentTracker = () => {
                           ) : (
                             <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">YETERLİ</span>
                           )}
-                          {pending && <div className="text-xs text-yellow-600 mt-1">EBYS beklemede</div>}
-                          {pendingCepCount > 0 && <div className="text-xs text-blue-600 mt-1">Dağıtım talebi{pendingCepCount > 1 ? ` (${pendingCepCount})` : ''}</div>}
+                          {pending && <div className="text-xs text-yellow-600 mt-1 cursor-help" title={formatRequestListTooltip('Bekleyen talepler:', pendingList)}>EBYS beklemede</div>}
+                          {pendingCepCount > 0 && <div className="text-xs text-blue-600 mt-1 cursor-help" title={formatRequestListTooltip('Dağıtım talepleri:', pendingCepRequestsByItem[item.id])}>Dağıtım talebi{pendingCepCount > 1 ? ` (${pendingCepCount})` : ''}</div>}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex gap-1 flex-wrap">
