@@ -70,6 +70,13 @@ async function apiFetch(path, options = {}) {
     payload = null;
   }
 
+  // Expired/invalid session: drop the stale token and tell the app to return
+  // to the login screen (login/bootstrap failures are handled by their callers).
+  if (response.status === 401 && token && !path.startsWith('/auth/')) {
+    clearAuthToken();
+    window.dispatchEvent(new Event('auth:expired'));
+  }
+
   const err = new Error(payload?.message || payload?.error || `HTTP_${response.status}`);
   err.status = response.status;
   err.payload = payload;

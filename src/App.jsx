@@ -43,7 +43,7 @@ import {
   getPurchaseStatusFilterOptions,
   getVisibleTabOptions
 } from './mobileUi.mjs';
-import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget, getDepoPoolRows, getStockDepartments, matchesStockDepartment, formatPendingTooltip } from './stockDisplay.mjs';
+import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget, getDepoPoolRows, getDepartmentStockView, getStockDepartments, matchesStockDepartment, formatPendingTooltip } from './stockDisplay.mjs';
 import { matchesItemSearch } from './itemSearch.mjs';
 import { STOCK_SORT_COLUMNS, sortStockItems } from './stockSort.mjs';
 import './theme.css';
@@ -551,6 +551,19 @@ const LabEquipmentTracker = () => {
     setDistributions([]);
     setActiveTab('stock');
   };
+
+  useEffect(() => {
+    const onExpired = () => {
+      setCurrentUser(null);
+      setItems([]);
+      setPurchases([]);
+      setDistributions([]);
+      setActiveTab('stock');
+      setAuthError('Oturum süreniz doldu, lütfen tekrar giriş yapın.');
+    };
+    window.addEventListener('auth:expired', onExpired);
+    return () => window.removeEventListener('auth:expired', onExpired);
+  }, []);
 
   const handlePasswordChange = async () => {
     if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
@@ -1073,9 +1086,12 @@ const LabEquipmentTracker = () => {
 
   const openPurchaseRequestForm = (item) => {
     const itemDepartments = Array.isArray(item?.departments) ? item.departments : [];
-    const preferredDepartment = isLabTechnician && itemDepartments.includes(currentUser?.department)
-      ? currentUser.department
-      : item?.department || currentUser?.department || '';
+    // If a department filter is active on the stock page, buy for that department.
+    const preferredDepartment = stockDepartmentFilter && (itemDepartments.includes(stockDepartmentFilter) || item?.department === stockDepartmentFilter)
+      ? stockDepartmentFilter
+      : isLabTechnician && itemDepartments.includes(currentUser?.department)
+        ? currentUser.department
+        : item?.department || currentUser?.department || '';
     setRequestForm({
       quantity: '',
       notes: '',
@@ -3745,7 +3761,8 @@ const LabEquipmentTracker = () => {
                 // Each department works like its own lab with its own stock and its
                 // own buying process — when this item's stock/pending orders span more
                 // than one department, show the split instead of one blended number.
-                const depoPoolRows = getDepoPoolRows(item);
+                const deptView = getDepartmentStockView(item, stockDepartmentFilter, totalStock);
+                const depoPoolRows = deptView.rows;
                 const showAllLots = showAllMobileLotsFor === item.id;
                 const lotPreviewLimit = showAllLots ? expandedMaterialLots.length : 3;
                 const lotPreview = getLotPreview(expandedMaterialLots, lotPreviewLimit);
@@ -3784,7 +3801,7 @@ const LabEquipmentTracker = () => {
                       <div>
                         <div className="mobile-metric-label">Depo</div>
                         <div className={isLowStock ? 'mobile-metric-value text-red-600' : 'mobile-metric-value text-green-600'}>
-                          {totalStock} {item.unit}
+                          {deptView.total} {item.unit}
                         </div>
                       </div>
                       <div>
@@ -4002,7 +4019,8 @@ const LabEquipmentTracker = () => {
                     // Each department works like its own lab with its own stock and its
                     // own buying process — when this item's stock/pending orders span more
                     // than one department, show the split instead of one blended number.
-                    const depoPoolRows = getDepoPoolRows(item);
+                    const deptView = getDepartmentStockView(item, stockDepartmentFilter, totalStock);
+                    const depoPoolRows = deptView.rows;
 
                     return (
                       <React.Fragment key={item.id}>
@@ -4035,7 +4053,7 @@ const LabEquipmentTracker = () => {
                           <td className="px-3 py-2">
                             <div>
                               <span className={isLowStock ? 'text-red-600 font-bold' : 'text-green-600'}>
-                                {totalStock}
+                                {deptView.total}
                               </span> {item.unit}
                             </div>
                             {depoPoolRows.length === 0 && pendingOrderQty > 0 && (
@@ -4053,6 +4071,9 @@ const LabEquipmentTracker = () => {
                                     {row.pendingOrderQty > 0 && ` (+${Math.floor(row.pendingOrderQty)} beklemede)`}
                                   </div>
                                 ))}
+                                {deptView.pooledTotal !== null && (
+                                  <div className="text-gray-400">Ortak havuz toplamı: {deptView.pooledTotal}</div>
+                                )}
                               </div>
                             )}
                           </td>

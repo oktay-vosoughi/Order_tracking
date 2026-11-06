@@ -52,6 +52,16 @@ export const getDepoPoolRows = (item) => {
     .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
 };
 
+// When a department filter is active and the item's stock is split across
+// departments, show that department's own quantity as the headline number.
+// The pooled total (shared pools, e.g. MG + Mikro) is returned separately.
+export const getDepartmentStockView = (item, department, totalStock) => {
+  const rows = getDepoPoolRows(item);
+  const own = department ? rows.find((row) => row.key === department) : null;
+  if (!own) return { total: totalStock, rows, pooledTotal: null };
+  return { total: own.available, rows: [own], pooledTotal: totalStock };
+};
+
 const PENDING_STATUS_LABELS = {
   ONAYLANDI: 'Onaylandı',
   SIPARIS_VERILDI: 'Sipariş verildi',
