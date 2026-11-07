@@ -726,3 +726,21 @@ export async function fetchItemBarcodes() {
 export async function deleteBarcode(id) {
   return apiFetch(`/barcodes/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
+
+// İhale (tender) goods entry — ADMIN / SATINAL_LOJISTIK only.
+export async function createTenderReceipt(data) {
+  return apiFetch('/tender-receipts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+export async function fetchTenderReceipts(filters = {}) {
+  const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString();
+  return apiFetch(`/tender-receipts${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchTenderReceiptAttachment(id) {
+  return apiFetch(`/tender-receipts/${encodeURIComponent(id)}/attachment`);
+}

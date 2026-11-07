@@ -23,6 +23,7 @@ const { parseGs1, lookupKeys } = require('./gs1');
 const { isReadOnlyAuditRole, isReadOnlyWriteBlocked } = require('./readOnlyRole.cjs');
 const { normalizeImportDepartment } = require('./importDepartment.cjs');
 const { createStockWriteScope } = require('./stockWriteScope.cjs');
+const { registerTenderReceipts, ensureTenderReceiptsTable } = require('./tenderReceipts.cjs');
 
 const PORT = process.env.PORT || 4000;
 
@@ -5431,6 +5432,8 @@ app.get('*', (req, res) => {
   }
 });
 
+registerTenderReceipts(app, { pool, all, run, withTransaction, generateId, authRequired, isCanonicalDepartment });
+
 const startServer = async () => {
   try {
     await ensureUsersTable();
@@ -5453,6 +5456,7 @@ const startServer = async () => {
       }
     } catch (e) { console.error('[migration] ONAYLANDI→SIPARIS_VERILDI failed:', e?.message); }
     // CEP DEPO tables / columns
+    try { await ensureTenderReceiptsTable(pool); } catch (e) { console.error('[ensureTenderReceipts] failed:', e?.message || e); }
     try {
       await ensureCepDepoTables();
       console.log('[ensureCepDepo] CEP DEPO schema verified.');

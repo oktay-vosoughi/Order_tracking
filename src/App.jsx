@@ -30,6 +30,7 @@ import BarcodeReceive from './BarcodeReceive';
 import BarcodeEnroll from './BarcodeEnroll';
 import CepDepo from './CepDepo';
 import Hareketler from './Hareketler';
+import TenderReceipts from './TenderReceipts';
 import { applyImportDepartment, buildLotImportPayload } from './utils/lotExcelImporter';
 import {
   PURCHASE_STATUS_FILTERS,
@@ -2420,7 +2421,7 @@ const LabEquipmentTracker = () => {
     waste: 'Atık', total_stock: 'Genel Stok', lot_inventory: 'LOT Stok',
     barcode_receive: 'Barkodla Teslim Al',
     barcode_enroll: 'Barkod Eşleştirme',
-    cep_depo: isLabTechnician ? 'Günlük İşlerim' : 'CEP DEPO', hareketler: 'Hareketler', users: 'Kullanıcılar', account: 'Hesabım',
+    cep_depo: isLabTechnician ? 'Günlük İşlerim' : 'CEP DEPO', hareketler: 'Hareketler', tenders: 'İhale Girişi', users: 'Kullanıcılar', account: 'Hesabım',
     prices: 'Fiyatlar & Kullanım', iso_forms: 'ISO Formları'
   };
   const userInitials = username.slice(0, 2).toUpperCase() || '??';
@@ -2538,6 +2539,11 @@ const LabEquipmentTracker = () => {
         {!isLabTechnician && isFeatureOn('cep_depo') && (
           <button className={`nv${activeTab === 'hareketler' ? ' on' : ''}`} onClick={() => navClick('hareketler')}>
             <History size={15} /><span>Hareketler</span>
+          </button>
+        )}
+        {(isAdmin || isSatinalLojistik) && (
+          <button className={`nv${activeTab === 'tenders' ? ' on' : ''}`} onClick={() => navClick('tenders')}>
+            <Truck size={15} /><span>İhale Girişi</span>
           </button>
         )}
         {canViewPrices && isFeatureOn('prices') && (
@@ -5833,6 +5839,10 @@ const LabEquipmentTracker = () => {
 
         {activeTab === 'hareketler' && !isLabTechnician && isFeatureOn('cep_depo') && (
           <Hareketler />
+        )}
+
+        {activeTab === 'tenders' && (isAdmin || isSatinalLojistik) && (
+          <TenderReceipts items={unifiedStock} onSaved={loadUnifiedData} />
         )}
 
         {/* Deprecated bottom boxes removed */}
