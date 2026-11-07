@@ -13,7 +13,11 @@ const LOGISTICS_DISTRIBUTE_PATHS = new Set([
   '/api/purchases/:id/order', '/api/purchases/:id/cancel-order', '/api/purchases/ebys-batches/:batchId/approve', '/api/receive-goods',
 ]);
 
-function createStockWriteScope({ all, pool }) {
+const PURCHASING_ROLES = new Set(['SATINAL', 'SATINAL_LOJISTIK']);
+
+// `getSetting` (optional) reads app_settings; the admin switch
+// `purchasing_can_add_items` ('0' = off, default on) gates purchasing item creation.
+function createStockWriteScope({ all, pool, getSetting }) {
   return async (req, res, next) => {
     try {
       const admin = req.user.role === 'ADMIN';
@@ -75,6 +79,18 @@ function createStockWriteScope({ all, pool }) {
               }
             }
           }
+        }
+        return next();
+      }
+      const purchasingMayAddItems = path === '/api/item-definitions' && !req.params.id && PURCHASING_ROLES.has(req.user.role)
+        && (!getSetting || (await getSetting('purchasing_can_add_items', '1')) !== '0');
+      if (purchasingMayAddItems) {
+        // Purchasing staff register new catalog items for any department, even
+        // without a department membership. Global items stay admin-only, and
+        // editing existing items keeps the membership rules below.
+        if (body.isGlobal) fail('Ortak malzeme tanımını yalnızca admin değiştirebilir.');
+        if (!body.department || normalizeImportDepartment(body.department) !== body.department) {
+          fail('İşlem için geçerli bir departman seçin.', 'DEPARTMENT_REQUIRED', 400);
         }
         return next();
       }

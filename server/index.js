@@ -357,7 +357,7 @@ const buildStateResponse = async () => {
 const app = express();
 // SATINAL is department-scoped like staff; only these roles see every department.
 const CROSS_DEPARTMENT_ROLES = [ROLES.ADMIN, ROLES.SATINAL_LOJISTIK, 'KURUMSAL', 'KALITE'];
-const stockWriteScope = createStockWriteScope({ all, pool });
+const stockWriteScope = createStockWriteScope({ all, pool, getSetting });
 
 // Restrict CORS to an explicit allowlist in production (CORS_ORIGIN=comma,separated).
 // In development, reflect any origin so the Vite dev server / LAN testing keeps working.

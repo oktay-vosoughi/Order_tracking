@@ -1675,6 +1675,17 @@ const LabEquipmentTracker = () => {
     }
   };
 
+  // ADMIN toggles whether purchasing roles (SATINAL / SATINAL_LOJISTIK) may add new items.
+  const purchasingCanAddItems = appSettings.purchasing_can_add_items !== '0';
+  const togglePurchasingCanAddItems = async (next) => {
+    try {
+      await updateSetting('purchasing_can_add_items', next ? '1' : '0');
+      setAppSettings((s) => ({ ...s, purchasing_can_add_items: next ? '1' : '0' }));
+    } catch (err) {
+      alert('Ayar güncellenemedi: ' + (err?.payload?.message || err?.message || 'HATA'));
+    }
+  };
+
   // ADMIN toggles the receipt-confirmation feature on/off.
   const toggleReceiptConfirmation = async (next) => {
     try {
@@ -2818,6 +2829,22 @@ const LabEquipmentTracker = () => {
                       <span className="block text-gray-600 text-xs mt-0.5">
                         Açıkken: dağıtım yapıldığında lab teknisyeni "Teslim aldım" ile onaylayana kadar
                         teslimat "onay bekliyor" durumunda kalır. Kapalıyken dağıtım anında tamamlanır.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-3 cursor-pointer mt-4">
+                    <input
+                      type="checkbox"
+                      checked={purchasingCanAddItems}
+                      onChange={(e) => togglePurchasingCanAddItems(e.target.checked)}
+                      className="mt-1 h-4 w-4"
+                    />
+                    <span className="text-sm">
+                      <span className="font-semibold">Satın alma yeni malzeme ekleyebilsin</span>
+                      <span className="block text-gray-600 text-xs mt-0.5">
+                        Açıkken: Satın Alma ve Satın Alma Lojistik kullanıcıları departman üyeliği olmasa da
+                        herhangi bir departmana yeni malzeme tanımı ekleyebilir. Kapalıyken yalnızca kendi
+                        departmanlarına ekleyebilir.
                       </span>
                     </span>
                   </label>

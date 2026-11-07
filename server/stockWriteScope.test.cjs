@@ -211,3 +211,27 @@ test('Genetik and Mikro share main-stock lots; CEP requests and other department
   const request = await authorize('/api/purchases', { department: MIKRO }, { role: 'LAB_TECHNICIAN', memberships: [GEN], techDepartment: GEN, techMemberships: [GEN] });
   assert.equal(request.status, 403);
 });
+
+test('purchasing roles can create new item definitions in any valid department without membership', async () => {
+  for (const role of ['SATINAL', 'SATINAL_LOJISTIK']) {
+    assert.equal((await authorize('/api/item-definitions', { department: GEN }, { role, memberships: [] })).passed, true);
+    assert.equal((await authorize('/api/item-definitions', { department: 'Bilinmeyen' }, { role, memberships: [] })).status, 400);
+    assert.equal((await authorize('/api/item-definitions', { department: GEN, isGlobal: true }, { role, memberships: [] })).status, 403);
+  }
+  // Other roles and edits of existing items are unchanged.
+  assert.equal((await authorize('/api/item-definitions', { department: GEN }, { role: 'LAB_TECHNICIAN', memberships: [SITO] })).status, 403);
+  assert.equal((await authorize('/api/item-definitions/:id', {}, { params: { id: '601002' }, role: 'SATINAL', memberships: [], tags: [GEN] })).passed, false);
+});
+
+test('admin switch purchasing_can_add_items=0 restores membership rules for purchasing item creation', async () => {
+  const run = async (setting) => {
+    const req = { route: { path: '/api/item-definitions' }, body: { department: GEN }, params: {}, user: { id: 'u1', role: 'SATINAL' } };
+    let status = 200, passed = false;
+    const res = { status(v) { status = v; return this; }, json() {} };
+    const all = async (_p, sql) => (sql.includes('FROM user_departments') ? [] : []);
+    await createStockWriteScope({ all, pool: {}, getSetting: async () => setting })(req, res, () => { passed = true; });
+    return { status, passed };
+  };
+  assert.equal((await run('1')).passed, true);
+  assert.equal((await run('0')).passed, false);
+});
