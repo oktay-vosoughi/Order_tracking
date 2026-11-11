@@ -100,7 +100,7 @@ export default function CepDepo({ currentUser }) {
       alert('Güncelleme başarısız: ' + (err?.message || 'HATA'));
     }
   };
-  const [consumeForm, setConsumeForm] = useState({ itemId: '', consumptionUnitType: 'PACK', quantity: '', notes: '' });
+  const [consumeForm, setConsumeForm] = useState({ itemId: '', department: '', consumptionUnitType: 'PACK', quantity: '', notes: '' });
   const [returnForm, setReturnForm] = useState({ itemId: '', packQty: '', notes: '' });
   const requestDepartments = useMemo(() => [...new Set([
     currentUser?.department,
@@ -192,11 +192,12 @@ export default function CepDepo({ currentUser }) {
     try {
       await consumeFromCepDepo({
         itemId: consumeForm.itemId,
+        department: consumeForm.department || undefined,
         consumptionUnitType: consumeForm.consumptionUnitType,
         quantity: Number(consumeForm.quantity),
         notes: consumeForm.notes || undefined
       });
-      setConsumeForm({ itemId: '', consumptionUnitType: 'PACK', quantity: '', notes: '' });
+      setConsumeForm({ itemId: '', department: '', consumptionUnitType: 'PACK', quantity: '', notes: '' });
       await loadAll();
       setLabFeedback({ type: 'success', message: 'Tüketim kaydedildi. Yeni bakiyen aşağıda görünüyor.' });
     } catch (err) {
@@ -220,10 +221,11 @@ export default function CepDepo({ currentUser }) {
 
   const toggleConsumeMaterial = (balance) => {
     setLabFeedback(null);
-    setConsumeForm((current) => current.itemId === balance.itemId
-      ? { itemId: '', consumptionUnitType: 'PACK', quantity: '', notes: '' }
+    setConsumeForm((current) => (current.itemId === balance.itemId && current.department === (balance.department || ''))
+      ? { itemId: '', department: '', consumptionUnitType: 'PACK', quantity: '', notes: '' }
       : {
           itemId: balance.itemId,
+          department: balance.department || '',
           consumptionUnitType: balance.consumptionUnitType || 'PACK',
           quantity: '',
           notes: ''
@@ -602,7 +604,7 @@ export default function CepDepo({ currentUser }) {
 
   // ---- views ----
 
-  const selectedConsumeBalance = balances.find((b) => b.itemId === consumeForm.itemId);
+  const selectedConsumeBalance = balances.find((b) => b.itemId === consumeForm.itemId && (b.department || '') === consumeForm.department);
   const consumeHasSubUnit = selectedConsumeBalance?.consumptionUnitType !== 'PACK' && selectedConsumeBalance?.consumptionUnit;
   const consumeUnitLabel = selectedConsumeBalance
     ? (consumeHasSubUnit ? selectedConsumeBalance.consumptionUnit : (selectedConsumeBalance.packageUnit || 'koli'))
@@ -689,7 +691,7 @@ export default function CepDepo({ currentUser }) {
                   const hasSubUnit = b.consumptionUnitType !== 'PACK' && b.consumptionUnit;
                   const unit = hasSubUnit ? b.consumptionUnit : (b.packageUnit || 'koli');
                   const quantity = Number(hasSubUnit ? b.unitQty : b.packQty) || 0;
-                  const isExpanded = consumeForm.itemId === b.itemId;
+                  const isExpanded = consumeForm.itemId === b.itemId && consumeForm.department === (b.department || '');
                   const isPinned = pinnedItemIds.includes(b.itemId);
                   return (
                     <article
@@ -703,7 +705,7 @@ export default function CepDepo({ currentUser }) {
                         aria-controls={`consume-${b.id || b.itemId}`}
                         onClick={() => toggleConsumeMaterial(b)}
                       >
-                        <span className="lab-balance-name"><strong>{b.itemName || b.itemId}</strong><small>{b.itemCode || b.department || 'Bölüm malzemesi'}</small></span>
+                        <span className="lab-balance-name"><strong>{b.itemName || b.itemId}</strong><small>{b.itemCode || 'Bölüm malzemesi'}</small>{showDeptColumn && b.department && <small className="lab-balance-dept">{b.department}</small>}</span>
                         <span className="lab-balance-amount"><strong>{quantity}</strong><small>{unit}</small></span>
                         <span className="lab-balance-chevron" aria-hidden="true">{isExpanded ? <ChevronUp size={19} /> : <ChevronDown size={19} />}</span>
                       </button>

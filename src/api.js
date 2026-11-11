@@ -606,11 +606,11 @@ export async function distributeToCepDepo({ labTechnicianId, itemId, packQty, pu
   });
 }
 
-export async function consumeFromCepDepo({ itemId, consumptionUnitType, quantity, testCount, notes, labTechnicianId }) {
+export async function consumeFromCepDepo({ itemId, department, consumptionUnitType, quantity, testCount, notes, labTechnicianId }) {
   return apiFetch('/cep-depo/consume', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ itemId, consumptionUnitType, quantity, testCount, notes, labTechnicianId })
+    body: JSON.stringify({ itemId, department, consumptionUnitType, quantity, testCount, notes, labTechnicianId })
   });
 }
 

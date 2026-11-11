@@ -384,6 +384,7 @@ input, select, textarea { font-family: inherit; }
 .lab-balance-name { min-width: 0; flex: 1; }
 .lab-balance-name strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lab-balance-card small { display: block; margin-top: 3px; color: #64748B; font-size: 11px; }
+.lab-balance-card small.lab-balance-dept { color: #475569; font-weight: 600; }
 .lab-balance-amount { flex: 0 0 auto; text-align: right; }
 .lab-balance-amount strong { display: block; color: #1D4ED8; font-size: 22px; line-height: 1; }
 .lab-balance-chevron { display: inline-flex; flex: 0 0 auto; color: #94A3B8; }

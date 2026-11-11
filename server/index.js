@@ -4993,7 +4993,16 @@ app.post('/api/cep-depo/consume', authRequired, stockWriteScope, async (req, res
       if (!tech) throw { status: 404, error: 'TECHNICIAN_NOT_FOUND' };
       if (!isLabTechnicianRole(tech.role)) throw { status: 400, error: 'LAB_TECHNICIAN_REQUIRED' };
       // ADMIN may target a specific department pool directly; otherwise use the tech's department.
-      const dept = (isAdmin && req.body?.department) ? String(req.body.department) : tech.department;
+      let dept = tech.department;
+      if (req.body?.department) {
+        const requested = String(req.body.department);
+        if (isAdmin) {
+          dept = requested;
+        } else {
+          const allowed = await getUserDepartments(req.user.id, req.user.role);
+          if (allowed === null || allowed.includes(requested)) dept = requested;
+        }
+      }
       if (!dept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Bir bölüme atanmış olmalısınız.' };
       req.assertStockDepartment(dept);
 
