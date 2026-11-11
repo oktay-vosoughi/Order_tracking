@@ -18,13 +18,9 @@ import {
   distributeApprovedRequest,
   updateOwnCepRequestQuantity,
   cancelOwnCepRequest,
-  updateItemDefinition,
-  fetchWmsItems,
-  ensureWmsItem,
-  retryPurchaseWms
+  updateItemDefinition
 } from './api';
 import { matchesItemSearch } from './itemSearch.mjs';
-import { describeWmsResult } from './wmsFeedback.mjs';
 import { readCepDepoPins, sortCepDepoBalancesByPins, writeCepDepoPins } from './cepDepoPins.mjs';
 import { isReadOnlyAuditRole } from './rolePolicy.mjs';
 import CepMovementsTable from './CepMovementsTable';
@@ -104,7 +100,7 @@ export default function CepDepo({ currentUser }) {
       alert('Güncelleme başarısız: ' + (err?.message || 'HATA'));
     }
   };
-  const [consumeForm, setConsumeForm] = useState({ itemId: '', department: '', consumptionUnitType: 'PACK', quantity: '', notes: '' });
+  const [consumeForm, setConsumeForm] = useState({ itemId: '', consumptionUnitType: 'PACK', quantity: '', notes: '' });
   const [returnForm, setReturnForm] = useState({ itemId: '', packQty: '', notes: '' });
   const requestDepartments = useMemo(() => [...new Set([
     currentUser?.department,
@@ -120,10 +116,6 @@ export default function CepDepo({ currentUser }) {
     [items, requestItemSearch]
   );
   const [overrideForm, setOverrideForm] = useState({ itemId: '', requestedFor: '', requestedQty: '', overrideReason: '' });
-  // WMS catalog (module "WMS Entegrasyonu"): short list shown next to our own items.
-  const [wmsItems, setWmsItems] = useState([]);
-  const [wmsNotice, setWmsNotice] = useState('');
-  const [wmsPickBusy, setWmsPickBusy] = useState('');
 
   const loadAll = async () => {
     setLoading(true);
@@ -164,42 +156,6 @@ export default function CepDepo({ currentUser }) {
   useEffect(() => { loadAll(); /* eslint-disable-next-line */ }, [role]);
 
   useEffect(() => {
-    if (!isLabTech) return;
-    let cancelled = false;
-    fetchWmsItems(5)
-      .then((res) => { if (!cancelled) { setWmsItems(res?.items || []); setWmsNotice(''); } })
-      .catch((err) => {
-        if (cancelled) return;
-        setWmsItems([]);
-        // Module off (403) simply hides the box; real WMS problems are shown.
-        if (err?.payload?.error !== 'MODULE_DISABLED') setWmsNotice(err?.payload?.message || err?.message || 'WMS malzemeleri alınamadı.');
-      });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line
-  }, [role]);
-
-  const handlePickWmsItem = async (wmsItem) => {
-    if (!reqForm.department) {
-      setLabFeedback({ type: 'error', message: 'Önce talep edilecek bölümü seç.' });
-      return;
-    }
-    setWmsPickBusy(wmsItem.code);
-    setLabFeedback(null);
-    try {
-      const res = await ensureWmsItem({ code: wmsItem.code, department: reqForm.department });
-      const pickedId = res?.item?.id;
-      if (!pickedId) throw new Error(`WMS malzemesi alınamadı (yanıt: ${JSON.stringify(res)?.slice(0, 200)})`);
-      await loadAll();
-      setRequestItemSearch('');
-      setReqForm((form) => ({ ...form, itemId: pickedId, requestedQty: '' }));
-    } catch (err) {
-      setLabFeedback({ type: 'error', message: err?.payload?.message || err?.message || 'WMS malzemesi seçilemedi.' });
-    } finally {
-      setWmsPickBusy('');
-    }
-  };
-
-  useEffect(() => {
     if (typeof window === 'undefined') return;
     setPinnedItemIds(readCepDepoPins(window.localStorage, currentUser?.username));
   }, [currentUser?.username]);
@@ -236,12 +192,11 @@ export default function CepDepo({ currentUser }) {
     try {
       await consumeFromCepDepo({
         itemId: consumeForm.itemId,
-        department: consumeForm.department || undefined,
         consumptionUnitType: consumeForm.consumptionUnitType,
         quantity: Number(consumeForm.quantity),
         notes: consumeForm.notes || undefined
       });
-      setConsumeForm({ itemId: '', department: '', consumptionUnitType: 'PACK', quantity: '', notes: '' });
+      setConsumeForm({ itemId: '', consumptionUnitType: 'PACK', quantity: '', notes: '' });
       await loadAll();
       setLabFeedback({ type: 'success', message: 'Tüketim kaydedildi. Yeni bakiyen aşağıda görünüyor.' });
     } catch (err) {
@@ -265,11 +220,10 @@ export default function CepDepo({ currentUser }) {
 
   const toggleConsumeMaterial = (balance) => {
     setLabFeedback(null);
-    setConsumeForm((current) => (current.itemId === balance.itemId && current.department === (balance.department || ''))
-      ? { itemId: '', department: '', consumptionUnitType: 'PACK', quantity: '', notes: '' }
+    setConsumeForm((current) => current.itemId === balance.itemId
+      ? { itemId: '', consumptionUnitType: 'PACK', quantity: '', notes: '' }
       : {
           itemId: balance.itemId,
-          department: balance.department || '',
           consumptionUnitType: balance.consumptionUnitType || 'PACK',
           quantity: '',
           notes: ''
@@ -302,7 +256,7 @@ export default function CepDepo({ currentUser }) {
     setLabFeedback(null);
     try {
       const it = itemById.get(reqForm.itemId);
-      const created = await createPurchaseRequestForLabTech({
+      await createPurchaseRequestForLabTech({
         itemId: reqForm.itemId,
         itemCode: it?.code,
         itemName: it?.name,
@@ -313,11 +267,7 @@ export default function CepDepo({ currentUser }) {
       setReqForm({ itemId: '', department: defaultRequestDepartment, requestedQty: '', notes: '' });
       setRequestItemSearch('');
       await loadAll();
-      const wmsInfo = describeWmsResult(created?.wms);
-      setLabFeedback({
-        type: wmsInfo?.type === 'error' ? 'error' : 'success',
-        message: 'Talebin oluşturuldu. Onay durumunu “Taleplerim” bölümünden izleyebilirsin.' + (wmsInfo ? ' ' + wmsInfo.text : '')
-      });
+      setLabFeedback({ type: 'success', message: 'Talebin oluşturuldu. Onay durumunu “Taleplerim” bölümünden izleyebilirsin.' });
     } catch (err) {
       const code = err?.payload?.error;
       if (code === 'CEP_DEPO_HAS_STOCK') {
@@ -356,20 +306,6 @@ export default function CepDepo({ currentUser }) {
       await loadAll();
     } catch (err) {
       alert('Onay başarısız: ' + (err?.payload?.message || err?.message || 'HATA'));
-    }
-  };
-
-  const handleRetryWms = async (p) => {
-    setRequestMutationId(p.id);
-    try {
-      const res = await retryPurchaseWms(p.id);
-      const info = describeWmsResult(res?.wms);
-      setLabFeedback({ type: info?.type === 'error' ? 'error' : 'success', message: `${p.requestNumber || 'Talep'}: ${info?.text || 'WMS gönderimi tamamlandı.'}` });
-      await loadAll();
-    } catch (err) {
-      setLabFeedback({ type: 'error', message: 'WMS yeniden gönderim başarısız: ' + (err?.payload?.message || err?.message || 'HATA') });
-    } finally {
-      setRequestMutationId(null);
     }
   };
 
@@ -609,19 +545,6 @@ export default function CepDepo({ currentUser }) {
                 : p.status === 'IPTAL' ? 'bg-gray-100 text-gray-600'
                 : 'bg-amber-100 text-amber-700'
               }`}>{PURCHASE_STATUS_LABELS[p.status] || p.status}</span>
-              {p.wmsStatus === 'HATA' && (
-                <div className="mt-1" data-testid="wms-error">
-                  <span className="px-2 py-1 rounded text-xs bg-red-100 text-red-700" title={p.wmsError || ''}>WMS hatası{p.wmsSlipNumber ? ` (${p.wmsSlipNumber})` : ''}</span>
-                  {canOperateCep && (
-                    <button
-                      onClick={() => handleRetryWms(p)}
-                      disabled={requestMutationId === p.id}
-                      className="ml-1 px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
-                    >{requestMutationId === p.id ? 'Gönderiliyor…' : "WMS'e tekrar gönder"}</button>
-                  )}
-                </div>
-              )}
-              {p.wmsStatus === 'GONDERILDI' && <div className="mt-1 text-xs text-green-700">WMS: {p.wmsSlipNumber}</div>}
             </td>
             <td className="px-3 py-2 text-xs max-w-xs truncate" title={p.notes || p.approvalNote || p.rejectionReason || ''}>
               {p.rejectionReason ? `RED: ${p.rejectionReason}` : (p.notes || p.approvalNote || '')}
@@ -679,7 +602,7 @@ export default function CepDepo({ currentUser }) {
 
   // ---- views ----
 
-  const selectedConsumeBalance = balances.find((b) => b.itemId === consumeForm.itemId && (b.department || '') === consumeForm.department);
+  const selectedConsumeBalance = balances.find((b) => b.itemId === consumeForm.itemId);
   const consumeHasSubUnit = selectedConsumeBalance?.consumptionUnitType !== 'PACK' && selectedConsumeBalance?.consumptionUnit;
   const consumeUnitLabel = selectedConsumeBalance
     ? (consumeHasSubUnit ? selectedConsumeBalance.consumptionUnit : (selectedConsumeBalance.packageUnit || 'koli'))
@@ -766,7 +689,7 @@ export default function CepDepo({ currentUser }) {
                   const hasSubUnit = b.consumptionUnitType !== 'PACK' && b.consumptionUnit;
                   const unit = hasSubUnit ? b.consumptionUnit : (b.packageUnit || 'koli');
                   const quantity = Number(hasSubUnit ? b.unitQty : b.packQty) || 0;
-                  const isExpanded = consumeForm.itemId === b.itemId && consumeForm.department === (b.department || '');
+                  const isExpanded = consumeForm.itemId === b.itemId;
                   const isPinned = pinnedItemIds.includes(b.itemId);
                   return (
                     <article
@@ -866,22 +789,6 @@ export default function CepDepo({ currentUser }) {
                 {filteredRequestItems.map((it) => <option key={it.id} value={it.id}>{it.name} {it.code ? `(${it.code})` : ''}</option>)}
               </select>
             </div>
-            {(wmsItems.length > 0 || wmsNotice) && (
-              <div className="lab-field lab-field-wide" data-testid="wms-items">
-                <label>WMS depo malzemeleri <em>(Genetik depodaki stok)</em></label>
-                {wmsNotice && <small role="alert">{wmsNotice}</small>}
-                <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>
-                  {wmsItems.map((w) => (
-                    <li key={w.code} style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span><strong>{w.name}</strong> <small>({w.code})</small> · stok: {w.stockQty} {w.stockUnit}</span>
-                      <button type="button" disabled={!!wmsPickBusy || labBusy} onClick={() => handlePickWmsItem(w)}>
-                        {wmsPickBusy === w.code ? 'Seçiliyor…' : (reqForm.itemId && itemById.get(reqForm.itemId)?.code === w.code ? 'Seçildi' : 'Seç')}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
             {reqForm.itemId && (
               <div className={`lab-rule ${requestAllowed ? 'is-allowed' : 'is-blocked'}`}>
                 <strong>{requestAllowed ? 'Talep açabilirsin' : 'Önce mevcut stoğu kullan'}</strong>
