@@ -24,6 +24,8 @@ const { isReadOnlyAuditRole, isReadOnlyWriteBlocked } = require('./readOnlyRole.
 const { normalizeImportDepartment } = require('./importDepartment.cjs');
 const { createStockWriteScope } = require('./stockWriteScope.cjs');
 const { registerTenderReceipts, ensureTenderReceiptsTable } = require('./tenderReceipts.cjs');
+const { buildTransferWorkOrder, buildWmsCatalog, allocateLots, resolveWmsItemCode, resolveWmsUnit, extractSlipNumber, formatOwnSlipNumber } = require('./wmsTransfer.cjs');
+const { wmsConfig, createTransferWorkOrder, getWorkOrder, getItems: getWmsItems, getItem: getWmsItem, getStock: getWmsStock } = require('./wmsClient.cjs');
 
 const PORT = process.env.PORT || 4000;
 
@@ -243,7 +245,7 @@ const canLookupBarcode = (req, res, next) => {
 // Single-company feature toggles (mirror of the frontend). Stored in app_settings
 // as `module.<key>`. Barcode modules default OFF (opt-in). getSetting is a hoisted
 // function declaration, so it is available when these middlewares run per-request.
-const FEATURE_DEFAULTS = { barcode_receiving: false, barcode_distribution: false };
+const FEATURE_DEFAULTS = { barcode_receiving: false, barcode_distribution: false, wms_transfer: false };
 async function isFeatureEnabled(key) {
   const raw = await getSetting('module.' + key, null);
   if (raw === null || raw === undefined || raw === '') return FEATURE_DEFAULTS[key] === true;
@@ -2451,6 +2453,21 @@ app.post('/api/receive-goods', authRequired, canReceiveGoods, stockWriteScope, a
         purchaseId
       ]);
 
+      // Audit log: who (logged-in user) received what, when. The typed "Teslim Alan"
+      // name may differ from the account, so it goes into the note.
+      const unitsPerPackage = Number(item.unitsPerPackage) > 0 ? Number(item.unitsPerPackage) : 1;
+      const typedReceiver = receivedBy && receivedBy !== req.user.username ? ` | Teslim alan: ${receivedBy}` : '';
+      await run(conn, `
+        INSERT INTO stock_movements
+          (id, movementType, itemId, fromLocation, toLocation, packQty, unitQty,
+           performedByUserId, performedByUsername, department, requestId, refId, notes)
+        VALUES (?, 'RECEIVE_GOODS', ?, 'SUPPLIER', 'MAIN_DEPOT', ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        generateId(), item.id, quantity, quantity * unitsPerPackage, req.user.id, req.user.username,
+        purchase.department || null, purchaseId, normalizedReceiptId,
+        `${purchase.requestNumber || ''} | Lot: ${lotNumber}${expiryDate ? ` | SKT: ${expiryDate}` : ''}${typedReceiver}`.slice(0, 1000)
+      ]);
+
       const lotRecord = (await all(conn, 'SELECT * FROM lots WHERE id = ?', [lotId]))[0];
       const receiptRecord = (await all(conn, 'SELECT * FROM receipts WHERE receiptId = ?', [normalizedReceiptId]))[0];
       const updatedPurchase = (await all(conn, 'SELECT * FROM purchases WHERE id = ?', [purchaseId]))[0];
@@ -2845,6 +2862,96 @@ app.post('/api/distribute/:id/confirm', authRequired, canDistribute, stockWriteS
 //   - LAB_TECHNICIAN may request only if their CEP DEPO balance for the item is zero.
 //   - ADMIN / SATINAL may file on behalf of a lab tech with { requestedFor, overrideReason }
 //     in which case the block is bypassed and a REQUEST_OVERRIDE movement is logged.
+// Send one purchase request to the WMS as a transfer work order. Never throws:
+// the request is already saved, so a WMS failure is recorded on the row
+// (wmsStatus HATA + wmsError) and can be retried via POST /purchases/:id/wms-send.
+// The atomic claim below prevents a double click or retry from creating two slips.
+// Next number of our own WMS slip series (LIMS00000001, ...). The counter lives in
+// app_settings and is incremented atomically on one connection.
+async function nextWmsSlipNumber() {
+  return withTransaction(async (conn) => {
+    await run(conn, "INSERT INTO app_settings (settingKey, settingValue) VALUES ('wms_slip_seq', '0') ON DUPLICATE KEY UPDATE settingKey = settingKey");
+    await run(conn, "UPDATE app_settings SET settingValue = LAST_INSERT_ID(CAST(settingValue AS UNSIGNED) + 1) WHERE settingKey = 'wms_slip_seq'");
+    const rows = await all(conn, 'SELECT LAST_INSERT_ID() AS n');
+    return formatOwnSlipNumber(Number(rows[0].n));
+  });
+}
+
+async function sendPurchaseToWms(purchaseId) {
+  let claimed = false;
+  try {
+    const claim = await run(pool,
+      "UPDATE purchases SET wmsStatus = 'GONDERILIYOR', wmsError = NULL WHERE id = ? AND (wmsStatus IS NULL OR wmsStatus = 'HATA')",
+      [purchaseId]);
+    if (!claim.affectedRows) return { status: 'ATLANDI', message: 'Talep zaten WMS\'e gönderilmiş ya da gönderiliyor.' };
+    claimed = true;
+
+    const rows = await all(pool, `
+      SELECT p.id, p.requestNumber, p.department, p.requestedQty, p.itemId, p.wmsSlipNumber,
+             i.code AS itemDefCode, i.packageUnit AS itemPackageUnit, i.category AS itemCategory
+      FROM purchases p JOIN item_definitions i ON i.id = p.itemId
+      WHERE p.id = ?`, [purchaseId]);
+    const p = rows?.[0];
+    if (!p) throw Object.assign(new Error('Talep ya da malzeme bulunamadı.'), { error: 'NOT_FOUND' });
+    const barcodes = (await all(pool, 'SELECT barcode FROM item_barcodes WHERE itemId = ?', [p.itemId])).map((r) => r.barcode);
+
+    // The slip number is fixed on the first attempt and reused by retries, so a
+    // retry after an ambiguous failure is rejected by WMS as a duplicate instead
+    // of creating a second slip.
+    let ownSlipNumber = p.wmsSlipNumber;
+    if (!ownSlipNumber) {
+      ownSlipNumber = await nextWmsSlipNumber();
+      await run(pool, 'UPDATE purchases SET wmsSlipNumber = ? WHERE id = ?', [ownSlipNumber, purchaseId]);
+    }
+    // Lots to move: taken from the WMS stock at the source address (FEFO).
+    const line = { code: p.itemDefCode, barcodes, fromWms: p.itemCategory === 'WMS', packageUnit: p.itemPackageUnit, quantity: p.requestedQty };
+    const wmsStock = await getWmsStock();
+    line.lots = allocateLots({
+      stock: Array.isArray(wmsStock) ? wmsStock : [],
+      itemCode: resolveWmsItemCode(line),
+      unitCode: resolveWmsUnit(line.packageUnit),
+      quantity: line.quantity,
+      // Test only: WMS stock without lots is sent under this lot name (server/.env).
+      fallbackLot: String(process.env.WMS_TEST_LOT || '').trim() || null
+    });
+    const order = buildTransferWorkOrder({
+      slipNumber: ownSlipNumber,
+      department: p.department,
+      description: p.requestNumber,
+      lines: [line]
+    });
+    const created = await createTransferWorkOrder(order);
+    const slipNumber = extractSlipNumber(created) || ownSlipNumber;
+
+    // Confirm the slip really exists on the WMS side (read it back).
+    let verified = false;
+    if (slipNumber) {
+      try { verified = Boolean(extractSlipNumber(await getWorkOrder(slipNumber))); } catch { verified = false; }
+    }
+    await run(pool,
+      "UPDATE purchases SET wmsStatus = 'GONDERILDI', wmsSlipNumber = ?, wmsSentAt = NOW(), wmsError = ? WHERE id = ?",
+      [slipNumber, slipNumber ? null : 'WMS yanıtında fiş numarası yok; WMS tarafında kontrol edin.', purchaseId]);
+    return { status: 'GONDERILDI', slipNumber, verified, order };
+  } catch (err) {
+    const message = String(err?.message || 'WMS gönderimi başarısız.').slice(0, 1800);
+    console.error('WMS transfer failed for purchase', purchaseId, '-', message);
+    if (claimed) {
+      await run(pool, "UPDATE purchases SET wmsStatus = 'HATA', wmsError = ? WHERE id = ?", [message, purchaseId]).catch(() => {});
+    }
+    return { status: 'HATA', error: err?.error || 'WMS_ERROR', message };
+  }
+}
+
+async function maybeSendPurchaseToWms(purchaseId) {
+  try {
+    if (!(await isFeatureEnabled('wms_transfer'))) return null;
+    return await sendPurchaseToWms(purchaseId);
+  } catch (err) {
+    console.error('WMS dispatch check failed', err);
+    return { status: 'HATA', error: 'WMS_ERROR', message: String(err?.message || 'WMS gönderimi başarısız.') };
+  }
+}
+
 app.post('/api/purchases', authRequired, stockWriteScope, async (req, res) => {
   const {
     itemId, itemCode, itemName, department,
@@ -2970,16 +3077,113 @@ app.post('/api/purchases', authRequired, stockWriteScope, async (req, res) => {
       }
     });
 
+    // Lab technician (CEP DEPO) requests go to the WMS once the row is committed.
+    const wms = cepFlag ? await maybeSendPurchaseToWms(purchaseId) : null;
+
     const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [purchaseId]);
-    res.json({ purchase: purchases[0] });
+    res.json({ purchase: purchases[0], wms });
   } catch (error) {
     console.error('Failed to create purchase request', error);
     res.status(500).json({ error: 'SERVER_ERROR', message: error?.message || 'Purchase creation failed' });
   }
 });
 
+// Retry / manual send of a request to the WMS (ADMIN or SATINAL_LOJISTIK).
+app.post('/api/purchases/:id/wms-send', authRequired, requireAnyFeature('wms_transfer'), requireRole([ROLES.ADMIN, ROLES.SATINAL_LOJISTIK]), stockWriteScope, async (req, res) => {
+  try {
+    const rows = await all(pool, 'SELECT id, wmsStatus FROM purchases WHERE id = ?', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'NOT_FOUND' });
+    if (rows[0].wmsStatus === 'GONDERILDI' || rows[0].wmsStatus === 'GONDERILIYOR') {
+      return res.status(409).json({ error: 'WMS_ALREADY_SENT', message: 'Bu talep WMS\'e zaten gönderilmiş.' });
+    }
+    const wms = await sendPurchaseToWms(req.params.id);
+    const purchases = await all(pool, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]);
+    res.json({ purchase: purchases[0], wms });
+  } catch (error) {
+    console.error('Failed to send purchase to WMS', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
+// WMS catalog for the request screen: a short list of WMS items with the stock
+// they hold in the Genetik warehouse. Read-only; any signed-in user may see it.
+app.get('/api/wms/items', authRequired, requireAnyFeature('wms_transfer'), async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 50);
+    const cfg = wmsConfig();
+    const [items, stock] = await Promise.all([
+      getWmsItems({ customCode2: process.env.WMS_CUSTOM_CODE2 || undefined }, cfg),
+      getWmsStock(cfg)
+    ]);
+    const catalog = buildWmsCatalog({ items: Array.isArray(items) ? items : [], stock: Array.isArray(stock) ? stock : [], limit });
+    res.json({ items: catalog });
+  } catch (error) {
+    console.error('Failed to load WMS catalog', error?.message);
+    res.status(502).json({ error: error?.error || 'WMS_ERROR', message: error?.message || 'WMS malzemeleri alınamadı.' });
+  }
+});
+
+// Make sure a WMS item exists as a local item definition (so it can be requested)
+// and return it. Name, unit and stock come from the WMS itself, never from the
+// client. The item is attached to the requested department only.
+app.post('/api/wms/items/ensure', authRequired, requireAnyFeature('wms_transfer'), async (req, res) => {
+  const code = String(req.body?.code || '').trim();
+  const department = String(req.body?.department || '').trim();
+  if (!code || !department) return res.status(400).json({ error: 'INVALID_INPUT', message: 'Malzeme kodu ve bölüm zorunludur.' });
+  if (!isCanonicalDepartment(department)) return res.status(400).json({ error: 'INVALID_DEPARTMENT', message: 'Geçersiz departman.' });
+  try {
+    const memberships = await getUserDepartments(req.user.id, req.user.role);
+    if (memberships !== null && !memberships.includes(department)) {
+      return res.status(403).json({ error: 'DEPARTMENT_FORBIDDEN', message: 'Bu bölüm için yetkiniz yok.' });
+    }
+    const findLocal = async () => {
+      const byCode = await all(pool, 'SELECT id FROM item_definitions WHERE code = ? LIMIT 1', [code]);
+      if (byCode[0]) return byCode[0].id;
+      const byBarcode = await all(pool, 'SELECT itemId FROM item_barcodes WHERE barcode = ? LIMIT 1', [code]);
+      return byBarcode[0]?.itemId || null;
+    };
+    let itemId = await findLocal();
+    let created = false;
+    if (!itemId) {
+      const cfg = wmsConfig();
+      const [wmsItem, stock] = await Promise.all([getWmsItem(code, cfg), getWmsStock(cfg)]);
+      const wmsEntry = Array.isArray(wmsItem) ? wmsItem[0] : wmsItem;
+      if (!wmsEntry || !wmsEntry.code) return res.status(404).json({ error: 'WMS_ITEM_NOT_FOUND', message: 'Malzeme WMS\'te bulunamadı.' });
+      // Only this item's stock rows: the catalog builder lists stocked items first and would otherwise pick an unrelated one.
+      const ownStock = (Array.isArray(stock) ? stock : []).filter((row) => String(row.itemCode) === String(wmsEntry.code));
+      const entry = buildWmsCatalog({ items: [wmsEntry], stock: ownStock, limit: 1 })[0];
+      itemId = generateId();
+      try {
+        await withTransaction(async (conn) => {
+          await run(conn, `
+            INSERT INTO item_definitions (id, code, name, category, department, unit, minStock, supplier, catalogNo, brand, packageUnit, consumptionUnitType, status, createdBy, notes)
+            VALUES (?, ?, ?, 'WMS', ?, ?, 0, '', '', '', ?, 'PACK', 'ACTIVE', ?, 'WMS malzemesinden otomatik oluşturuldu')
+          `, [itemId, entry.code, entry.name, department, entry.stockUnit, entry.stockUnit, req.user.username]);
+          await run(conn, 'INSERT INTO item_departments (itemDefinitionId, department) VALUES (?, ?)', [itemId, department]);
+        });
+        created = true;
+      } catch (error) {
+        if (String(error?.code) !== 'ER_DUP_ENTRY') throw error;
+        itemId = await findLocal(); // lost a race with another request
+      }
+    } else {
+      await run(pool, 'INSERT IGNORE INTO item_departments (itemDefinitionId, department) VALUES (?, ?)', [itemId, department]);
+    }
+    const rows = await all(pool, 'SELECT * FROM item_definitions WHERE id = ?', [itemId]);
+    if (!rows[0]) return res.status(404).json({ error: 'ITEM_NOT_FOUND', message: 'Malzeme kaydı bulunamadı.' });
+    res.json({ item: rows[0], created });
+  } catch (error) {
+    if (error?.error && String(error.error).startsWith('WMS_')) {
+      console.error('WMS item ensure failed', error.message);
+      return res.status(502).json({ error: error.error, message: error.message });
+    }
+    console.error('Failed to ensure WMS item', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
 // Get all purchases. Optional filters:
-//   ?for=me          Only rows where the caller is requester or `requestedFor` target.
+//   ?for=me         Only rows where the caller is requester or `requestedFor` target.
 //   LAB_TECHNICIAN callers see all requests belonging to their department(s).
 //   ?status=CSV      One or more statuses (e.g. "ONAYLANDI" or "TALEP_EDILDI,ONAYLANDI").
 //   ?scope=cep       Only CEP DEPO requests (isCepDepoRequest=1 OR requestedFor IS NOT NULL).
@@ -4347,6 +4551,14 @@ const ensureCepDepoTables = async () => {
     await ensureColumn('purchases', 'isCepDepoRequest', '`isCepDepoRequest` TINYINT(1) NOT NULL DEFAULT 0');
   } catch (e) { console.warn('[ensureCepDepo] purchases ALTER skipped:', e?.code || e?.message); }
 
+  // WMS transfer tracking. wmsStatus: NULL (not applicable) | GONDERILIYOR | GONDERILDI | HATA.
+  try {
+    await ensureColumn('purchases', 'wmsStatus', '`wmsStatus` VARCHAR(20) NULL');
+    await ensureColumn('purchases', 'wmsSlipNumber', '`wmsSlipNumber` VARCHAR(50) NULL');
+    await ensureColumn('purchases', 'wmsSentAt', '`wmsSentAt` DATETIME NULL');
+    await ensureColumn('purchases', 'wmsError', '`wmsError` TEXT NULL');
+  } catch (e) { console.warn('[ensureCepDepo] purchases WMS ALTER skipped:', e?.code || e?.message); }
+
   await pool.query(`CREATE TABLE IF NOT EXISTS cep_depo_balances (
     id VARCHAR(64) NOT NULL,
     labTechnicianId BIGINT UNSIGNED NOT NULL,
@@ -4993,7 +5205,16 @@ app.post('/api/cep-depo/consume', authRequired, stockWriteScope, async (req, res
       if (!tech) throw { status: 404, error: 'TECHNICIAN_NOT_FOUND' };
       if (!isLabTechnicianRole(tech.role)) throw { status: 400, error: 'LAB_TECHNICIAN_REQUIRED' };
       // ADMIN may target a specific department pool directly; otherwise use the tech's department.
-      const dept = (isAdmin && req.body?.department) ? String(req.body.department) : tech.department;
+      let dept = tech.department;
+      if (req.body?.department) {
+        const requested = String(req.body.department);
+        if (isAdmin) {
+          dept = requested;
+        } else {
+          const allowed = await getUserDepartments(req.user.id, req.user.role);
+          if (allowed === null || allowed.includes(requested)) dept = requested;
+        }
+      }
       if (!dept) throw { status: 400, error: 'NO_DEPARTMENT', message: 'Bir bölüme atanmış olmalısınız.' };
       req.assertStockDepartment(dept);
 

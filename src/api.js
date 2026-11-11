@@ -606,11 +606,11 @@ export async function distributeToCepDepo({ labTechnicianId, itemId, packQty, pu
   });
 }
 
-export async function consumeFromCepDepo({ itemId, consumptionUnitType, quantity, testCount, notes, labTechnicianId }) {
+export async function consumeFromCepDepo({ itemId, department, consumptionUnitType, quantity, testCount, notes, labTechnicianId }) {
   return apiFetch('/cep-depo/consume', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ itemId, consumptionUnitType, quantity, testCount, notes, labTechnicianId })
+    body: JSON.stringify({ itemId, department, consumptionUnitType, quantity, testCount, notes, labTechnicianId })
   });
 }
 
@@ -725,6 +725,26 @@ export async function fetchItemBarcodes() {
 
 export async function deleteBarcode(id) {
   return apiFetch(`/barcodes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+// Retry sending a request whose WMS transfer failed (ADMIN / SATINAL_LOJISTIK).
+// The server reuses the stored slip number, so a retry never creates a duplicate.
+export async function retryPurchaseWms(purchaseId) {
+  return apiFetch(`/purchases/${encodeURIComponent(purchaseId)}/wms-send`, { method: 'POST' });
+}
+
+// WMS (WmsFullFillment) catalog for the CEP DEPO request screen.
+export async function fetchWmsItems(limit = 5) {
+  return apiFetch(`/wms/items?limit=${encodeURIComponent(limit)}`);
+}
+
+// Creates the local item for a WMS item (if missing) and returns it.
+export async function ensureWmsItem({ code, department }) {
+  return apiFetch('/wms/items/ensure', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, department })
+  });
 }
 
 // İhale (tender) goods entry — ADMIN / SATINAL_LOJISTIK only.
