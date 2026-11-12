@@ -15,7 +15,7 @@ PROJECT_DIR="${PROJECT_DIR:-$HOME/Order_tracking}"
 APACHE_ROOT="${APACHE_ROOT:-/var/www/gtmlims}"
 PM2_APP_NAME="${PM2_APP_NAME:-order-tracking}"
 APACHE_SERVICE="${APACHE_SERVICE:-apache2}"
-HEALTH_URL="${HEALTH_URL:-https://gtmlims.medipol.edu.tr/api/health}"
+HEALTH_URL="${HEALTH_URL:-https://medistok.medipol.edu.tr/api/health}"
 DB_NAME="${DB_NAME:-order_Tracking}"
 DB_USER="${DB_USER:-root}"
 

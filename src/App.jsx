@@ -2375,10 +2375,10 @@ const LabEquipmentTracker = () => {
         <div className="login-card">
           <div className="login-logo">
             <div className="login-ico">
-              <img src={logoIcon} alt="GTMLIMS" />
+              <img src={logoIcon} alt="Medistok" />
             </div>
             <div className="login-brand">
-              <strong>GTMLIMS</strong>
+              <strong>Medistok</strong>
               <span>Laboratuvar Malzeme Takip</span>
             </div>
           </div>
@@ -2466,8 +2466,8 @@ const LabEquipmentTracker = () => {
       <div className={`sbar-overlay${sidebarOpen ? ' open' : ''}`} onClick={() => setSidebarOpen(false)} />
       <aside className={`sbar${sidebarOpen ? ' sbar--open' : ''}`}>
         <div className="slogo">
-          <div className="sico"><img src={logoIcon} alt="GTMLIMS" /></div>
-          <div className="snm"><strong>GTMLIMS</strong><span>Lab Malzeme Takip</span></div>
+          <div className="sico"><img src={logoIcon} alt="Medistok" /></div>
+          <div className="snm"><strong>Medistok</strong><span>Lab Malzeme Takip</span></div>
         </div>
         <div className="ssec">Ana Menü</div>
         {canViewStock && (
