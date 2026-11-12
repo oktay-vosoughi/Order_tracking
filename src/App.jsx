@@ -6260,7 +6260,7 @@ const LabEquipmentTracker = () => {
             </div>
 
             <div className="ebys-guide">
-              <div className="is-current"><b>1</b><span><strong>Formu indir</strong><small>GTMLIMS Talep No üretir</small></span></div>
+              <div className="is-current"><b>1</b><span><strong>Formu indir</strong><small>Medistok Talep No üretir</small></span></div>
               <div><b>2</b><span><strong>Dış EBYS'ye yükle</strong><small>Bu adım kurumun EBYS sisteminde yapılır</small></span></div>
               <div><b>3</b><span><strong>Onay gelince geri dön</strong><small>Lojistik “Dış EBYS Onayı Geldi” der</small></span></div>
             </div>
