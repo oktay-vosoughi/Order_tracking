@@ -5713,6 +5713,13 @@ const LabEquipmentTracker = () => {
                                             >
                                               Onayla & Dağıt
                                             </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleCancelCepRequest(p)}
+                                              className="px-2 py-1 border border-red-300 text-red-700 hover:bg-red-50 rounded text-xs whitespace-nowrap"
+                                            >
+                                              İptal
+                                            </button>
                                           </div>
                                         </div>
                                       );
