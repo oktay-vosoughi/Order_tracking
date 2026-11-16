@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Plus, Package, ShoppingCart, CheckCircle, AlertCircle, Download, Upload, Trash2, User, Clock, FileCheck, Truck, ClipboardCheck, Calendar, Flame, Droplet, AlertTriangle, FileText, Recycle, BarChart2, Eye, ChevronDown, ChevronUp, Lock, LogOut, Menu, X, ScanBarcode, History } from 'lucide-react';
 import { downloadWorkbook } from './utils/excel';
-import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, createEbysExportBatch, redownloadEbysExportBatch, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, cancelOrderedPurchase, approveEbysBatch, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
+import { fetchState, persistState, login, bootstrapAdmin, fetchMe, listUsers, createUser, updateUser, updateUserDepartments, listLoginLockouts, unlockLogin, clearAuthToken, receiveGoods, importItems, fetchAnalyticsOverview, fetchUnifiedStock, fetchItemLots, distribute, recordWasteWithLot, fetchAttachments, createItemDefinition, updateItemDefinition, updateItemDepartments, applyUnitStockCorrection, deleteItemDefinition, exportPurchases, exportReceipts, exportDistributions, exportWaste, exportUsage, exportStock, createEbysExportBatch, redownloadEbysExportBatch, fetchPurchases, fetchDistributions as fetchDistributionsAPI, fetchWasteRecords, createPurchaseRequest, createPurchaseRequestForLabTech, approvePurchase, cancelOrderedPurchase, cancelCepRequestAsDistributor, approveEbysBatch, rejectPurchase, orderPurchase, confirmDistribution, clearAllData as clearAllDataAPI, changePassword, deletePurchase, fetchLabTechnicians, distributeApprovedRequest, fetchPriceHistory, fetchUsageReport, updateReceiptPrice, fetchDepartments, updateDepartment, downloadIsoCountForm, downloadMgTrackingForm, setApiRole, lookupBarcode, fetchSettings, updateSetting, fetchPendingConfirmations, confirmCepReceipt, fetchCepDepoBalances } from './api';
 import { parseSKTDate, formatDateForDisplay } from './utils/dateParser';
 import BarcodeScanner from './BarcodeScanner';
 import { parseGs1 } from './gs1';
@@ -1268,6 +1268,19 @@ const LabEquipmentTracker = () => {
   
   const [receiveForm, setReceiveForm] = useState({ ...RECEIVE_FORM_DEFAULT });
   const [receiveScanWarning, setReceiveScanWarning] = useState('');
+
+  const handleCancelCepRequest = async (purchase) => {
+    const who = purchase.requestedFor || purchase.requestedBy || '';
+    const reason = window.prompt(`#${purchase.requestNumber || String(purchase.id).slice(0, 8)} (${who}) talebi iptal edilecek.\nİptal nedeni (isteğe bağlı):`, '');
+    if (reason === null) return;
+    try {
+      await cancelCepRequestAsDistributor(purchase.id, reason.trim());
+      if (selectedCepReq?.id === purchase.id) setSelectedCepReq(null);
+      await loadAllActionData();
+    } catch (e) {
+      alert('Talep iptal edilemedi: ' + (e?.payload?.message || e?.message || 'HATA'));
+    }
+  };
 
   const handleCancelOrder = async (purchase) => {
     if (!window.confirm(`${purchase.itemName} siparişi iptal edilsin mi? Teslim alınamayacak, talep "İptal" olarak kalır.`)) return;
@@ -3542,6 +3555,15 @@ const LabEquipmentTracker = () => {
                               </div>
                               {p.notes && <div className="text-gray-500 italic">{p.notes}</div>}
                             </div>
+                            {canDistribute && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleCancelCepRequest(p); }}
+                                className="text-xs px-2 py-1 rounded border border-red-300 text-red-700 hover:bg-red-100"
+                              >
+                                İptal
+                              </button>
+                            )}
                           </label>
                         );
                       })}

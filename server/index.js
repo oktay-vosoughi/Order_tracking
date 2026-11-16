@@ -3089,6 +3089,32 @@ app.post('/api/purchases/:id/cancel', authRequired, requireRole([ROLES.LAB_TECHN
   }
 });
 
+// Distributors (ADMIN / SATINAL / SATINAL_LOJISTIK) can cancel any CEP DEPO request that has
+// not been handed out yet (wrong or not accepted). The row stays as IPTAL history with who/why.
+app.post('/api/purchases/:id/cancel-cep-request', authRequired, canDistribute, stockWriteScope, async (req, res) => {
+  const reason = String(req.body?.reason || '').trim() || 'Dağıtım yetkilisi tarafından iptal edildi';
+  try {
+    const purchase = await withTransaction(async (conn) => {
+      const rows = await all(conn, 'SELECT * FROM purchases WHERE id = ? FOR UPDATE', [req.params.id]);
+      if (!rows.length) throw { status: 404, error: 'NOT_FOUND' };
+      const row = rows[0];
+      const isCep = Number(row.isCepDepoRequest) === 1 || Boolean(row.requestedFor);
+      if (!isCep) throw { status: 400, error: 'NOT_CEP_REQUEST', message: 'Bu kayıt bir CEP DEPO talebi değildir.' };
+      if (!['TALEP_EDILDI', 'ONAYLANDI'].includes(row.status) || Number(row.receivedQtyTotal || 0) > 0) {
+        throw { status: 409, error: 'INVALID_STATUS', message: 'Yalnızca henüz dağıtılmamış talepler iptal edilebilir.' };
+      }
+      await run(conn, `UPDATE purchases SET status = 'IPTAL', rejectedBy = ?, rejectedAt = NOW(), rejectedDate = CURDATE(),
+        rejectionReason = ? WHERE id = ?`, [req.user.username, reason, req.params.id]);
+      return (await all(conn, 'SELECT * FROM purchases WHERE id = ?', [req.params.id]))[0];
+    });
+    res.json({ purchase });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.error, message: error.message });
+    console.error('Failed to cancel CEP DEPO request (distributor)', error);
+    res.status(500).json({ error: 'SERVER_ERROR' });
+  }
+});
+
 // Cancel an ordered (SIPARIS_VERILDI) request that will never arrive. Same roles as
 // "Teslim Al". Only untouched orders (nothing received yet) can be cancelled; the row is
 // kept as IPTAL history and leaves the pending/beklemede queues. No stock is touched.

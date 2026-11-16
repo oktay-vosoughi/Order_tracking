@@ -680,6 +680,14 @@ export async function cancelOrderedPurchase(purchaseId) {
   });
 }
 
+export async function cancelCepRequestAsDistributor(purchaseId, reason) {
+  return apiFetch(`/purchases/${encodeURIComponent(purchaseId)}/cancel-cep-request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason })
+  });
+}
+
 export async function cancelOwnCepRequest(purchaseId) {
   return apiFetch(`/purchases/${encodeURIComponent(purchaseId)}/cancel`, {
     method: 'POST'
