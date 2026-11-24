@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { matchesItemSearch } from './itemSearch.mjs';
 
 export const MOVEMENT_TYPE_LABELS = {
+  RECEIVE_GOODS: 'Teslim Alma',
   DISTRIBUTE_CEP: 'Dağıtım',
   CONSUME: 'Tüketim',
   RETURN_CEP: 'İade',
@@ -9,6 +10,7 @@ export const MOVEMENT_TYPE_LABELS = {
 };
 
 export const LOCATION_LABELS = {
+  SUPPLIER: 'Tedarikçi',
   MAIN_DEPOT: 'Ana Depo',
   CEP_DEPO: 'Bölüm Stoğu',
   CONSUMED: 'Kullanıldı',

@@ -44,7 +44,7 @@ import {
   getPurchaseStatusFilterOptions,
   getVisibleTabOptions
 } from './mobileUi.mjs';
-import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget, getDepoPoolRows, getDepartmentStockView, getStockDepartments, matchesStockDepartment, formatPendingTooltip } from './stockDisplay.mjs';
+import { getCepDepoDisplay, getStockDisplayTarget, isBelowStockTarget, getDepoPoolRows, getDepartmentStockView, getStockDepartments, matchesStockDepartment, formatPendingTooltip, getItemSuppliers, getSupplierLabel } from './stockDisplay.mjs';
 import { matchesItemSearch } from './itemSearch.mjs';
 import { STOCK_SORT_COLUMNS, sortStockItems } from './stockSort.mjs';
 import './theme.css';
@@ -3849,6 +3849,9 @@ const LabEquipmentTracker = () => {
                         <div className="mobile-card-title">{item.name}</div>
                         <div className="mobile-meta-row">
                           {item.brand && <span>{item.brand}</span>}
+                          {getItemSuppliers(item).length > 0 && (
+                            <span data-tip={getItemSuppliers(item).join('\n')}>{getSupplierLabel(getItemSuppliers(item))}</span>
+                          )}
                           {item.isGlobal && <span>Genel</span>}
                           {!item.isGlobal && (item.departments?.length ? item.departments : item.department ? [item.department] : []).map((d) => (
                             <span key={d}>{d}</span>
@@ -3892,7 +3895,7 @@ const LabEquipmentTracker = () => {
                     </div>
 
                     {depoPoolRows.length === 0 && pendingOrderQty > 0 && (
-                      <div className="mobile-inline-note" title={formatPendingTooltip(item.pendingDetails)}>
+                      <div className="mobile-inline-note" data-tip={formatPendingTooltip(item.pendingDetails)}>
                         +{Math.floor(pendingOrderQty)} beklemede, tahmini stok {Math.floor(totalStock + pendingOrderQty)}
                       </div>
                     )}
@@ -3900,7 +3903,7 @@ const LabEquipmentTracker = () => {
                     {depoPoolRows.length > 0 && (
                       <div className="mobile-inline-note text-gray-500">
                         {depoPoolRows.map((row) => (
-                          <div key={row.key} title={row.pendingOrderQty > 0 ? formatPendingTooltip(row.pendingDetails) : undefined}>
+                          <div key={row.key} data-tip={row.pendingOrderQty > 0 ? formatPendingTooltip(row.pendingDetails) : undefined}>
                             {row.label}: {row.available}
                             {row.pendingOrderQty > 0 && ` (+${Math.floor(row.pendingOrderQty)} beklemede)`}
                           </div>
@@ -3919,6 +3922,12 @@ const LabEquipmentTracker = () => {
                             <div className="mobile-metric-label">Kimyasal</div>
                             <div className="font-semibold text-gray-800">{item.chemicalType ? CHEMICAL_TYPES[item.chemicalType] : '-'}</div>
                           </div>
+                          {getItemSuppliers(item).length > 0 && (
+                            <div className="col-span-2">
+                              <div className="mobile-metric-label">Tedarikçi</div>
+                              <div className="font-semibold text-gray-800">{getItemSuppliers(item).join(', ')}</div>
+                            </div>
+                          )}
                         </div>
 
                         <div className="pt-2">
@@ -4100,6 +4109,15 @@ const LabEquipmentTracker = () => {
                                 <div className="font-medium text-gray-900">{item.name}</div>
                                 <div className="flex flex-wrap gap-1 mt-1">
                                   {item.brand && <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{item.brand}</span>}
+                                  {getItemSuppliers(item).length > 0 && (
+                                    <span
+                                      className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded cursor-help"
+                                      data-tip={getItemSuppliers(item).join('\n')}
+                                    >
+                                      {getItemSuppliers(item).length > 1 ? 'Tedarikçi' : getItemSuppliers(item)[0]}
+                                      {getItemSuppliers(item).length > 1 && ` (${getItemSuppliers(item).length})`}
+                                    </span>
+                                  )}
                                   {item.isGlobal && <span className="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded">Genel</span>}
                                   {!item.isGlobal && (item.departments?.length ? item.departments : item.department ? [item.department] : []).map((d) => (
                                     <span key={d} className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded">{d}</span>
@@ -4125,7 +4143,7 @@ const LabEquipmentTracker = () => {
                               </span> {item.unit}
                             </div>
                             {depoPoolRows.length === 0 && pendingOrderQty > 0 && (
-                              <div className="text-xs text-blue-600 mt-1 cursor-help" title={formatPendingTooltip(item.pendingDetails)}>
+                              <div className="text-xs text-blue-600 mt-1 cursor-help" data-tip={formatPendingTooltip(item.pendingDetails)}>
                                 +{Math.floor(pendingOrderQty)} beklemede
                                 <br/>
                                 <span className="text-gray-600">Tahmini: {Math.floor(totalStock + pendingOrderQty)}</span>
@@ -4134,7 +4152,7 @@ const LabEquipmentTracker = () => {
                             {depoPoolRows.length > 0 && (
                               <div className="text-[10px] text-gray-500 mt-1">
                                 {depoPoolRows.map((row) => (
-                                  <div key={row.key} title={row.pendingOrderQty > 0 ? formatPendingTooltip(row.pendingDetails) : undefined}>
+                                  <div key={row.key} data-tip={row.pendingOrderQty > 0 ? formatPendingTooltip(row.pendingDetails) : undefined}>
                                     {row.label}: {row.available}
                                     {row.pendingOrderQty > 0 && ` (+${Math.floor(row.pendingOrderQty)} beklemede)`}
                                   </div>
@@ -5980,7 +5998,7 @@ const LabEquipmentTracker = () => {
 
               {correctionLotOptions.length > 1 && (
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hangi LOT'u düzeltmek istiyorsunuz?</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Hangi bölümün / LOT'unu düzeltmek istiyorsunuz?</label>
                   <select
                     className="w-full px-3 py-2 border rounded-lg"
                     value={correctionForm.targetLotId}
@@ -5993,7 +6011,7 @@ const LabEquipmentTracker = () => {
                     <option value="">LOT seçin</option>
                     {correctionLotOptions.map((lot) => (
                       <option key={lot.id} value={lot.id}>
-                        {lot.lotNumber} — {lot.currentQuantity} {correctionForm.unit} (SKT: {lot.expiryDate ? formatDate(lot.expiryDate) : '-'})
+                        {lot.department ? `[${lot.department}] ` : ''}{lot.lotNumber} — {lot.currentQuantity} {correctionForm.unit} (SKT: {lot.expiryDate ? formatDate(lot.expiryDate) : '-'})
                       </option>
                     ))}
                   </select>

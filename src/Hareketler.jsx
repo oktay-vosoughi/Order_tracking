@@ -33,7 +33,7 @@ export default function Hareketler() {
   return (
     <div className="bg-white rounded-xl shadow p-4 overflow-x-auto">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-bold">CEP DEPO Hareketleri</h3>
+        <h3 className="text-lg font-bold">Hareketler (Teslim Alma, Dağıtım, Tüketim)</h3>
         <button onClick={load} disabled={loading} className="flex items-center gap-1 px-2 py-1 text-xs border rounded hover:bg-gray-50">
           <RefreshCw size={14} /> {loading ? 'Yükleniyor…' : 'Yenile'}
         </button>

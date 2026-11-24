@@ -48,3 +48,15 @@ test('pending tooltip lists each request with status and remaining quantity', ()
   assert.match(text, /260907-105813 · Kısmen geldi · 2 bekliyor \(3'den 1 geldi\)/);
   assert.equal(formatPendingTooltip([]), '');
 });
+
+import { getItemSuppliers, getSupplierLabel } from './stockDisplay.mjs';
+test('getItemSuppliers prefers suppliers array and falls back to supplier', () => {
+  assert.deepEqual(getItemSuppliers({ suppliers: ['A', ' B '], supplier: 'X' }), ['A', 'B']);
+  assert.deepEqual(getItemSuppliers({ supplier: 'X' }), ['X']);
+  assert.deepEqual(getItemSuppliers({}), []);
+});
+test('getSupplierLabel shows name for one and count for many', () => {
+  assert.equal(getSupplierLabel(['A']), 'A');
+  assert.equal(getSupplierLabel(['A', 'B']), 'Tedarikçi (2)');
+  assert.equal(getSupplierLabel([]), '');
+});

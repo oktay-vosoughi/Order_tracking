@@ -1,0 +1,545 @@
+[
+ {
+  "talepNo": "260109-165934",
+  "date": "9.01.2026",
+  "items": [
+   {
+    "name": "EZ1&2 VİRUS MİNİ kit v2.0(48)",
+    "unit": "KUTU",
+    "qty": "4"
+   },
+   {
+    "name": "Pastör Pipeti",
+    "unit": "KUTU",
+    "qty": "2"
+   },
+   {
+    "name": "ÖNLÜK",
+    "unit": "PAKET",
+    "qty": "2"
+   },
+   {
+    "name": "Artus BK Virus QS-RGQ Kit (24)",
+    "unit": "KUTU",
+    "qty": "4"
+   }
+  ]
+ },
+ {
+  "talepNo": "260121-095558",
+  "date": "21.01.2026",
+  "items": [
+   {
+    "name": "Magnesia 16 Viral DNA/RNA Extraction Kit (96rx), AE2022",
+    "unit": "Kutu",
+    "qty": "2"
+   },
+   {
+    "name": "Petri dish, 705001",
+    "unit": "Paket",
+    "qty": "3"
+   },
+   {
+    "name": "Purification Column (GML)",
+    "unit": "Kutu",
+    "qty": "1"
+   }
+  ]
+ },
+ {
+  "talepNo": "260204-143214",
+  "date": "4.02.2026",
+  "items": [
+   {
+    "name": "Artus EBV QS-RGQ Kit (24), 4501363",
+    "unit": "Kutu",
+    "qty": "5"
+   },
+   {
+    "name": "Artus BK Virus QS-RGQ Kit (24), 4514363",
+    "unit": "Kutu",
+    "qty": "5"
+   }
+  ]
+ },
+ {
+  "talepNo": "260218-132523",
+  "date": "18.02.2026",
+  "items": [
+   {
+    "name": "Biospeedy İnsan Herpes Virüsü 8 , BS-HHV8-25",
+    "unit": "RxN",
+    "qty": "48"
+   },
+   {
+    "name": "Anyplex HPV28 100 test, HP7S00X",
+    "unit": "Kutu",
+    "qty": "1"
+   },
+   {
+    "name": "TIBBİ ATIK KOVASI BENCH ÜSTÜ",
+    "unit": "Adet",
+    "qty": "2"
+   },
+   {
+    "name": "Quick DNA Miniprep, D4068",
+    "unit": "Kutu",
+    "qty": "1"
+   },
+   {
+    "name": "M Eldiven, 61142",
+    "unit": "Koli",
+    "qty": "5"
+   },
+   {
+    "name": "Bosphore HCV quantification, ABHCQ2",
+    "unit": "RxN",
+    "qty": "50"
+   },
+   {
+    "name": "Bosphore HSV 1-2 genotyping, ABHSV1",
+    "unit": "RxN",
+    "qty": "25"
+   },
+   {
+    "name": "Bosphore HHV 6 Detection, ABHHV2",
+    "unit": "RxN",
+    "qty": "50"
+   },
+   {
+    "name": "Bosphore Adenovirus Detection Kit, ABADE1",
+    "unit": "RxN",
+    "qty": "50"
+   }
+  ]
+ },
+ {
+  "talepNo": "260306-104615",
+  "date": "6.03.2026",
+  "items": [
+   {
+    "name": "Biospeedy Cinsel Yolla Bulaşan Enfeksiyon RT-qPCR Panel 24, BS-STI-T-100 (24RxN/Kutu)",
+    "unit": "Kutu",
+    "qty": "3"
+   }
+  ]
+ },
+ {
+  "talepNo": "260324-082742",
+  "date": "24.03.2026",
+  "items": [
+   {
+    "name": "Teksoll Extra Pıures 5 lt Temizleyici, TK.200650.05001",
+    "unit": "Adet",
+    "qty": "5"
+   },
+   {
+    "name": "Bosphore Parvovirüs Quantification, 50RxN, ABPRV2",
+    "unit": "Kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Anyplex HPV28 100 test, HP7S00X",
+    "unit": "Kutu",
+    "qty": "1"
+   }
+  ]
+ },
+ {
+  "talepNo": "260402-165011",
+  "date": "2.04.2026",
+  "items": [
+   {
+    "name": "EZ1&2 VİRUS MİNİ kit v2.0(48), 955134",
+    "unit": "kutu",
+    "qty": "4"
+   },
+   {
+    "name": "Pastör Pipeti, 318212",
+    "unit": "kutu",
+    "qty": "3"
+   },
+   {
+    "name": "Bosphore HIV 1 Quantification, ABHIQ2, 50rxn",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore Candida Detection, ABCAD1, 25rxn",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "HPV Direct-Flow Chip Kit (HS24)(PCR Reagents)-HPV Direct-Flow Chip Kit (HS24)(Hybridization Reagents), P-",
+    "unit": "kutu",
+    "qty": "5"
+   }
+  ]
+ },
+ {
+  "talepNo": "260424-124614",
+  "date": "24.04.2026",
+  "items": [
+   {
+    "name": "EZ1&2 VİRUS MİNİ kit v2.0(48), 955134",
+    "unit": "kutu",
+    "qty": "8"
+   },
+   {
+    "name": "Quick DNA Miniprep, D4068",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore HCV quantification, ABHCQ2, 50rxn",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore Chlamydia Trachomatis Detection, ABCTR2, 50rxn",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore Parvovirüs Quantification, ABPRV2, 50Rxn",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore HHV 6 Detection, ABHHV2, 50rxn",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore HIV 1 Quantification, ABHIQ2, 50rxn",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore",
+    "unit": "kutu",
+    "qty": "1"
+   }
+  ]
+ },
+ {
+  "talepNo": "260509-154947",
+  "date": "9.05.2026",
+  "items": [
+   {
+    "name": "EZ1&2 VİRUS MİNİ kit v2.0(48), 955134",
+    "unit": "kutu",
+    "qty": "4"
+   },
+   {
+    "name": "S Eldiven, 242ZD270",
+    "unit": "kutu",
+    "qty": "5"
+   },
+   {
+    "name": "Bosphore HHV 6 Detection (50 reax), ABHHV2",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore Adenovirus Detection Kit (50 reax), ABADE1",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Anyplex HPV28 Detection 100 test, HP10372X",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Biospeedy Cinsel Yolla Bulaşan Enfeksiyon RT-qPCR Panel( 24), BS-STI-T-100",
+    "unit": "kutu",
+    "qty": "3"
+   }
+  ]
+ },
+ {
+  "talepNo": "260601-142210",
+  "date": "1.06.2026",
+  "items": [
+   {
+    "name": "Strip Tubes and Caps, 0.1 ml(250), 981103",
+    "unit": "paket",
+    "qty": "10"
+   },
+   {
+    "name": "Cryo Box Karton dna saklama kutusu, ISOLAB - 092.22.101W",
+    "unit": "kutu",
+    "qty": "20"
+   },
+   {
+    "name": "Bosphore HCV quantification (50 reax), ABHCQ2",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "HPV Direct-Flow Chip Kit (HS24)(PCR Reagents)-HPV Direct-Flow Chip Kit (HS24)(Hybridization Reagents), P-",
+    "unit": "kutu",
+    "qty": "5"
+   },
+   {
+    "name": "Biospeedy İnsan Herpes Virüsü 8 , BS-HHV8-25",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore HBV Drug Resistance 12 reax , ABBDRO",
+    "unit": "kutu",
+    "qty": "1"
+   }
+  ]
+ },
+ {
+  "talepNo": "260613-124142",
+  "date": "13.06.2026",
+  "items": [
+   {
+    "name": "EZ1&2 VİRUS MİNİ kit v2.0(48), 955134",
+    "unit": "Kutu",
+    "qty": "4"
+   }
+  ]
+ },
+ {
+  "talepNo": "260619-213525",
+  "date": "19.06.2026",
+  "items": [
+   {
+    "name": "Bosphore Toxoplasma Detection (50 reax) , ABTXP2",
+    "unit": "Adet",
+    "qty": "1"
+   },
+   {
+    "name": "Biospeedy Cinsel Yolla Bulaşan Enfeksiyon RT-qPCR Panel 24, BS-STI-T-100",
+    "unit": "Adet",
+    "qty": "3"
+   },
+   {
+    "name": "Bosphore HHV 6 Detection (50 reax), ABHHV2",
+    "unit": "Adet",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore Adenovirus Detection Kit (50 reax), ABADE1",
+    "unit": "Adet",
+    "qty": "1"
+   }
+  ]
+ },
+ {
+  "talepNo": "260706-102535",
+  "date": "6.07.2026",
+  "items": [
+   {
+    "name": "Anyplex HPV28 Detection 100 test, HP10372X",
+    "unit": "Kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore Candida Detection, ABCAD1",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore HSV 1-2 genotyping, ABHSV1",
+    "unit": "Kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore VZV Detection, ABVZV2",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "HPV Direct-Flow Chip Kit (HS24)(PCR Reagents)-HPV Direct-Flow Chip Kit (HS24)(Hybridization Reagents), P-",
+    "unit": "kutu",
+    "qty": "12"
+   },
+   {
+    "name": "Quick DNA Miniprep, D4068",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bisturi ucu No:22, 181208",
+    "unit": "kutu",
+    "qty": "3"
+   },
+   {
+    "name": "Pastör Pipeti, 318212",
+    "unit": "kutu",
+    "qty": "4"
+   },
+   {
+    "name": "Petri dish, 705001",
+    "unit": "paket",
+    "qty": "5"
+   }
+  ]
+ },
+ {
+  "talepNo": "260722-121213",
+  "date": "22.07.2026",
+  "items": [
+   {
+    "name": "DIAGNOVITAL STI PANEL REAL TIME PCR KİT (100 RxN), DB0164100",
+    "unit": "Kutu",
+    "qty": "1"
+   },
+   {
+    "name": "EZ1&2 VİRUS MİNİ kit v2.0(48), 955134",
+    "unit": "Kutu",
+    "qty": "4"
+   }
+  ]
+ },
+ {
+  "talepNo": "260813-122919",
+  "date": "13.08.2026",
+  "items": [
+   {
+    "name": "Teksoll Extra Pıures 5 lt Temizleyici, TK.200650.05001",
+    "unit": "şişe",
+    "qty": "3"
+   },
+   {
+    "name": "Artus CMV QS-RGQ, 4503363",
+    "unit": "kutu",
+    "qty": "30"
+   },
+   {
+    "name": "Bosphore HCV quantification, ABHCQ2",
+    "unit": "KUTU",
+    "qty": "1"
+   },
+   {
+    "name": "HPV Direct-Flow Chip Kit (HS24)(PCR Reagents)-HPV Direct-Flow Chip Kit (HS24)(Hybridization Reagents), P-",
+    "unit": "kutu",
+    "qty": "5"
+   },
+   {
+    "name": "PCR Product Purification Spin Kit 25 rxn, ABPURS",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Sephadex g-25, G2580-10g",
+    "unit": "Adet",
+    "qty": "2"
+   }
+  ]
+ },
+ {
+  "talepNo": "260821-204525",
+  "date": "21.08.2026",
+  "items": [
+   {
+    "name": "Quick DNA Miniprep, D4068",
+    "unit": "Adet",
+    "qty": "1"
+   }
+  ]
+ },
+ {
+  "talepNo": "260915-125845",
+  "date": "15.09.2026",
+  "items": [
+   {
+    "name": "S Eldiven, 242ZD270",
+    "unit": "koli",
+    "qty": "5"
+   },
+   {
+    "name": "M Eldiven, 61142",
+    "unit": "koli",
+    "qty": "5"
+   },
+   {
+    "name": "Bosphore Enterovirüs quantification 25rxn, ABENQ1",
+    "unit": "reax",
+    "qty": "25"
+   },
+   {
+    "name": "Bosphore Parvovirüs Quantification, ABPRV2",
+    "unit": "reax",
+    "qty": "50"
+   },
+   {
+    "name": "Bosphore HIV 1 Quantification, ABHIQ2",
+    "unit": "reax",
+    "qty": "50"
+   },
+   {
+    "name": "Anyplex HPV28 Detection 100 test, HP10372X",
+    "unit": "kutu",
+    "qty": "1"
+   },
+   {
+    "name": "HPV Direct-Flow Chip Kit (HS24)(PCR Reagents)-HPV Direct-Flow Chip Kit (HS24)(Hybridization Reagents), P-",
+    "unit": "kutu",
+    "qty": "5"
+   },
+   {
+    "name": "EZ1&2 VİRUS MİNİ kit v2.0(48), 955134",
+    "unit": "kutu",
+    "qty": "5"
+   },
+   {
+    "name": "Bosphore Lyme Disease Detection Kit, ABLYM1",
+    "unit": "kutu",
+    "qty": "1"
+   }
+  ]
+ },
+ {
+  "talepNo": "261009-072135",
+  "date": "9.10.2026",
+  "items": [
+   {
+    "name": "Biospeedy İnsan Herpes Virüsü 8, BS-HHV8-25",
+    "unit": "Kutu",
+    "qty": "1"
+   },
+   {
+    "name": "Bosphore Adenovirus Detection Kit (25), ABADE1",
+    "unit": "Kutu",
+    "qty": "2"
+   },
+   {
+    "name": "Bosphore Parvovirüs Quantification, ABPRV2",
+    "unit": "Kutu",
+    "qty": "1"
+   },
+   {
+    "name": "EZ1&2 VİRUS MİNİ kit v2.0(48), 955134",
+    "unit": "Kutu",
+    "qty": "5"
+   },
+   {
+    "name": "HPV Direct-Flow Chip Kit (HS24)(PCR Reagents)-HPV Direct-Flow Chip Kit (HS24)(Hybridization Reagents), P-",
+    "unit": "Kutu",
+    "qty": "5"
+   },
+   {
+    "name": "Solunum Yolu RT-qPCR MX-24L Panel (12 rxn), BS-SY-MX24L-100",
+    "unit": "Kutu",
+    "qty": "4"
+   },
+   {
+    "name": "Önlük",
+    "unit": "Adet",
+    "qty": "250"
+   },
+   {
+    "name": "Cryo Box Karton dna saklama kutusu, ISOLAB - 092.22.101W",
+    "unit": "Kutu",
+    "qty": "20"
+   }
+  ]
+ }
+]

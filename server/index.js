@@ -895,6 +895,18 @@ const generateId = () => {
 
 // --- Item Definitions ---
 
+// Case/space-insensitive de-dupe; first spelling wins, master supplier first.
+const mergeSupplierNames = (master, others = []) => {
+  const seen = new Map();
+  for (const name of [master, ...others]) {
+    const clean = String(name ?? '').trim().replace(/\s+/g, ' ');
+    if (!clean) continue;
+    const key = clean.toLocaleLowerCase('tr-TR');
+    if (!seen.has(key)) seen.set(key, clean);
+  }
+  return [...seen.values()];
+};
+
 const attachBarcodesToItems = async (items) => {
   if (!items.length) return items;
   const itemIds = items.map((item) => item.id);
@@ -1984,6 +1996,24 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
       `, purchaseFilter.params),
     ]);
 
+    // Every supplier ever named for an item (master field, order, receipt) so
+    // the stock card can show all of them. Scoped by the same purchase filter.
+    const supplierRows = await all(pool, `
+      SELECT p.itemId, TRIM(p.supplierName) AS supplier
+      FROM purchases p
+      WHERE p.supplierName IS NOT NULL AND TRIM(p.supplierName) <> '' ${purchaseFilter.clause}
+      UNION
+      SELECT p.itemId, TRIM(r.supplierFirmName) AS supplier
+      FROM receipts r
+      JOIN purchases p ON p.id = r.purchaseId
+      WHERE r.supplierFirmName IS NOT NULL AND TRIM(r.supplierFirmName) <> '' ${purchaseFilter.clause}
+    `, [...purchaseFilter.params, ...purchaseFilter.params]);
+    const suppliersByItem = new Map();
+    for (const row of supplierRows) {
+      if (!suppliersByItem.has(row.itemId)) suppliersByItem.set(row.itemId, []);
+      suppliersByItem.get(row.itemId).push(row.supplier);
+    }
+
     const lotPoolsByItem = new Map();
     for (const row of lotPoolRows) {
       if (Number(row.total) === 0 && Number(row.activeLotCount) === 0) continue;
@@ -2054,6 +2084,7 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
         departments: (departmentsRaw ? departmentsRaw.split('||') : []).filter((department) => departments === null || departments.includes(department)),
         pools: poolsObj,
         pendingDetails: pendingDetailsByItem.get(item.id) || [],
+        suppliers: mergeSupplierNames(item.supplier, suppliersByItem.get(item.id)),
       };
     });
     res.json({ items: await attachBarcodesToItems(mapped) });

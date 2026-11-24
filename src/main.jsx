@@ -1,6 +1,9 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
+import { installInstantTip } from './instantTip.js'
+
+installInstantTip();
 
 // Simple localStorage-based storage API
 window.storage = {

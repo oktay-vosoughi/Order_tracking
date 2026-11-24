@@ -97,3 +97,16 @@ export const getCepDepoDisplay = (item) => {
     hasSubUnit
   };
 };
+
+// All supplier names for a stock card. Server sends `suppliers`; falls back to
+// the single master `supplier` field for older payloads.
+export const getItemSuppliers = (item) => {
+  const list = Array.isArray(item?.suppliers) && item.suppliers.length
+    ? item.suppliers
+    : [item?.supplier];
+  return list.map((name) => String(name ?? '').trim()).filter(Boolean);
+};
+
+// Compact label: the name itself when there is one supplier, "Tedarikçi (N)" otherwise.
+export const getSupplierLabel = (suppliers) =>
+  suppliers.length <= 1 ? (suppliers[0] || '') : `Tedarikçi (${suppliers.length})`;
