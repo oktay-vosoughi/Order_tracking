@@ -75,7 +75,9 @@ export const formatPendingTooltip = (details) => {
     const status = PENDING_STATUS_LABELS[d.status] || d.status;
     const partial = toNumber(d.receivedQty, 0) > 0 ? ` (${toNumber(d.orderedQty, 0)}'den ${toNumber(d.receivedQty, 0)} geldi)` : '';
     const date = d.requestedAt ? new Date(d.requestedAt).toLocaleDateString('tr-TR') : '';
-    return `${d.talepNo} · ${status} · ${toNumber(d.pendingQty, 0)} bekliyor${partial}${date ? ` · ${date}` : ''}`;
+    const orderNo = d.requestNumber && d.requestNumber !== d.talepNo ? ` · Sipariş No: ${d.requestNumber}` : '';
+    const dept = d.department ? ` · ${d.department}` : '';
+    return `${d.talepNo}${orderNo}${dept} · ${status} · ${toNumber(d.pendingQty, 0)} bekliyor${partial}${date ? ` · ${date}` : ''}`;
   });
   return ['Bekleyen talepler:', ...lines].join('\n');
 };

@@ -334,11 +334,18 @@ const LabEquipmentTracker = () => {
 
   // Hover text listing the request numbers behind a "beklemede" / "Dağıtım talebi" label.
   const formatRequestListTooltip = (title, list) => {
+    const statusLabels = { TALEP_EDILDI: 'Talep edildi', ONAYLANDI: 'Onaylandı', SIPARIS_VERILDI: 'Sipariş verildi', KISMI_TESLIM: 'Kısmi teslim' };
     const lines = (list || []).map((r) => {
-      const no = r.requestNumber || (r.id ? String(r.id).slice(0, 8) : '?');
+      const no = r.ebysReference || r.requestNumber || (r.id ? String(r.id).slice(0, 8) : '?');
       const qty = r.requestedQty ?? r.quantity;
       const who = r.requestedForName || r.requestedForUsername || r.requestedBy || '';
-      return `${no}${qty != null ? ` · ${qty}` : ''}${who ? ` · ${who}` : ''}${r.status ? ` · ${({ TALEP_EDILDI: 'Talep edildi', ONAYLANDI: 'Onaylandı' })[r.status] || r.status}` : ''}`;
+      const parts = [no];
+      if (r.ebysReference && r.requestNumber && r.requestNumber !== r.ebysReference) parts.push(`Sipariş No: ${r.requestNumber}`);
+      if (r.department) parts.push(r.department);
+      if (qty != null) parts.push(`${qty} ${r.unit || ''}`.trim());
+      if (who) parts.push(who);
+      if (r.status) parts.push(statusLabels[r.status] || r.status);
+      return parts.join(' · ');
     });
     return lines.length ? [title, ...lines].join('\n') : '';
   };
@@ -784,7 +791,8 @@ const LabEquipmentTracker = () => {
     cepUnitQty: '',
     minReactionThreshold: '',
     targetLotId: '',
-    cepDepartment: ''
+    cepDepartment: '',
+    mainDepartment: ''
   });
   const [correctionCepBalanceOptions, setCorrectionCepBalanceOptions] = useState([]);
   const [correctionCepBalancesLoading, setCorrectionCepBalancesLoading] = useState(false);
@@ -840,7 +848,8 @@ const LabEquipmentTracker = () => {
       storageLocation: item.storageLocation || '',
       minReactionThreshold: item.minReactionThreshold ?? '',
       targetLotId: '',
-      cepDepartment: ''
+      cepDepartment: '',
+      mainDepartment: ''
     });
     const [lotsResult, balancesResult] = await Promise.allSettled([
       fetchItemLots(item.id),
@@ -854,7 +863,7 @@ const LabEquipmentTracker = () => {
       // quantity, or the item total when there's no active lot yet (e.g. brand-new item). With
       // 2+ lots it stays blank so the admin must explicitly pick one to change quantity.
       if (opts.length === 1) {
-        setCorrectionForm((prev) => ({ ...prev, mainStock: opts[0].currentQuantity }));
+        setCorrectionForm((prev) => ({ ...prev, mainStock: opts[0].currentQuantity, mainDepartment: opts[0].department || '' }));
       } else if (opts.length === 0) {
         setCorrectionForm((prev) => ({ ...prev, mainStock: item.totalStock ?? item.currentStock ?? 0 }));
       }
@@ -881,6 +890,46 @@ const LabEquipmentTracker = () => {
       setCorrectionCepBalancesError(true);
     }
     setCorrectionCepBalancesLoading(false);
+  };
+
+  const correctionDepartmentOptions = Array.from(new Set([
+    ...departments.filter((department) => department.active).map((department) => department.name),
+    ...correctionCepBalanceOptions.map((balance) => balance.department).filter(Boolean),
+    ...correctionLotOptions.map((lot) => lot.department).filter(Boolean)
+  ])).sort((a, b) => a.localeCompare(b, 'tr'));
+
+  // Main-warehouse lots follow the chosen "Ana depo bölümü" (lots carry their own department).
+  const visibleCorrectionLots = correctionForm.mainDepartment
+    ? correctionLotOptions.filter((lot) => lot.department === correctionForm.mainDepartment)
+    : correctionLotOptions;
+
+  const selectCorrectionMainDepartment = (mainDepartment) => {
+    const deptLots = mainDepartment
+      ? correctionLotOptions.filter((lot) => lot.department === mainDepartment)
+      : correctionLotOptions;
+    setCorrectionForm((prev) => {
+      const next = { ...prev, mainDepartment };
+      if (correctionLotOptions.length > 0) {
+        if (deptLots.length === 1) {
+          next.targetLotId = deptLots[0].id;
+          next.mainStock = deptLots[0].currentQuantity;
+        } else {
+          next.targetLotId = '';
+          next.mainStock = '';
+        }
+      }
+      return next;
+    });
+  };
+
+  const selectCorrectionCepDepartment = (cepDepartment) => {
+    const balance = correctionCepBalanceOptions.find((option) => option.department === cepDepartment);
+    setCorrectionCepQtyDirty(false);
+    setCorrectionForm((prev) => ({
+      ...prev,
+      cepDepartment,
+      cepUnitQty: cepDepartment ? getCorrectionCepQuantity(balance, prev.consumptionUnitType) : ''
+    }));
   };
 
   const handleSaveUnitStockCorrection = async () => {
@@ -4041,8 +4090,8 @@ const LabEquipmentTracker = () => {
                               Belge
                             </button>
                           )}
-                          {pending && <span className="mobile-inline-note" title={formatRequestListTooltip('Bekleyen talepler:', pendingList)}>EBYS beklemede</span>}
-                          {pendingCepCount > 0 && <span className="mobile-inline-note" title={formatRequestListTooltip('Dağıtım talepleri:', pendingCepRequestsByItem[item.id])}>Dağıtım talebi{pendingCepCount > 1 ? ` (${pendingCepCount})` : ''}</span>}
+                          {pending && <span className="mobile-inline-note" data-tip={formatRequestListTooltip('Bekleyen talepler:', pendingList)}>EBYS beklemede</span>}
+                          {pendingCepCount > 0 && <span className="mobile-inline-note" data-tip={formatRequestListTooltip('Dağıtım talepleri:', pendingCepRequestsByItem[item.id])}>Dağıtım talebi{pendingCepCount > 1 ? ` (${pendingCepCount})` : ''}</span>}
                         </div>
                       </div>
                     )}
@@ -4190,8 +4239,8 @@ const LabEquipmentTracker = () => {
                           ) : (
                             <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">YETERLİ</span>
                           )}
-                          {pending && <div className="text-xs text-yellow-600 mt-1 cursor-help" title={formatRequestListTooltip('Bekleyen talepler:', pendingList)}>EBYS beklemede</div>}
-                          {pendingCepCount > 0 && <div className="text-xs text-blue-600 mt-1 cursor-help" title={formatRequestListTooltip('Dağıtım talepleri:', pendingCepRequestsByItem[item.id])}>Dağıtım talebi{pendingCepCount > 1 ? ` (${pendingCepCount})` : ''}</div>}
+                          {pending && <div className="text-xs text-yellow-600 mt-1 cursor-help" data-tip={formatRequestListTooltip('Bekleyen talepler:', pendingList)}>EBYS beklemede</div>}
+                          {pendingCepCount > 0 && <div className="text-xs text-blue-600 mt-1 cursor-help" data-tip={formatRequestListTooltip('Dağıtım talepleri:', pendingCepRequestsByItem[item.id])}>Dağıtım talebi{pendingCepCount > 1 ? ` (${pendingCepCount})` : ''}</div>}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex gap-1 flex-wrap">
@@ -5996,9 +6045,29 @@ const LabEquipmentTracker = () => {
                 </p>
               </div>
 
+              {correctionLotOptions.length > 0 && (
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ana depo bölümü</label>
+                  <select
+                    className="w-full px-3 py-2 border rounded-lg"
+                    value={correctionForm.mainDepartment}
+                    disabled={correctionLotsLoading}
+                    onChange={(e) => selectCorrectionMainDepartment(e.target.value)}
+                  >
+                    <option value="">Bölüm seç…</option>
+                    {correctionDepartmentOptions.map((department) => (
+                      <option key={department} value={department}>{department}</option>
+                    ))}
+                  </select>
+                  {correctionForm.mainDepartment && visibleCorrectionLots.length === 0 && (
+                    <p className="text-xs text-amber-600 mt-1">Bu bölümde aktif ana depo LOT'u yok; ana depo miktarı değiştirilmez.</p>
+                  )}
+                </div>
+              )}
+
               {correctionLotOptions.length > 1 && (
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Hangi bölümün / LOT'unu düzeltmek istiyorsunuz?</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Hangi LOT'u düzeltmek istiyorsunuz?</label>
                   <select
                     className="w-full px-3 py-2 border rounded-lg"
                     value={correctionForm.targetLotId}
@@ -6009,7 +6078,7 @@ const LabEquipmentTracker = () => {
                     }}
                   >
                     <option value="">LOT seçin</option>
-                    {correctionLotOptions.map((lot) => (
+                    {visibleCorrectionLots.map((lot) => (
                       <option key={lot.id} value={lot.id}>
                         {lot.department ? `[${lot.department}] ` : ''}{lot.lotNumber} — {lot.currentQuantity} {correctionForm.unit} (SKT: {lot.expiryDate ? formatDate(lot.expiryDate) : '-'})
                       </option>
@@ -6070,18 +6139,7 @@ const LabEquipmentTracker = () => {
                   className="w-full px-3 py-2 border rounded-lg mb-2"
                   value={correctionForm.cepDepartment}
                   disabled={correctionCepBalancesLoading || correctionCepBalancesError}
-                  onChange={(e) => {
-                    const cepDepartment = e.target.value;
-                    const balance = correctionCepBalanceOptions.find((option) => option.department === cepDepartment);
-                    setCorrectionCepQtyDirty(false);
-                    setCorrectionForm({
-                      ...correctionForm,
-                      cepDepartment,
-                      cepUnitQty: cepDepartment
-                        ? getCorrectionCepQuantity(balance, correctionForm.consumptionUnitType)
-                        : ''
-                    });
-                  }}
+                  onChange={(e) => selectCorrectionCepDepartment(e.target.value)}
                 >
                   <option value="">Bölüm seç…</option>
                   {Array.from(new Set([

@@ -2034,6 +2034,7 @@ app.get('/api/unified-stock', authRequired, async (req, res) => {
       if (!pendingDetailsByItem.has(row.itemId)) pendingDetailsByItem.set(row.itemId, []);
       pendingDetailsByItem.get(row.itemId).push({
         pool: resolveDepoGroup(row.department),
+        department: row.department || null,
         talepNo: row.ebysReference || row.requestNumber,
         requestNumber: row.requestNumber,
         status: row.status,
