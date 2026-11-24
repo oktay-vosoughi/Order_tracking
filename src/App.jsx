@@ -952,7 +952,11 @@ const LabEquipmentTracker = () => {
       alert('1 ana birim kaç alt birim değeri pozitif olmalıdır.');
       return;
     }
-    if (correctionLotOptions.length > 1 && correctionForm.mainStock !== '' && !correctionForm.targetLotId) {
+    if (correctionForm.mainStock !== '' && !correctionForm.mainDepartment && new Set(correctionLotOptions.map((l) => l.department || '')).size > 1) {
+      alert('Bu malzemenin LOT\'ları birden fazla bölümde. Lütfen "Ana depo bölümü"nü seçin.');
+      return;
+    }
+    if (visibleCorrectionLots.length > 1 && correctionForm.mainStock !== '' && !correctionForm.targetLotId) {
       alert('Lütfen düzeltilecek LOT\'u seçin.');
       return;
     }
@@ -987,7 +991,8 @@ const LabEquipmentTracker = () => {
         storageLocation: correctionForm.storageLocation.trim() || null,
         minReactionThreshold: correctionForm.minReactionThreshold === '' ? null : Number(correctionForm.minReactionThreshold),
         targetLotId: correctionForm.targetLotId || null,
-        cepDepartment: correctionForm.cepDepartment || null
+        cepDepartment: correctionForm.cepDepartment || null,
+        mainDepartment: correctionForm.mainDepartment || null
       });
       await loadUnifiedData();
       setCorrectionItem(null);
@@ -1004,6 +1009,8 @@ const LabEquipmentTracker = () => {
         } catch {
           alert('Düzeltme başarısız: LOT listesi yüklenemedi.');
         }
+      } else if (errorCode === 'MAIN_DEPARTMENT_REQUIRED') {
+        alert('Bu malzemenin LOT\'ları birden fazla bölümde. Lütfen "Ana depo bölümü"nü seçin ve tekrar kaydedin.');
       } else if (errorCode === 'CEP_DEPARTMENT_REQUIRED') {
         alert('Lütfen düzeltilecek CEP DEPO bölümünü seçin ve tekrar kaydedin.');
       } else {
@@ -6060,12 +6067,12 @@ const LabEquipmentTracker = () => {
                     ))}
                   </select>
                   {correctionForm.mainDepartment && visibleCorrectionLots.length === 0 && (
-                    <p className="text-xs text-amber-600 mt-1">Bu bölümde aktif ana depo LOT'u yok; ana depo miktarı değiştirilmez.</p>
+                    <p className="text-xs text-amber-600 mt-1">Bu bölümde aktif ana depo LOT'u yok. Miktar girerseniz bu bölüm için yeni LOT oluşturulur; boş bırakırsanız ana depo değişmez.</p>
                   )}
                 </div>
               )}
 
-              {correctionLotOptions.length > 1 && (
+              {visibleCorrectionLots.length > 1 && (
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Hangi LOT'u düzeltmek istiyorsunuz?</label>
                   <select
@@ -6089,7 +6096,7 @@ const LabEquipmentTracker = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {correctionLotOptions.length > 1 ? 'Seçili LOT Miktarı' : 'Ana depo mevcut stok'}
+                  {visibleCorrectionLots.length > 1 ? 'Seçili LOT Miktarı' : 'Ana depo mevcut stok'}
                 </label>
                 <input
                   type="number"
@@ -6099,7 +6106,7 @@ const LabEquipmentTracker = () => {
                   value={correctionForm.mainStock}
                   onChange={(e) => setCorrectionForm({ ...correctionForm, mainStock: e.target.value })}
                 />
-                {correctionLotOptions.length > 1 && (
+                {visibleCorrectionLots.length > 1 && (
                   <p className="text-xs text-blue-600 mt-1 font-medium">
                     Birim değişiklikleri (birim, paket birimi, tüketim birimi) tüm LOT'lara otomatik uygulanır — bu alanı boş bırakın.
                     Sadece belirli bir LOT'un miktarını düzeltmek istiyorsanız yukarıdan LOT seçin ve buraya yeni miktarı girin.

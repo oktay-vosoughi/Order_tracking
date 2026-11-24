@@ -1189,7 +1189,16 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
           createdAt DESC
         FOR UPDATE
       `, [req.params.id]);
-      const positiveLots = lotRows.filter((lot) => lot.status === 'ACTIVE' && Number(lot.currentQuantity) > 0);
+      // Main-warehouse correction is scoped to ONE department: lots of other
+      // departments are never touched. Without an explicit department this is only
+      // allowed when all of the item's lots belong to a single department.
+      const mainDepartment = String(req.body?.mainDepartment ?? '').trim() || null;
+      const lotDepartments = [...new Set(lotRows.map((lot) => lot.department || ''))];
+      if (values.mainStock !== null && !mainDepartment && lotDepartments.length > 1) {
+        throw { status: 400, error: 'MAIN_DEPARTMENT_REQUIRED', message: 'Bu malzemenin LOT\'ları birden fazla bölümde. Düzeltilecek ana depo bölümünü seçin.' };
+      }
+      const scopedLots = mainDepartment ? lotRows.filter((lot) => lot.department === mainDepartment) : lotRows;
+      const positiveLots = scopedLots.filter((lot) => lot.status === 'ACTIVE' && Number(lot.currentQuantity) > 0);
 
       const balanceRows = await all(conn, `
         SELECT *
@@ -1230,9 +1239,9 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
       if (values.mainStock !== null) {
         let targetLot;
         if (req.body?.targetLotId) {
-          targetLot = lotRows.find((lot) => lot.id === req.body.targetLotId);
+          targetLot = scopedLots.find((lot) => lot.id === req.body.targetLotId);
           if (!targetLot) {
-            throw { status: 400, error: 'INVALID_INPUT', message: 'Seçilen LOT bu malzemeye ait değil.' };
+            throw { status: 400, error: 'INVALID_INPUT', message: 'Seçilen LOT bu malzemeye ve seçilen bölüme ait değil.' };
           }
         } else {
           if (positiveLots.length > 1) {
@@ -1242,7 +1251,7 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
               message: 'Bu malzemede birden fazla aktif LOT var. Düzeltilecek LOT\'u seçin.'
             };
           }
-          targetLot = positiveLots[0] || lotRows[0];
+          targetLot = positiveLots[0] || scopedLots[0];
         }
         if (targetLot) {
           correctedLotId = targetLot.id;
@@ -1262,8 +1271,8 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
           correctedLotId = generateId();
           await run(conn, `
             INSERT INTO lots
-              (id, itemId, lotNumber, receivedDate, initialQuantity, currentQuantity, status, notes, createdBy)
-            VALUES (?, ?, ?, CURDATE(), ?, ?, 'ACTIVE', ?, ?)
+              (id, itemId, lotNumber, receivedDate, initialQuantity, currentQuantity, status, notes, createdBy, department)
+            VALUES (?, ?, ?, CURDATE(), ?, ?, 'ACTIVE', ?, ?, ?)
           `, [
             correctedLotId,
             req.params.id,
@@ -1271,7 +1280,8 @@ app.post('/api/item-definitions/:id/unit-stock-correction', authRequired, adminR
             values.mainStock,
             values.mainStock,
             'Admin birim/stok düzeltmesi',
-            req.user.username
+            req.user.username,
+            mainDepartment
           ]);
         }
       }
